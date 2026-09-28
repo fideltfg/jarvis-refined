@@ -1896,3 +1896,186 @@ kbd {
   transform: scaleX(-1);
   background: #000;
 }
+
+/* ------------------------------------------------------------ VOICE PROFILE */
+
+/* The enrolment card. It is a sibling of the HUD rather than a child of it,
+   so it keeps its own pointer events — the HUD is inert by design and a
+   dialog inside it would have rendered perfectly and refused every click.
+   Above everything, including the gesture guide at 96: while this is open it
+   owns the microphone, and an interface that can be half-covered while it
+   holds the mic invites the user to talk to something that is not listening. */
+.enrol-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(1, 6, 12, 0.72) 0%,
+    rgba(1, 6, 12, 0.93) 100%
+  );
+  backdrop-filter: blur(3px);
+  animation: enrolIn 220ms ease both;
+}
+
+.enrol-card {
+  width: min(520px, 100%);
+  padding: 26px 28px 24px;
+  color: var(--accent);
+  font-family: 'Chakra Petch', system-ui, sans-serif;
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--accent) 7%, rgba(1, 6, 12, 0.95)),
+    rgba(1, 6, 12, 0.97)
+  );
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.6),
+    0 18px 60px rgba(0, 0, 0, 0.7),
+    0 0 40px color-mix(in srgb, var(--accent) 14%, transparent);
+  animation: enrolCardIn 260ms cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+
+.enrol-title {
+  font-size: 12px;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  opacity: 0.75;
+  padding-bottom: 12px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.enrol-note {
+  margin: 0 0 18px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--accent) 88%, white);
+}
+
+.enrol-sub {
+  margin: -10px 0 18px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+/* The count is deliberately monospaced: it changes five times in twenty
+   seconds and proportional digits jitter the line each time. */
+.enrol-count {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  opacity: 0.5;
+  margin-bottom: 10px;
+}
+
+/* The phrase being read. Larger than anything else on the card because it is
+   read aloud from across a desk, not from reading distance. */
+.enrol-phrase {
+  margin: 0 0 20px;
+  font-size: 24px;
+  line-height: 1.35;
+  font-weight: 300;
+  color: #fff;
+  text-shadow: 0 0 22px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* Live input level, driven by --v in the 0..1 range set inline. This is the
+   only proof the microphone is hearing anything at all, so it stays visible
+   as an empty track rather than vanishing at silence. */
+.enrol-bar {
+  position: relative;
+  height: 3px;
+  margin-bottom: 18px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  overflow: hidden;
+}
+.enrol-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(clamp(0, var(--v, 0), 1) * 100%);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 55%, transparent),
+    var(--accent)
+  );
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 70%, transparent);
+  transition: width 70ms linear;
+}
+
+/* Amber, not red: a phrase captured badly is a retry, not a failure. */
+.enrol-warn {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #ffb547;
+}
+
+.enrol-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.enrol-btn {
+  flex: 0 0 auto;
+  padding: 9px 18px;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+  cursor: pointer;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 48%, transparent);
+  transition:
+    background 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease;
+}
+.enrol-btn:hover {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 30%, transparent);
+  color: #fff;
+}
+.enrol-btn:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Secondary actions — one of which is "forget my voice". Quiet, never
+   styled as the obvious thing to press. */
+.enrol-btn-quiet {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--accent) 24%, transparent);
+  opacity: 0.68;
+}
+.enrol-btn-quiet:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  opacity: 1;
+}
+
+@keyframes enrolIn {
+  from { opacity: 0 }
+  to   { opacity: 1 }
+}
+
+@keyframes enrolCardIn {
+  from { opacity: 0; transform: translateY(14px) scale(0.985) }
+  to   { opacity: 1; transform: none }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .enrol-scrim,
+  .enrol-card { animation: none }
+  .enrol-bar::after { transition: none }
+}

@@ -1,6 +1,16 @@
 import type { AskHandlers } from './anthropic'
 import type { Blade, Panel } from '../store'
-import { BRIDGE_WS_URL } from '../config'
+import { BRIDGE_WS_URL, THEME } from '../config'
+
+/**
+ * The bridge builds its agent session once per socket, persona included, so the
+ * theme has to arrive with the connection rather than with each question.
+ */
+function socketUrl(): string {
+  const url = new URL(BRIDGE_WS_URL)
+  url.searchParams.set('theme', THEME)
+  return url.toString()
+}
 
 /**
  * Client for the local bridge (see bridge/server.mjs).
@@ -218,7 +228,7 @@ function connect(): Promise<WebSocket> {
   firstReady = deferred()
 
   connecting = new Promise<WebSocket>((resolve, reject) => {
-    const ws = new WebSocket(BRIDGE_WS_URL)
+    const ws = new WebSocket(socketUrl())
     let settled = false
 
     /**

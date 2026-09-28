@@ -9,6 +9,8 @@ export default defineConfig({
     // only accepts sockets from localhost:5173-5199, so stay inside that range
     // or set JARVIS_ALLOWED_ORIGINS to match.
     port: Number(process.env.PORT) || 5173,
+    // JARVIS_HOST=0.0.0.0 serves the face on the LAN as well as localhost.
+    host: process.env.JARVIS_HOST || undefined,
   },
   optimizeDeps: {
     // kokoro-js pulls in `phonemizer`, which carries espeak-ng as inline WASM.

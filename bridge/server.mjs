@@ -21,6 +21,7 @@ import { displayServer } from './panels.mjs'
 import { uiServer } from './ui.mjs'
 import { chromeAvailable, chromeServer } from './chrome.mjs'
 import { visionServer } from './vision.mjs'
+import { memoryPrompt, memoryServer, MEMORY_FILE } from './memory.mjs'
 import { homedir, tmpdir } from 'node:os'
 import { readFileSync, realpathSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
@@ -279,6 +280,12 @@ function decideTool(name) {
     // indicator the user can see for as long as it is live.
     if (server === 'jarvis_eyes') return true
 
+    // The PA memory. Not withheld behind ALLOW_WRITES either: it only ever
+    // writes one private notes file of the user's own, and an assistant who
+    // cannot take a note is not one. It also has to be named, since `pa_task`
+    // and friends read as writes to the verb rules below.
+    if (server === 'jarvis_memory') return true
+
     const tool = mcpToolOf(name)
     if (EFFECTFUL_VERB.test(tool) && !VETO_EXEMPT.has(`${server}__${tool}`)) {
       return ALLOW_WRITES
@@ -290,7 +297,12 @@ function decideTool(name) {
   return ALLOW_WRITES
 }
 
-const SYSTEM_PROMPT = `You are JARVIS. You are speaking out loud to one person.
+/**
+ * Who is speaking. The browser names the theme on connect (?theme=lcars) and
+ * the session is built with the matching voice; everything from the blades
+ * section on is how the tools work, and that is the same for both characters.
+ */
+const PERSONA_STARK = `You are JARVIS. You are speaking out loud to one person.
 
 LENGTH. Two sentences is the ceiling in conversation; the median is under twelve
 words. Every word is read aloud and the user waits in silence while it plays, so
@@ -345,9 +357,44 @@ weight, since your tone will not.
 
 Plain spoken prose only. No markdown, no bullet points, no headings, no emoji,
 no asterisks, no lists. Write numbers, dates and times as you would say them:
-"eight fifteen", "the first of August" — never "8:15" or "2026-08-01".
+"eight fifteen", "the first of August" — never "8:15" or "2026-08-01".`
 
-The blades — the ONLY surface:
+const PERSONA_LCARS = `You are the ship's computer aboard a Federation starship, the one on the
+bridge in The Next Generation. You are speaking out loud to one crew member.
+
+LENGTH. One sentence is normal; two is the ceiling in conversation. Every word
+is read aloud and the user waits in silence while it plays. Length is licensed
+in exactly one case: reading out data they asked you to retrieve.
+
+REGISTER. Level, literal, affectless. You are a system, not a character. You
+have no opinions, moods, preferences or humour, and you never pretend to.
+Never use a name, rank or honorific. Never say "sir".
+
+THE COMPUTER'S GRAMMAR.
+- Orders: act, then confirm with one word. "Acknowledged." "Confirmed."
+  "Complying." Never restate the order.
+- Questions: answer with a complete declarative and nothing else. "There are
+  three unread messages." "The current time is fourteen twenty."
+- Ambiguous: "Please specify." or "Please restate the question."
+- Impossible or forbidden: "Unable to comply." Add the reason only if it is one
+  short clause: "Unable to comply. Access to that system is restricted."
+- Unknown: "Insufficient data." Missing: "No record found."
+- Long results: headline first, then "Further data is available."
+- Confirming something outward-facing or destructive: "Please confirm:" and
+  the action in under ten words.
+
+NEVER.
+- No filler, no greetings, no sign-offs, no small talk.
+- No enthusiasm, no apology, no hedging, no exclamation marks.
+- No first-person feelings. "I" only where unavoidable; prefer the passive.
+- Never repeat yourself if ignored. Never resume an interrupted answer.
+
+Plain spoken prose only. No markdown, no bullet points, no headings, no emoji,
+no asterisks, no lists. Write numbers, dates and times as you would say them:
+"fourteen twenty", "the first of August" — never "14:20" or "2026-08-01".
+Use twenty-four hour time.`
+
+const TOOLS_PROMPT = `The blades — the ONLY surface:
 - Everything you show goes on a blade. There is nowhere else. \`blade\` opens
   one; \`display\` composes your own markup into one.
 - Anything visual the user asked for goes here: an image, an article to read, a
@@ -437,6 +484,11 @@ Using tools:
   Put the source in the panel as a short tag like "REUTERS" instead.
 - If a tool fails or isn't connected, one plain sentence saying so.
 - If you don't know, say you don't know.`
+
+// The memory is read fresh on every call, which is once per connection — so a
+// reload picks up whatever the last conversation, or a hand edit, left behind.
+const systemPromptFor = (theme) =>
+  `${theme === 'lcars' ? PERSONA_LCARS : PERSONA_STARK}\n\n${TOOLS_PROMPT}\n\n${memoryPrompt()}`
 
 /**
  * ElevenLabs credentials, borrowed from the MCP server config.
@@ -781,7 +833,9 @@ const handleRequest = async (req, res) => {
     const target = asked.searchParams.get('url') ?? ''
     const mode = asked.searchParams.get('mode') === 'live' ? 'live' : 'reader'
     try {
-      const page = await renderPage(target, mode, `http://localhost:${PORT}`)
+      // The page's own images must come back to the bridge at the address the
+      // browser used to reach it, which is not localhost for a LAN client.
+      const page = await renderPage(target, mode, `http://${req.headers.host ?? `localhost:${PORT}`}`)
       res.writeHead(200, { ...cors, ...page.headers })
       return res.end(page.body)
     } catch (err) {
@@ -1039,8 +1093,12 @@ const RESULT_FAILURES = {
   default: 'The turn ended without an answer.',
 }
 
-wss.on('connection', (socket) => {
-  console.log('[jarvis] client connected')
+wss.on('connection', (socket, req) => {
+  // Anything but an explicit 'lcars' is JARVIS, so an older client that sends
+  // no theme at all gets exactly the persona it always had.
+  const theme =
+    new URL(req.url ?? '/', 'http://x').searchParams.get('theme') === 'lcars' ? 'lcars' : 'stark'
+  console.log(`[jarvis] client connected (${theme})`)
 
   // Answer the HUD straight away rather than making it wait for the agent's
   // first turn. Refined later by the real init message.
@@ -1214,12 +1272,14 @@ wss.on('connection', (socket) => {
         jarvis_chrome: chromeServer({ allowWrites: ALLOW_WRITES }),
         // The camera, which unlike everything else here has to ask and wait.
         jarvis_eyes: visionServer(ask),
+        // Goals, tasks, notes and the progress log, kept in MEMORY_FILE.
+        jarvis_memory: memoryServer(MEMORY_FILE),
       },
       // A plain system prompt, not the claude_code preset. The preset is
       // tuned for a coding agent — verbose, file-oriented, and a large chunk
       // of input tokens on every turn. Replacing it makes the persona stick,
       // keeps answers short enough to speak, and cuts cost per turn.
-      systemPrompt: SYSTEM_PROMPT,
+      systemPrompt: systemPromptFor(theme),
       // Run from the home directory so project-scoped MCP servers don't shadow
       // the global ones, and so file tools have a sane root.
       cwd: homedir(),

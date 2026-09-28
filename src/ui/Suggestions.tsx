@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useStore } from '../store'
+import { copy, IS_LCARS } from '../theme'
 
 /**
  * Rotating example commands, shown only while idle.
@@ -13,7 +14,7 @@ import { useStore } from '../store'
  */
 const EXAMPLES = [
   'what happened in AI this week',
-  'generate an image of the Mark Seven suit',
+  IS_LCARS ? 'generate an image of a starship in orbit' : 'generate an image of the Mark Seven suit',
   'take a screenshot of my phone',
   "what's on my calendar tomorrow",
   'search for the best coffee near me',
@@ -52,7 +53,7 @@ export function Suggestions() {
           exit={{ opacity: 0, y: -6 }}
           transition={{ duration: 0.35 }}
         >
-          “hey jarvis, {EXAMPLES[i]}”
+          “{copy.wakePhrase}, {EXAMPLES[i]}”
         </motion.span>
       </AnimatePresence>
     </div>

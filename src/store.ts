@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { themePhaseColor } from './theme'
 
 export type Phase =
   | 'offline'   // waiting for the click that unlocks audio
@@ -230,6 +231,10 @@ type State = {
   looking: string | null
   /** Transient status line during boot, e.g. the voice model download. */
   bootNote: string
+  /** True while the voice-profile flow is on screen. The voice loop goes deaf
+   *  for the duration — the enrolment phrases are samples, not commands, and
+   *  transcribing them would have him answering the script. */
+  enrolling: boolean
   /** Cards currently on the display, newest last. */
   panels: Panel[]
   /** Blades currently open, newest last — which is also front-most. */
@@ -245,6 +250,7 @@ type State = {
   setGestures: (on: boolean) => void
   setLooking: (why: string | null) => void
   setBootNote: (n: string) => void
+  setEnrolling: (on: boolean) => void
   pushPanel: (p: Panel) => void
   clearPanels: () => void
   pushBlade: (b: Blade) => void
@@ -286,6 +292,7 @@ export const useStore = create<State>((set) => ({
   focusedBlade: null,
   expandedBlade: null,
   bootNote: '',
+  enrolling: false,
   ui: defaultUi(),
 
   setVoice: (voice) => set({ voice }),
@@ -346,6 +353,7 @@ export const useStore = create<State>((set) => ({
     }),
   focusBlade: (focusedBlade) => set({ focusedBlade }),
   expandBlade: (expandedBlade) => set({ expandedBlade }),
+  setEnrolling: (enrolling) => set({ enrolling }),
   setPhase: (phase) => set({ phase }),
   setLevel: (level) => set({ level }),
   setCaption: (caption) => set({ caption }),
@@ -415,17 +423,9 @@ export const useStore = create<State>((set) => ({
     }),
 }))
 
-/** Colour identity per phase — shared by the 3D scene and the 2D HUD. */
-export const phaseColor: Record<Phase, string> = {
-  offline: '#0d4a4a',
-  boot: '#17b3b3',
-  dormant: '#12908f',
-  waking: '#5cf2ef',
-  listening: '#19d8d2',
-  thinking: '#f0a93c',
-  tooling: '#a97bff',
-  speaking: '#3ef2a8',
-}
+/** Colour identity per phase — shared by the 3D scene and the 2D HUD. The
+ *  values live in theme.ts, beside the other half of the switch. */
+export const phaseColor: Record<Phase, string> = themePhaseColor
 
 /**
  * What colour is the interface right now.

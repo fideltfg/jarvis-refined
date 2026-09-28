@@ -6,17 +6,10 @@ import { BladeSweep, Blades } from './Blades'
 import { Effects } from './Effects'
 import { Pointer } from './Pointer'
 import { GestureGuide } from './GestureGuide'
+import { LcarsFrame } from './LcarsFrame'
+import { copy, IS_LCARS } from '../theme'
 
-const statusText: Record<Phase, string> = {
-  offline: 'OFFLINE',
-  boot: 'INITIALISING',
-  dormant: 'STANDBY — SAY “HEY JARVIS”',
-  waking: 'ONLINE',
-  listening: 'LISTENING',
-  thinking: 'PROCESSING',
-  tooling: 'ACCESSING SYSTEMS',
-  speaking: 'RESPONDING',
-}
+const statusText: Record<Phase, string> = copy.status
 
 function Corner({ at }: { at: 'tl' | 'tr' | 'bl' | 'br' }) {
   return <div className={`corner corner-${at}`} />
@@ -182,16 +175,22 @@ export function Hud() {
           behind the transcript and the panels without a z-index war. */}
       <BladeSweep />
 
-      <Corner at="tl" />
-      <Corner at="tr" />
-      <Corner at="bl" />
-      <Corner at="br" />
+      {IS_LCARS ? (
+        <LcarsFrame phase={phase} />
+      ) : (
+        <>
+          <Corner at="tl" />
+          <Corner at="tr" />
+          <Corner at="bl" />
+          <Corner at="br" />
+        </>
+      )}
 
       <header className="hud-top">
         {ui.chrome.brand && (
           <div className="brand">
-            <span className="brand-mark">J.A.R.V.I.S.</span>
-            <span className="brand-sub">Just A Rather Very Intelligent System</span>
+            <span className="brand-mark">{copy.brand}</span>
+            <span className="brand-sub">{copy.brandSub}</span>
           </div>
         )}
 
@@ -210,7 +209,7 @@ export function Hud() {
       {/* Left rail: which integrations are live */}
       {ui.chrome.systems && (
         <aside className="rail rail-left">
-          <div className="rail-title">SYSTEMS</div>
+          <div className="rail-title">{copy.systemsTitle}</div>
           {connected.length === 0 && <div className="rail-item dim">none linked</div>}
           {connected.map((c) => (
             <div key={c} className="rail-item">
@@ -227,7 +226,7 @@ export function Hud() {
 
       {/* Right rail: live telemetry, mostly for flavour */}
       <aside className="rail rail-right">
-        <div className="rail-title">SIGNAL</div>
+        <div className="rail-title">{copy.signalTitle}</div>
         <div className="meter">
           <div className="meter-fill" style={{ height: `${level * 100}%` }} />
         </div>
@@ -253,7 +252,7 @@ export function Hud() {
           >
             <span className="tool-kicker">
               <span className="spinner" />
-              accessing
+              {copy.toolKicker}
             </span>
             <span className="tool-name">{activeTool.replace(/[_-]/g, ' ')}</span>
           </motion.div>
@@ -273,7 +272,7 @@ export function Hud() {
                 exit={{ opacity: 0 }}
                 transition={{ type: 'spring', stiffness: 320, damping: 32 }}
               >
-                <span className="log-who">{t.role === 'user' ? 'YOU' : 'JARVIS'}</span>
+                <span className="log-who">{t.role === 'user' ? 'YOU' : copy.speaker}</span>
                 {/* Only his half decodes. What the user said was never
                     transmitted from anywhere — dressing it up as machine
                     output would be a lie about where the words came from. */}
@@ -312,7 +311,7 @@ export function Hud() {
 
       <footer className="hud-bottom">
         <span className="hint">
-          say <b>“hey jarvis”</b> · <kbd>Space</kbd> to talk · <kbd>G</kbd> hands
+          say <b>“{copy.wakePhrase}”</b> · <kbd>Space</kbd> to talk · <kbd>G</kbd> hands
           {voice && (
             <>
               {' · '}

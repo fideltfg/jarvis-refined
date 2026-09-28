@@ -2,8 +2,10 @@ import { useEffect, useRef } from 'react'
 import { Scene } from './scene/Scene'
 import { Hud } from './ui/Hud'
 import { Boot } from './ui/Boot'
+import { LcarsBoot } from './ui/LcarsBoot'
 import { Ignition } from './ui/Ignition'
 import { Diagnostics } from './ui/Diagnostics'
+import { Enrol } from './ui/Enrol'
 import { useStore } from './store'
 import { startVoice, type Voice, type VoiceMode } from './lib/voice'
 import { createSpeaker, cycleVoice, currentVoiceName } from './lib/tts'
@@ -14,6 +16,7 @@ import { listenForClap } from './lib/clap'
 import * as camera from './lib/camera'
 import * as kokoro from './lib/kokoro'
 import { TTS_ENGINE } from './config'
+import { copy, IS_LCARS, NAME_PATTERN } from './theme'
 import { forTool, attention } from './lib/fillers'
 import {
   ask,
@@ -63,7 +66,7 @@ const newId = () =>
 
 /** The same mishearings voice.ts accepts for the wake word — otherwise a turn
  *  that woke him as "travis" gets that word sent on to the model as a question. */
-const NAME = '(?:jarvis|jarvys|jervis|travis|jarviss|java\'s|jarv)'
+const NAME = NAME_PATTERN
 /** A bare vocative — "Jarvis", "hey jarvis" — with nothing asked. */
 const BARE_NAME = new RegExp(`^(?:hey|hi|ok|okay|yo)?\\s*${NAME}[\\s,.!?]*$`, 'i')
 /** A leading vocative on a real command: "Jarvis, what's the weather". */
@@ -222,6 +225,11 @@ export default function App() {
 
   /** What the voice loop should do with what it hears, derived from phase. */
   const mode = (): VoiceMode => {
+    // Enrolment owns the microphone while it is on screen. The phrases are
+    // samples, not commands, and a loop still listening would answer the
+    // script — and worse, the half-built profile cannot yet vouch for whose
+    // voice it is hearing.
+    if (store.getState().enrolling) return 'deaf'
     switch (store.getState().phase) {
       case 'offline':
       case 'boot':
@@ -289,6 +297,27 @@ export default function App() {
     store.getState().setPhase('listening')
   }
 
+  /**
+   * Something crossed the energy gate while he was talking, and it is not yet
+   * known whose voice it was.
+   *
+   * Nothing is abandoned here — no turn bump, no interrupt, no phase change.
+   * He simply drops his voice, the way a person does when someone else starts
+   * talking, and waits to find out whether he is being addressed. The answer
+   * is still running underneath and resumes at full volume if it was his own
+   * playback or somebody else in the room.
+   */
+  const onSpeechMaybe = () => {
+    const phase = store.getState().phase
+    if (phase === 'offline' || phase === 'boot' || phase === 'dormant') return
+    speaker.current?.duck(true)
+  }
+
+  /** Not the owner. Back up to full volume, mid-sentence, as if nothing had. */
+  const onSpeechResume = () => {
+    speaker.current?.duck(false)
+  }
+
   const onUtterance = (text: string) => {
     const phase = store.getState().phase
     if (phase === 'offline' || phase === 'boot' || phase === 'dormant') return
@@ -354,10 +383,16 @@ export default function App() {
     await sfx.unlockAudio()
     sfx.play('boot')
     // The score. Must be started from inside this click handler for the same
-    // reason as the rest of the audio.
-    music.enable()
-    music.playBoot()
-    music.startAmbient()
+    // reason as the rest of the audio. The starship gets no score: the bed is
+    // the low engine hum from sfx.ts, which is what a bridge actually sounds
+    // like, and with music never enabled every later music.* call is inert.
+    if (IS_LCARS) {
+      sfx.startAmbient()
+    } else {
+      music.enable()
+      music.playBoot()
+      music.startAmbient()
+    }
 
     s.setPhase('boot')
 
@@ -519,6 +554,8 @@ export default function App() {
       mode,
       onWake,
       onSpeechStart,
+      onSpeechMaybe,
+      onSpeechResume,
       onPartial,
       onUtterance,
       onError: onVoiceError,
@@ -596,7 +633,7 @@ export default function App() {
         silence()
         const demo = createSpeaker()
         speaker.current = demo
-        demo.say(`Voice set to ${name.replace(/\(.*?\)/g, '').trim()}. At your service, sir.`)
+        demo.say(`Voice set to ${name.replace(/\(.*?\)/g, '').trim()}.${copy.voiceSetTail}`)
         void demo.end()
         return
       }
@@ -629,6 +666,21 @@ export default function App() {
         return
       }
 
+      // P opens the voice profile — enrol, re-record, or forget. A key rather
+      // than a spoken command on purpose: "forget my voice" said by a stranger
+      // is exactly the instruction the gate exists to refuse, so the one
+      // control over who JARVIS listens to is reachable only from the keyboard.
+      if (e.key === 'p' && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault()
+        const st = store.getState()
+        if (st.phase === 'offline' || st.phase === 'boot') return
+        // Enrolment takes the microphone, so he stops mid-sentence rather than
+        // talking over the first phrase.
+        if (!st.enrolling) silence()
+        st.setEnrolling(!st.enrolling)
+        return
+      }
+
       // T speaks a fixed line, bypassing the wake word, the recogniser and the
       // model entirely. When "I can't hear him" is the report, this is the one
       // keypress that separates a broken voice engine from a broken voice loop
@@ -638,7 +690,7 @@ export default function App() {
         silence()
         const t = createSpeaker()
         speaker.current = t
-        t.say('Audio test. If you can hear this, speech output is working, sir.')
+        t.say(copy.audioTest)
         void t.end().then(() => {
           const d = (window as unknown as Record<string, Record<string, unknown>>).__tts
           console.info('[jarvis] audio test →', d)
@@ -699,9 +751,10 @@ export default function App() {
     <>
       <Scene />
       <Hud />
-      <Boot />
+      {IS_LCARS ? <LcarsBoot /> : <Boot />}
       <Diagnostics />
       <Ignition onStart={() => void powerOn()} />
+      <Enrol />
     </>
   )
 }

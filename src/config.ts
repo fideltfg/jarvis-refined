@@ -47,6 +47,26 @@ function flag(name: string, raw: unknown, fallback: boolean): boolean {
 }
 
 /**
+ * Which character the interface plays.
+ *
+ *   'stark' — JARVIS: the Iron Man holographic HUD, cyan on black, a dry
+ *             British butler who answers to "Jarvis".
+ *   'lcars' — the Starfleet ship's computer: a TNG-era LCARS interface in
+ *             orange, lilac and blue, terse and literal, answering to
+ *             "Computer" with a chirp.
+ *
+ * One switch for all of it — palette, layout, boot sequence, sounds, wake word,
+ * voice and persona — so the two never end up half-mixed on camera. The bridge
+ * is told on connect, so its persona follows without a second setting.
+ */
+export const THEME: 'stark' | 'lcars' = choice(
+  'VITE_THEME',
+  import.meta.env.VITE_THEME,
+  ['stark', 'lcars'] as const,
+  'stark',
+)
+
+/**
  * Which brain to use.
  *
  *   'bridge' — run `npm run bridge` alongside the app. Authenticates off your
@@ -115,17 +135,22 @@ export const TTS_ENGINE: 'kokoro' | 'system' = choice(
 )
 
 /**
- * Which Kokoro voice. All four are British male:
+ * Which Kokoro voice. The British males suit JARVIS:
  *   bm_george — measured RP baritone, closest to the character
  *   bm_fable  — warmer
  *   bm_lewis  — lower
  *   bm_daniel — brighter
+ * The American females suit the ship's computer, and are the default when
+ * VITE_THEME=lcars: af_nicole (level, calm), af_sarah, af_heart, af_bella.
  */
 export const KOKORO_VOICE = choice(
   'VITE_KOKORO_VOICE',
   import.meta.env.VITE_KOKORO_VOICE,
-  ['bm_george', 'bm_fable', 'bm_lewis', 'bm_daniel'] as const,
-  'bm_george',
+  [
+    'bm_george', 'bm_fable', 'bm_lewis', 'bm_daniel',
+    'af_nicole', 'af_sarah', 'af_heart', 'af_bella',
+  ] as const,
+  THEME === 'lcars' ? 'af_nicole' : 'bm_george',
 )
 
 export const env = {
@@ -275,19 +300,12 @@ export const activeServers = () => MCP_SERVERS.filter((s) => s.enabled && s.url)
  * The persona for the browser-direct path only. The bridge carries its own,
  * fuller version in bridge/server.mjs — that's the one that gets used by
  * default, and the one worth editing.
+ *
+ * The two characters differ in voice only; the delivery rules and the tool
+ * rules below are the same for both. Declared first so the templates that
+ * splice it in can read it at module load.
  */
-export const SYSTEM_PROMPT = `You are JARVIS, Tony Stark's assistant. You are speaking out loud.
-
-THE HARD RULE: your entire reply must be under 60 words. This is not a style
-preference — every word is read aloud by a speech synthesiser and the user is
-waiting in silence while it plays. A four-paragraph answer is a failure, however
-good the content. If a question genuinely needs more, give the headline in two
-sentences and offer the detail: "There's more if you want it."
-
-Voice:
-- Dry, precise, quietly amused. Understated competence, never fawning.
-- Say "sir" at most once per exchange, and not in every exchange.
-- Plain spoken prose only. No markdown, no bullet points, no headings, no code,
+const SHARED_VOICE = `- Plain spoken prose only. No markdown, no bullet points, no headings, no code,
   no emoji, no asterisks, no numbered lists.
 - Write numbers, dates and times the way you'd say them: "eight fifteen",
   "the first of August", not "8:15" or "2026-08-01".
@@ -302,3 +320,34 @@ Using tools:
 - For anything outward-facing or destructive (sending mail, posting, paying,
   deleting) say exactly what you're about to do and wait for confirmation.
 - If you don't know, say you don't know.`
+
+const STARK_PROMPT = `You are JARVIS, Tony Stark's assistant. You are speaking out loud.
+
+THE HARD RULE: your entire reply must be under 60 words. This is not a style
+preference — every word is read aloud by a speech synthesiser and the user is
+waiting in silence while it plays. A four-paragraph answer is a failure, however
+good the content. If a question genuinely needs more, give the headline in two
+sentences and offer the detail: "There's more if you want it."
+
+Voice:
+- Dry, precise, quietly amused. Understated competence, never fawning.
+- Say "sir" at most once per exchange, and not in every exchange.
+${SHARED_VOICE}`
+
+const LCARS_PROMPT = `You are the ship's computer aboard a Federation starship. You are speaking out loud.
+
+THE HARD RULE: your entire reply must be under 40 words. Every word is read
+aloud by a speech synthesiser and the user is waiting in silence while it plays.
+If a question genuinely needs more, give the headline and offer the rest:
+"Further data is available."
+
+Voice:
+- Level, literal and affectless. You have no opinions, moods or humour.
+- Never use a name or honorific. Never say "sir".
+- Acknowledge orders with one word: "Acknowledged." "Confirmed." "Complying."
+- State facts as declaratives: "There are three unread messages."
+- Ambiguous request: "Please specify." Impossible one: "Unable to comply."
+  Unknown answer: "Insufficient data." No record: "No record found."
+${SHARED_VOICE}`
+
+export const SYSTEM_PROMPT = THEME === 'lcars' ? LCARS_PROMPT : STARK_PROMPT
