@@ -6,12 +6,13 @@ searches the web, generates images, drives your phone, reads your mail. The face
 is a web page (React + Vite + Three.js + custom GLSL). The brain is Claude Code,
 run headless as a library.
 
-**The only subscription you need is Claude Code.** No API keys, no OpenAI
-account, no cloud bill — the brain runs on your existing Claude Code login, and
-the heavy work (the model itself) runs on Anthropic's servers, so even a low-end
-laptop only has to draw the interface. **ElevenLabs is an optional add-on** that
-gives JARVIS a much better voice and sharper hearing; without it he speaks and
-listens through the browser's own speech, and everything still works.
+Claude Code is the default brain and needs no API key when bridge mode uses your
+existing Claude Code login. OpenAI and other OpenAI-compatible providers are
+optional alternatives configured on the bridge; their keys stay server-side.
+The heavy model work runs remotely, so even a low-end laptop only has to draw
+the interface. **ElevenLabs is an optional add-on** that gives JARVIS a much
+better voice and sharper hearing; without it he speaks and listens through the
+browser's own speech, and everything still works.
 
 ---
 
@@ -219,6 +220,33 @@ then the triangular arc reactor lighting up — with a start-up sound under it
 
 Everything is optional in bridge mode. Frontend settings live in `.env.local`
 (copy `.env.example`); bridge settings are environment variables.
+
+To use OpenAI, set `OPENAI_API_KEY` in the environment of the bridge process
+before `npm start`. Choose Claude or OpenAI from the HUD provider menu. The
+selection is remembered in this browser. Set `OPENAI_MODEL` to override the
+default `gpt-4.1-mini`. For an OpenAI-compatible local server, set both
+`JARVIS_LOCAL_URL` (including `/v1`) and `JARVIS_LOCAL_MODEL`; Local then appears
+in the menu. `JARVIS_PROVIDER` sets the initial choice for new browsers.
+
+Claude, OpenAI, and Local share the bridge MCP tool broker. This includes the
+Jarvis display, UI, browser, vision, memory, and every configured local or
+remote MCP server. OpenAI-compatible providers receive standard function
+schemas and their tool calls execute in the bridge, so provider API keys never
+reach the browser. Claude-native built-in tools and Anthropic-hosted web search
+remain Claude-specific; use an MCP search server for those capabilities with
+OpenAI or Local.
+
+All providers also receive the `jarvis_files` tools: read text files, list
+directories, search text below a permitted root, and write files when
+`JARVIS_ALLOW_WRITES=1`. The permitted roots are the home directory, temporary
+directories, and any paths listed in `JARVIS_FILE_ROOTS`; paths outside them are
+rejected by the bridge.
+
+If a provider runs out of credits or hits a rate limit before emitting text or
+using a tool, the bridge switches to another configured provider and retries
+the question. Partial answers and tool actions are never retried
+automatically. Switching or automatic failover sends recent conversation text
+to the newly selected provider for context.
 
 ### Bridge
 

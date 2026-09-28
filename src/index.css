@@ -52,7 +52,7 @@ body::after {
 .hud {
   position: fixed;
   inset: 0;
-  z-index: 4;
+  z-index: 8;
   pointer-events: none;
   color: var(--accent);
   transition: color 600ms ease;
@@ -110,6 +110,47 @@ body::after {
      pinned right whether or not the brand is there — and with both present it
      changes nothing, since space-between had already used that space up. */
   margin-left: auto;
+}
+
+.provider-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  margin-right: 20px;
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--accent);
+  position: relative;
+  z-index: 8;
+  pointer-events: auto;
+}
+
+.provider-control select {
+  max-width: 110px;
+  padding: 4px 18px 4px 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--bg);
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.provider-control select:disabled { opacity: 0.55; cursor: default; }
+.provider-control + .status { margin-left: 0; }
+
+@media (max-width: 600px) {
+  .provider-control {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 46px;
+    gap: 0;
+    margin: 0;
+  }
+  .provider-control + .status { margin-left: auto; }
+  .provider-control > span { display: none; }
+  .provider-control select { max-width: 85px; }
 }
 
 .dot {

@@ -28,6 +28,10 @@ import { readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
 import { probeUrl, renderPage } from './page.mjs'
+import { configuredProviders, retryProvider, textProvider } from './providers.mjs'
+import { sharedContext } from './context.mjs'
+import { createToolBroker } from './tool-broker.mjs'
+import { filesServer } from './files.mjs'
 
 const PORT = Number(process.env.JARVIS_BRIDGE_PORT ?? 8787)
 
@@ -488,7 +492,7 @@ Using tools:
 // The memory is read fresh on every call, which is once per connection — so a
 // reload picks up whatever the last conversation, or a hand edit, left behind.
 const systemPromptFor = (theme) =>
-  `${theme === 'lcars' ? PERSONA_LCARS : PERSONA_STARK}\n\n${TOOLS_PROMPT}\n\n${memoryPrompt()}`
+  `${theme === 'lcars' ? PERSONA_LCARS : PERSONA_STARK}\n\n${TOOLS_PROMPT}\n\n${memoryPrompt()}${sharedContext()}`
 
 /**
  * ElevenLabs credentials, borrowed from the MCP server config.
@@ -1102,9 +1106,11 @@ wss.on('connection', (socket, req) => {
 
   // Answer the HUD straight away rather than making it wait for the agent's
   // first turn. Refined later by the real init message.
-  socket.send(
-    JSON.stringify({ type: 'ready', servers: Object.keys(MCP_SERVERS) }),
-  )
+  const available = configuredProviders()
+  let selectedProvider = available.includes(process.env.JARVIS_PROVIDER)
+    ? process.env.JARVIS_PROVIDER : 'claude'
+  socket.send(JSON.stringify({ type: 'ready', servers: Object.keys(MCP_SERVERS) }))
+  socket.send(JSON.stringify({ type: 'providers', available, selected: selectedProvider }))
 
   /** Resolves the pending user message into the SDK's input generator. */
   let deliver = null
@@ -1143,6 +1149,88 @@ wss.on('connection', (socket, req) => {
    */
   let answering = null
   const sendTurn = (msg) => send({ ...msg, ask: answering })
+  let currentProvider = selectedProvider
+  let lastQuestion = ''
+  let activity = false
+  let activeController = null
+  const tried = new Set()
+  const conversation = []
+  const missedClaude = []
+  let localMcpServers = {}
+  let brokerMcpServers = {}
+  let toolBrokerPromise = Promise.resolve(null)
+
+  const switchProvider = (provider) => {
+    selectedProvider = provider
+    currentProvider = provider
+    send({ type: 'providers', available, selected: provider, ask: answering })
+  }
+
+  const deliverClaude = (text) => {
+    const context = missedClaude.length
+      ? `Recent conversation on another provider:\n${missedClaude.map((m) => `${m.role}: ${m.content}`).join('\n')}\n\nCurrent request: `
+      : ''
+    missedClaude.length = 0
+    const prompt = context + text
+    if (deliver) {
+      const resolve = deliver
+      deliver = null
+      resolve(prompt)
+    } else {
+      inbox.push(prompt)
+    }
+  }
+
+  const runText = async (provider, text, id) => {
+    const controller = new AbortController()
+    activeController = controller
+    let output = ''
+    const broker = await toolBrokerPromise
+    const messages = [
+      { role: 'system', content: broker
+        ? `${systemPromptFor(theme)}\n\nTools are available through the bridge. Use them when needed and never claim an action succeeded until the tool result confirms it.`
+        : `${systemPromptFor(theme)}\n\nProvider limitation: this provider has no access to Jarvis tools, MCP servers, the browser, files, or live data. Do not claim to have taken actions or seen live data.` },
+      ...conversation.slice(-12),
+      { role: 'user', content: text },
+    ]
+    try {
+      await textProvider(provider)(messages, controller.signal, (delta) => {
+        if (controller.signal.aborted || answering !== id) return
+        output += delta
+        activity = true
+        sendTurn({ type: 'text', delta })
+      }, broker ? {
+        tools: broker.tools(),
+        onTool: (name) => {
+          activity = true
+          sendTurn({ type: 'tool', name })
+        },
+        callTool: (name, args) => broker.call(name, args, { allow: decideTool }),
+      } : {})
+      if (controller.signal.aborted || answering !== id) return
+      conversation.push({ role: 'user', content: text }, { role: 'assistant', content: output })
+      missedClaude.push({ role: 'user', content: text }, { role: 'assistant', content: output })
+      if (conversation.length > 24) conversation.splice(0, conversation.length - 24)
+      if (missedClaude.length > 12) missedClaude.splice(0, missedClaude.length - 12)
+      sendTurn({ type: 'done', text: output })
+    } catch (err) {
+      if (controller.signal.aborted || answering !== id) return
+      const next = retryProvider(provider, available, tried, err, activity)
+      if (next) {
+        tried.add(next)
+        switchProvider(next)
+        if (next === 'claude') deliverClaude(text)
+        else void runText(next, text, id)
+      } else {
+        console.error(`[jarvis] ${provider} turn failed:`, err)
+        sendTurn({ type: 'error', message: activity
+          ? 'The answer was interrupted by a provider error.'
+          : `The ${provider} provider could not answer this turn: ${err?.message ?? 'unknown error'}` })
+      }
+    } finally {
+      if (activeController === controller) activeController = null
+    }
+  }
 
   /**
    * Asking the browser for something and waiting for the answer.
@@ -1170,6 +1258,30 @@ wss.on('connection', (socket, req) => {
       waiting.set(id, { resolve, timer })
       send({ type: kind, id, ...args })
     })
+
+  localMcpServers = {
+    jarvis: displayServer(
+      (panel) => send({ type: 'panel', panel }),
+      (blade) => send({ type: 'blade', blade }),
+    ),
+    jarvis_ui: uiServer((op, args) => send({ type: 'ui', op, args })),
+    jarvis_chrome: chromeServer({ allowWrites: ALLOW_WRITES }),
+    jarvis_eyes: visionServer(ask),
+    jarvis_memory: memoryServer(MEMORY_FILE),
+    jarvis_files: filesServer({ roots: FILE_ROOTS, allowWrites: ALLOW_WRITES }),
+  }
+  brokerMcpServers = {
+    jarvis: displayServer(
+      (panel) => send({ type: 'panel', panel }),
+      (blade) => send({ type: 'blade', blade }),
+    ),
+    jarvis_ui: uiServer((op, args) => send({ type: 'ui', op, args })),
+    jarvis_chrome: chromeServer({ allowWrites: ALLOW_WRITES }),
+    jarvis_eyes: visionServer(ask),
+    jarvis_memory: memoryServer(MEMORY_FILE),
+    jarvis_files: filesServer({ roots: FILE_ROOTS, allowWrites: ALLOW_WRITES }),
+  }
+  toolBrokerPromise = createToolBroker({ external: MCP_SERVERS, local: brokerMcpServers })
 
   /**
    * Announcing a tool on the HUD, once, and only if it actually runs.
@@ -1255,26 +1367,7 @@ wss.on('connection', (socket, req) => {
       // server. The HUD's handler closes over this socket, so a `display` call
       // lands on screen directly — which is also why this object is built per
       // connection rather than once.
-      mcpServers: {
-        ...MCP_SERVERS,
-        jarvis: displayServer(
-          (panel) => send({ type: 'panel', panel }),
-          (blade) => send({ type: 'blade', blade }),
-        ),
-        // The interface controls, on the same socket. A separate key because
-        // MCP tool names are `mcp__<key>__<tool>` and one key can only carry
-        // one server; the underscore in it is why decideTool and announceTool
-        // both name `jarvis_ui` explicitly.
-        jarvis_ui: uiServer((op, args) => send({ type: 'ui', op, args })),
-        // The user's own Chrome, over the extension's native-host socket. It
-        // holds no per-connection state, but it is built here with the rest so
-        // the write gate is read once, at the same point as everything else.
-        jarvis_chrome: chromeServer({ allowWrites: ALLOW_WRITES }),
-        // The camera, which unlike everything else here has to ask and wait.
-        jarvis_eyes: visionServer(ask),
-        // Goals, tasks, notes and the progress log, kept in MEMORY_FILE.
-        jarvis_memory: memoryServer(MEMORY_FILE),
-      },
+      mcpServers: { ...MCP_SERVERS, ...localMcpServers },
       // A plain system prompt, not the claude_code preset. The preset is
       // tuned for a coding agent — verbose, file-oriented, and a large chunk
       // of input tokens on every turn. Replacing it makes the persona stick,
@@ -1354,28 +1447,33 @@ wss.on('connection', (socket, req) => {
           // carries no deltas either. Turn includePartialMessages off and
           // JARVIS goes completely mute.
           case 'stream_event': {
+            if (currentProvider !== 'claude') break
             const ev = msg.event
             if (
               ev?.type === 'content_block_delta' &&
               ev.delta?.type === 'text_delta' &&
               ev.delta.text
             ) {
+              activity = true
               sendTurn({ type: 'text', delta: ev.delta.text })
             }
             if (
               ev?.type === 'content_block_start' &&
               ev.content_block?.type === 'tool_use'
             ) {
+              activity = true
               announceTool(ev.content_block.id, ev.content_block.name)
             }
             break
           }
 
           case 'assistant': {
+            if (currentProvider !== 'claude') break
             // Fallback for builds that emit whole assistant messages rather
             // than partial events. Deduped against the stream_event path.
             for (const block of msg.content ?? msg.message?.content ?? []) {
               if (block.type === 'tool_use') {
+                activity = true
                 announceTool(block.id, block.name)
               }
             }
@@ -1403,6 +1501,8 @@ wss.on('connection', (socket, req) => {
             // nothing to say — the HUD stops spinning and JARVIS stands there
             // silent. Say what happened instead.
             if (msg.subtype === 'success') {
+              conversation.push({ role: 'user', content: lastQuestion }, { role: 'assistant', content: msg.result ?? '' })
+              if (conversation.length > 24) conversation.splice(0, conversation.length - 24)
               sendTurn({
                 type: 'done',
                 text: msg.result ?? '',
@@ -1413,10 +1513,17 @@ wss.on('connection', (socket, req) => {
                 `[jarvis] turn failed: ${msg.subtype}`,
                 msg.errors ?? '',
               )
-              sendTurn({
-                type: 'error',
-                message: RESULT_FAILURES[msg.subtype] ?? RESULT_FAILURES.default,
-              })
+              const next = retryProvider('claude', available, tried, {
+                ...msg,
+                code: msg.subtype === 'error_max_budget_usd' ? 'quota exceeded' : msg.code,
+              }, activity)
+              if (next) {
+                tried.add(next)
+                switchProvider(next)
+                void runText(next, lastQuestion, answering)
+              } else {
+                sendTurn({ type: 'error', message: RESULT_FAILURES[msg.subtype] ?? RESULT_FAILURES.default })
+              }
             }
             // Whatever was waiting on this turn to finish can go now. This is
             // the only place a turn is genuinely over.
@@ -1443,7 +1550,16 @@ wss.on('connection', (socket, req) => {
       }
     } catch (err) {
       console.error('[jarvis] session error:', err)
-      send({ type: 'error', message: String(err?.message ?? err) })
+      const next = !answering || currentProvider === 'claude'
+        ? retryProvider('claude', available, tried, err, activity) : null
+      if (next) {
+        available.splice(available.indexOf('claude'), 1)
+        tried.add(next)
+        switchProvider(next)
+        if (answering) void runText(next, lastQuestion, answering)
+      } else {
+        sendTurn({ type: 'error', message: String(err?.message ?? err) })
+      }
       // The stream is finished either way — nothing will ever be read from it
       // again. Leaving the socket open would leave the client believing it has
       // a working bridge, and every later question would hang for ever waiting
@@ -1451,7 +1567,7 @@ wss.on('connection', (socket, req) => {
       closed = true
       deliver?.(null)
       session.close?.()
-      socket.close()
+      if (!next) socket.close()
     }
   })()
 
@@ -1480,14 +1596,16 @@ wss.on('connection', (socket, req) => {
       const text = msg.text
       const id = typeof msg.id === 'string' ? msg.id : null
       void settling.then(() => {
+        activeController?.abort()
         answering = id
-        if (deliver) {
-          const resolve = deliver
-          deliver = null
-          resolve(text)
-        } else {
-          inbox.push(text)
-        }
+        lastQuestion = text
+        activity = false
+        tried.clear()
+        const provider = available.includes(msg.provider) ? msg.provider : selectedProvider
+        tried.add(provider)
+        switchProvider(provider)
+        if (provider === 'claude') deliverClaude(text)
+        else void runText(provider, text, id)
       })
     }
 
@@ -1501,6 +1619,8 @@ wss.on('connection', (socket, req) => {
     }
 
     if (msg.type === 'interrupt') {
+      activeController?.abort()
+      if (currentProvider !== 'claude') return
       // Held so the next question can wait for it rather than racing it.
       const stopped = turnFinished()
       settling = Promise.resolve(session.interrupt?.())
@@ -1517,6 +1637,7 @@ wss.on('connection', (socket, req) => {
   socket.on('close', () => {
     console.log('[jarvis] client disconnected')
     closed = true
+    activeController?.abort()
     deliver?.(null)
     session.close?.()
   })

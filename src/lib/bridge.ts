@@ -45,10 +45,31 @@ type Frame = {
   seconds?: number
   when?: string
   servers?: Array<string | { name?: string }>
+  available?: string[]
+  selected?: string
 }
 
 /** Every question gets an id so its answer can be told from anyone else's. */
 let askSeq = 0
+let activeAskId = ''
+let availableProviders = ['claude']
+let selectedProvider = localStorage.getItem('jarvis-provider') || 'claude'
+let onProviders: ((available: string[], selected: string) => void) | null = null
+
+export function providerState() {
+  return { available: availableProviders, selected: selectedProvider }
+}
+
+export function watchProviders(fn: (available: string[], selected: string) => void) {
+  onProviders = fn
+}
+
+export function selectProvider(provider: string) {
+  if (!availableProviders.includes(provider)) return
+  selectedProvider = provider
+  localStorage.setItem('jarvis-provider', provider)
+  onProviders?.(availableProviders, selectedProvider)
+}
 
 let socket: WebSocket | null = null
 let connecting: Promise<WebSocket> | null = null
@@ -187,6 +208,14 @@ function dispatch(ws: WebSocket) {
         .filter(Boolean)
       onServers?.(servers)
       firstReady.resolve()
+    } else if (msg.type === 'providers' && msg.available && msg.selected) {
+      if (msg.ask && msg.ask !== activeAskId) return
+      availableProviders = msg.available
+      if (msg.ask || !availableProviders.includes(selectedProvider)) {
+        selectedProvider = msg.selected
+        localStorage.setItem('jarvis-provider', selectedProvider)
+      }
+      onProviders?.(availableProviders, selectedProvider)
     } else if (msg.type === 'panel' && msg.panel) {
       onPanel?.(msg.panel)
     } else if (msg.type === 'blade' && msg.blade) {
@@ -375,6 +404,7 @@ export async function ask(
   }
 
   const id = `a${++askSeq}`
+  activeAskId = id
   const tools: string[] = []
   let text = ''
 
@@ -477,7 +507,7 @@ export async function ask(
     arm()
 
     try {
-      ws.send(JSON.stringify({ type: 'ask', text: prompt, id }))
+      ws.send(JSON.stringify({ type: 'ask', text: prompt, id, provider: selectedProvider }))
     } catch (err) {
       // The socket can go into CLOSING between connect() resolving and here.
       fail(err instanceof Error ? err : new Error(String(err)))

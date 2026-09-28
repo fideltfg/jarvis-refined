@@ -8,6 +8,7 @@ import { Pointer } from './Pointer'
 import { GestureGuide } from './GestureGuide'
 import { LcarsFrame } from './LcarsFrame'
 import { copy, IS_LCARS } from '../theme'
+import { providerState, watchProviders, selectProvider, usingBridge } from '../lib/brain'
 
 const statusText: Record<Phase, string> = copy.status
 
@@ -140,6 +141,11 @@ function DecodeText({ text }: { text: string }) {
 /* --------------------------------------------------------------------- hud */
 
 export function Hud() {
+  const [providers, setProviders] = useState(providerState)
+  useEffect(() => {
+    watchProviders((available, selected) => setProviders({ available, selected }))
+    return () => watchProviders(() => {})
+  }, [])
   const phase = useStore((s) => s.phase)
   const caption = useStore((s) => s.caption)
   const turns = useStore((s) => s.turns)
@@ -194,6 +200,24 @@ export function Hud() {
           </div>
         )}
 
+        {usingBridge && (
+          <label className="provider-control">
+            <span>Provider</span>
+            <select
+              aria-label="Provider"
+              title="Claude has tools; OpenAI and Local answer in text only"
+              value={providers.selected}
+              disabled={phase === 'thinking' || phase === 'tooling' || phase === 'speaking'}
+              onChange={(event) => selectProvider(event.target.value)}
+            >
+              {providers.available.map((provider) => (
+                <option key={provider} value={provider}>
+                  {provider === 'claude' ? 'Claude' : provider === 'openai' ? 'OpenAI' : 'Local'}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <div className="status">
           <span className="dot" />
           <span className="status-text">

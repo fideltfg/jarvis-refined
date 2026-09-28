@@ -252,6 +252,16 @@
   transition: background 500ms ease;
 }
 
+[data-theme='lcars'] .provider-control {
+  margin: 6px 0 0;
+  color: var(--lc-orange);
+}
+
+[data-theme='lcars'] .provider-control select {
+  border-color: var(--lc-orange);
+  color: var(--lc-orange);
+}
+
 [data-theme='lcars'] .dot {
   width: 10px;
   height: 10px;

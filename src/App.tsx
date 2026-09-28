@@ -566,6 +566,12 @@ export default function App() {
 
   // -- clap to start --------------------------------------------------------
 
+  // Fetch bridge capabilities before ignition so provider selection is ready
+  // while the boot screen is still offline.
+  useEffect(() => {
+    if (usingBridge) void warm().catch(() => {})
+  }, [])
+
   /**
    * A clap brings him up, as an alternative to the button.
    *
