@@ -56,7 +56,7 @@ export type Vad = {
  *  The floor tracks the room, so this is a ratio, not an absolute level. */
 const TRIGGER_OVER_FLOOR = 2.6
 /** While he is speaking, demand this much more, so residual echo is ignored. */
-const GUARD_BOOST = 2.4
+const GUARD_BOOST = 3.4
 /** Falling back below trigger×this ends the segment. Hysteresis stops a single
  *  dip mid-word from cutting a sentence in half. */
 const RELEASE_RATIO = 0.6
@@ -75,7 +75,7 @@ const START_MS = 110
  * should always have been — a cheap "have they stopped making noise" — and the
  * shorter window gets the transcript moving sooner.
  */
-const SILENCE_MS = 650
+const SILENCE_MS = 950
 /** Nobody speaks one segment for this long; cut it and transcribe what we have. */
 const MAX_MS = 20000
 

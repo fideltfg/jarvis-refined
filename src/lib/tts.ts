@@ -7,7 +7,9 @@ import {
   BRIDGE_HTTP_URL,
 } from '../config'
 import * as kokoro from './kokoro'
+import { createHeard } from './echo'
 import { caps } from './capabilities'
+import { IS_LCARS } from '../theme'
 
 /**
  * Speech output.
@@ -37,6 +39,18 @@ type Speaker = {
   end: () => Promise<void>
   /** Cut it off mid-sentence (barge-in). Always settles `end()`. */
   cancel: () => void
+  /**
+   * Quieten without abandoning the answer.
+   *
+   * The provisional half of a barge-in: something in the room crossed the
+   * energy gate, but nobody yet knows whether it was the owner, a stranger or
+   * his own playback coming back through the microphone. Ducking buys the time
+   * to find out — it drops the level far enough that the next segment is mostly
+   * the room rather than mostly him, which is precisely what the echo test and
+   * the voiceprint need in order to answer. `duck(false)` restores him
+   * mid-sentence; `cancel()` is what actually ends the answer.
+   */
+  duck: (on: boolean) => void
   /** 0..1 output loudness for the visualiser. */
   level: () => number
 }
@@ -46,12 +60,9 @@ type Speaker = {
 // ---------------------------------------------------------------------------
 
 let speaking = ''
-let recent = ''
-let recentUntil = 0
 
-/** Recognition lags the speakers by a few hundred milliseconds, so a sentence
- *  keeps arriving at the microphone well after it has finished playing. */
-const ECHO_TAIL_MS = 1800
+/** What the microphone is likely hearing from the speakers. See echo.ts. */
+const heard = createHeard()
 
 /**
  * Why you cannot hear him.
@@ -115,12 +126,10 @@ function setSpeaking(text: string) {
   if (text) {
     speaking = text
     speakingAt = Date.now()
+    heard.say(text)
     return
   }
-  if (speaking) {
-    recent = speaking
-    recentUntil = Date.now() + ECHO_TAIL_MS
-  }
+  heard.done()
   speaking = ''
 }
 
@@ -129,13 +138,11 @@ function setSpeaking(text: string) {
  *
  * The voice loop reads this to recognise itself: the mic stays open while he
  * talks, so it hears every word he says and would otherwise treat his own
- * answer as a barge-in. Includes a short tail of the previous sentence,
- * because the gap between two sentences is exactly when the echo of the first
- * one lands. See `isEcho` in voice.ts.
+ * answer as a barge-in. Covers the last few sentences, and lingers a few
+ * seconds after he stops, because the recogniser hands transcripts back late.
  */
 export function speakingNow(): string {
-  const tail = Date.now() < recentUntil ? recent : ''
-  return `${speaking} ${tail}`.trim()
+  return heard.now()
 }
 
 // ---------------------------------------------------------------------------
@@ -162,7 +169,9 @@ const MAX_UNSPOKEN = 220
 // Voice selection
 // ---------------------------------------------------------------------------
 
-const VOICE_PREF_KEY = 'jarvis.voice'
+// Per theme, so a British butler picked for JARVIS does not follow the user
+// onto the starship and vice versa.
+const VOICE_PREF_KEY = IS_LCARS ? 'jarvis.voice.lcars' : 'jarvis.voice'
 
 /**
  * Rank installed voices by how close they are to the character: a British
@@ -173,7 +182,31 @@ const VOICE_PREF_KEY = 'jarvis.voice'
  * download is free (System Settings → Accessibility → Spoken Content → System
  * Voice → Manage Voices) and once installed it appears here automatically.
  */
+/**
+ * The ship's computer: a calm American female. Samantha on macOS, the Google
+ * US voice in Chrome, Zira/Aria/Jenny on Windows.
+ */
+function scoreComputer(v: SpeechSynthesisVoice): number {
+  const n = v.name.toLowerCase()
+  let s = 0
+  if (n.startsWith('samantha')) s += 100
+  else if (n.includes('google us english')) s += 85
+  else if (/\b(aria|jenny|zira|ava|allison|susan|nicky)\b/.test(n)) s += 80
+  if (n.includes('premium')) s += 30
+  else if (n.includes('enhanced')) s += 20
+  if (/en[-_]us/i.test(v.lang)) s += 25
+  else if (/^en/i.test(v.lang)) s += 5
+  if (/grandma|grandpa|bubbles|jester|bells|boing|whisper|zarvox|superstar|trinoids|wobble|bahh|organ|cellos|bad news|good news/.test(n)) {
+    s -= 200
+  }
+  if (/\b(daniel|oliver|arthur|jamie|malcolm|reed|rocko|eddy|fred|alex|tom|david|mark|guy)\b/.test(n) || n.includes(' male')) {
+    s -= 60
+  }
+  return s
+}
+
 function score(v: SpeechSynthesisVoice): number {
+  if (IS_LCARS) return scoreComputer(v)
   const n = v.name.toLowerCase()
   let s = 0
 
@@ -335,6 +368,18 @@ type Item = {
   audio?: Promise<string | null> | null
 }
 
+/**
+ * How far down a provisional barge-in takes him.
+ *
+ * Not zero, and that is deliberate on two counts. It has to stay audible
+ * enough that a user who was only clearing their throat does not hear the
+ * answer drop out entirely — the duck should read as him lowering his voice
+ * while someone else speaks, which is what a person does. And it has to be low
+ * enough that the leaked playback falls under the raised guard threshold, so
+ * the segment being judged is the room rather than him.
+ */
+const DUCK_VOLUME = 0.12
+
 export function createSpeaker(): Speaker {
   const queue: Item[] = []
   let buffer = ''
@@ -345,6 +390,7 @@ export function createSpeaker(): Speaker {
   let currentAudio: HTMLAudioElement | null = null
   let nativeInFlight = false
   let drained: Array<() => void> = []
+  let ducked = false
 
   const settleDrained = () => {
     const waiting = drained
@@ -477,7 +523,7 @@ export function createSpeaker(): Speaker {
       const u = new SpeechSynthesisUtterance(text)
       const voice = pickVoice()
       if (voice) u.voice = voice
-      u.lang = voice?.lang ?? 'en-GB'
+      u.lang = voice?.lang ?? (IS_LCARS ? 'en-US' : 'en-GB')
       // Deliberate, and deliberately invariant — the character's pace does not
       // change with stakes, and that steadiness is most of the effect. This
       // lands around 130 wpm, below the median for film dialogue.
@@ -530,6 +576,10 @@ export function createSpeaker(): Speaker {
         // inaudible; without it long answers cut off mid-sentence.
         keepalive = setInterval(() => {
           if (done) return
+          // Never while ducked: the resume half of the keepalive would undo the
+          // pause that IS the duck on this engine, and he would come back to
+          // full volume in the middle of the segment being judged.
+          if (ducked) return
           speechSynthesis.pause()
           speechSynthesis.resume()
         }, 5000)
@@ -585,6 +635,9 @@ export function createSpeaker(): Speaker {
     new Promise<void>((resolve) => {
       const audio = new Audio(url)
       currentAudio = audio
+      // A sentence that starts while a barge-in is still being judged starts
+      // quiet, rather than arriving at full volume into the middle of it.
+      audio.volume = ducked ? DUCK_VOLUME : 1
       // The generated path is an engine speaking just as much as the OS voice
       // is, so it keeps the same books. `spoken` counts the hand-off, `started`
       // is only incremented once the element reports it is actually playing —
@@ -730,7 +783,33 @@ export function createSpeaker(): Speaker {
         currentAudio = null
       }
       outLevel = 0
+      ducked = false
       settleDrained()
+    },
+    duck(on) {
+      if (cancelled || ducked === on) return
+      ducked = on
+      // The generated path: volume only, never pause. `onpause` is wired to
+      // finish the sentence — pausing to duck would end the utterance and the
+      // answer would resume from the following sentence with a word missing.
+      if (currentAudio) currentAudio.volume = on ? DUCK_VOLUME : 1
+      // The OS voice is NOT ducked at all, and that is deliberate.
+      //
+      // It exposes no volume control once an utterance is in flight, so the
+      // only lever is pause() — and on speech-dispatcher, which is what Chrome
+      // talks to here, pausing a live utterance routinely ends it instead of
+      // holding it, with no `end` event that distinguishes the two. So a duck
+      // that was meant to be recoverable silenced the sentence permanently, and
+      // since the leaked playback keeps re-arming the energy gate, he was cut
+      // within a word or two of starting and stayed that way for the whole
+      // answer. Full volume until the verdict is in is the lesser fault: a
+      // confirmed owner still cancels cleanly below, and a stranger or an echo
+      // merely fails to lower his voice, which nobody notices.
+      //
+      // Restore the pause here only for an engine that can be resumed.
+      // Hold the visualiser down while he is quiet, so the reactor agrees with
+      // what the room can hear.
+      if (on) outLevel = Math.min(outLevel, 0.1)
     },
     level: () => outLevel,
   }

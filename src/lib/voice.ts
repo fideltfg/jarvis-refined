@@ -1,8 +1,12 @@
 import { BRIDGE_HTTP_URL } from '../config'
 import { getMic } from './audio'
 import { speakingNow, speakingSince } from './tts'
+import { OVERRIDE, cutsThrough, isEcho } from './echo'
 import { startVad, type Vad } from './vad'
 import { caps } from './capabilities'
+import { getProfile, verify, warmSpeaker } from './speaker'
+import { startOwnerGate, type OwnerGate } from './owner'
+import { IS_LCARS, NAME_PATTERN } from '../theme'
 
 /**
  * The voice loop.
@@ -43,6 +47,15 @@ export type VoiceHandlers = {
   onWake: (trailing: string) => void
   /** The user has genuinely started talking. This is the barge-in trigger. */
   onSpeechStart: () => void
+  /**
+   * Something crossed the energy gate while he was talking, and it is not yet
+   * known what. Provisional: quieten him, abandon nothing. Exactly one of
+   * `onSpeechStart` or `onSpeechResume` always follows.
+   */
+  onSpeechMaybe: () => void
+  /** That noise was not the owner speaking — his own playback, or someone
+   *  else in the room. Bring him back up and carry on. */
+  onSpeechResume: () => void
   /** Live transcript, for the caption under the reactor. */
   onPartial: (text: string) => void
   /** A complete, endpointed utterance. */
@@ -77,8 +90,9 @@ const WAKE_DEBOUNCE = 1500
  * used to be silently discarded, so the wake word "just didn't work" with no
  * indication why. Better a rare false wake than a name that does not answer.
  */
-const WAKE =
-  /\b(?:hey|hi|ok|okay|yo)?\s*(?:jarvis|jarvys|jervis|jarvis's|travis|jarviss|java's|jarv)\b(?!'s)/i
+const WAKE = IS_LCARS
+  ? new RegExp(`\\b(?:hey|hi|ok|okay)?\\s*${NAME_PATTERN}\\b(?!'s)`, 'i')
+  : /\b(?:hey|hi|ok|okay|yo)?\s*(?:jarvis|jarvys|jervis|jarvis's|travis|jarviss|java's|jarv)\b(?!'s)/i
 
 /** Everything after the wake phrase, which is usually the actual command. */
 function afterWake(text: string): string {
@@ -140,7 +154,44 @@ const TRAILS = /[,;:–—-]$/
  * Kept short deliberately. This is the one window where a genuine interruption
  * is also least likely: the user has not yet heard enough to want to stop him.
  */
-const SELF_GUARD_MS = 350
+const SELF_GUARD_MS = 650
+
+/**
+ * How long a provisional barge-in may stay unjudged before he comes back up.
+ *
+ * The verdict needs the segment to end, a transcript to come back from Scribe
+ * and an embedding to finish, so it cannot be instant. This is the ceiling: if
+ * none of that has arrived by now, assume the noise was not the owner and
+ * restore him rather than leaving him whispering for the rest of the answer.
+ *
+ * Generous on purpose. Settling early is the worse failure — it un-ducks him
+ * into the middle of a real interruption, and the owner then has to say it
+ * twice.
+ */
+const BARGE_DECIDE_MS = 4000
+
+/**
+ * How far below the threshold a barge-in may score and still be taken as the
+ * owner.
+ *
+ * A segment recorded while he is talking is never a clean sample of anybody: it
+ * is the owner's voice plus his own playback, arriving at the microphone
+ * together, and the mixture scores lower than the owner alone. Judging an
+ * interruption at the full threshold therefore fails in the worst possible
+ * direction — an assistant that cannot be interrupted by the one person
+ * entitled to interrupt it. The slack is small enough that a genuinely
+ * different voice still does not clear it.
+ */
+const BARGE_SLACK = 0.08
+
+/**
+ * How long a finished utterance waits for the voiceprint before being acted on.
+ *
+ * Only reached when the segment is still being embedded as the words arrive,
+ * which is the common case by a fraction of a second. Past this it is treated
+ * as unmeasured and accepted — see `take`.
+ */
+const OWNER_WAIT_MS = 2500
 
 /**
  * A quiet gap this long with a finished-looking sentence ends the turn.
@@ -152,9 +203,9 @@ const SELF_GUARD_MS = 350
  * more clause. Making it generous here is what would make every ordinary
  * question feel slow.
  */
-const SETTLE_MS = 250
+const SETTLE_MS = 450
 /** ...and this long when the sentence is plainly unfinished. */
-const CONTINUE_MS = 1600
+const CONTINUE_MS = 2200
 /**
  * Nothing is held longer than this in total. A ceiling rather than a timer:
  * without it, someone who ends every clause on "and" could hold a turn open
@@ -251,73 +302,6 @@ function makeAssembler(h: {
 }
 
 // ---------------------------------------------------------------------------
-// Hearing himself
-// ---------------------------------------------------------------------------
-
-const norm = (s: string) =>
-  s
-    .toLowerCase()
-    .replace(/[^a-z0-9' ]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-/**
- * Short words that must always cut through, even when they collide with what
- * he happens to be saying. Suppressing "stop" because he just said "stop"
- * would be the single most infuriating failure this file could have.
- */
-const OVERRIDE =
-  /\b(stop|wait|jarvis|cancel|enough|quiet|hold on|shut up|never ?mind|forget it|no)\b/i
-
-/**
- * Words too common to be evidence of anything.
- *
- * This set is the difference between a usable filter and an infuriating one.
- * "What about the second one?" is a perfectly ordinary follow-up, and every
- * word in it is likely to appear somewhere in the answer it follows — so a
- * naive bag-of-words match suppresses the user's real question as an echo.
- * Only distinctive words count as proof he is hearing himself.
- */
-const STOP = new Set(
-  ('a an the and or but so of to in on at by for with from is are was were be ' +
-    'it its this that these those i you he she we they me him her them my your ' +
-    'our their what which who how why when where do does did can could would ' +
-    'should will shall not no yes if then than as about into over under out up ' +
-    'down one two three first second third now here there just very really got ' +
-    'get have has had say said tell me okay ok well right').split(' '),
-)
-
-/**
- * Is this the microphone hearing the speakers?
- *
- * Compared as bags of words rather than by string distance: the recogniser
- * mangles its own playback badly enough that a substring match rarely holds,
- * but the *words* survive.
- */
-function isEcho(heard: string, spoken: string): boolean {
-  if (!spoken) return false
-  if (OVERRIDE.test(heard)) return false
-
-  const all = norm(heard).split(' ').filter(Boolean)
-  if (!all.length) return true
-
-  const mine = new Set(norm(spoken).split(' '))
-  const content = all.filter((w) => !STOP.has(w))
-
-  // Nothing distinctive was said at all, so there is no strong evidence either
-  // way. Demand a total match before discarding it — the cost of dropping a
-  // real question is much higher than the cost of one stray echo getting in.
-  if (content.length < 2) {
-    if (all.length < 2) return false
-    return all.every((w) => mine.has(w))
-  }
-
-  let hits = 0
-  for (const w of content) if (mine.has(w)) hits++
-  return hits / content.length >= 0.6
-}
-
-// ---------------------------------------------------------------------------
 // Diagnostics
 // ---------------------------------------------------------------------------
 
@@ -361,6 +345,12 @@ export const diag = {
   restarts: 0,
   /** Milliseconds the last transcription round-trip took. */
   idleMs: 0,
+  /** Segments discarded because the voice was not the enrolled owner's. */
+  strangers: 0,
+  /** Whether speaker verification can run on the engine in use. See
+   *  `speakerGate` — the browser fallback hands back words with no audio,
+   *  so there is nothing to measure and the gate is necessarily off. */
+  gate: 'off' as 'off' | 'on' | 'unavailable',
 }
 
 /** Record why a transcript went nowhere. Silence always has a reason; this is
@@ -399,6 +389,25 @@ export async function startVoice(h: VoiceHandlers): Promise<Voice> {
     return { stop: () => {}, live: () => false }
   }
   diag.engine = caps().stt ? 'elevenlabs' : 'browser'
+
+  /**
+   * Whether the speaker gate can run at all.
+   *
+   * It needs the audio. The premium engine captures its own and hands it
+   * straight to `verify`; the browser engine captures internally and returns
+   * nothing but text, which is why this used to read `unavailable` on the
+   * keyless path — an owner who had enrolled a profile and believed the room
+   * was filtered was running with no filter at all.
+   *
+   * It no longer is. The browser path now runs its own capture alongside the
+   * recogniser purely to answer "whose voice was that" (see owner.ts), so the
+   * voiceprint applies on both engines and the only thing that turns it off is
+   * not having enrolled one.
+   */
+  const enrolled = !!getProfile()
+  diag.gate = enrolled ? 'on' : 'off'
+  if (enrolled) warmSpeaker()
+
   return caps().stt ? startElevenVoice(h) : startBrowserVoice(h)
 }
 
@@ -420,8 +429,37 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
    * Order is preserved because the drain is single-flight, which matters —
    * "London" arriving before "what's the weather in" is worse than either.
    */
-  const pendingAudio: Blob[] = []
+  const pendingAudio: { blob: Blob; ms: number }[] = []
   let draining = false
+
+  /**
+   * A barge-in that has been raised but not yet judged.
+   *
+   * Energy says someone is talking; only the transcript and the voiceprint can
+   * say whether it was the owner. Between those two moments he is ducked and
+   * the answer is still alive, and this holds the fact that a decision is owed.
+   */
+  let bargeAt = 0
+  let bargeTimer: ReturnType<typeof setTimeout> | null = null
+
+  /**
+   * Settle a provisional barge-in, once.
+   *
+   * `true` cuts the answer for real; `false` brings him back up mid-sentence.
+   * Every path out of `transcribe` calls this, including the failures — a
+   * segment that could not be transcribed must not leave him whispering for
+   * the rest of the answer.
+   */
+  const settleBarge = (confirmed: boolean) => {
+    if (bargeTimer) {
+      clearTimeout(bargeTimer)
+      bargeTimer = null
+    }
+    if (!bargeAt) return
+    bargeAt = 0
+    if (confirmed) h.onSpeechStart()
+    else h.onSpeechResume()
+  }
 
   /**
    * Transcripts become turns here rather than one-per-segment.
@@ -445,10 +483,23 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
    * transcript arriving — and the transcript belongs to the mode the user is in
    * now, not the one they interrupted.
    */
-  const transcribe = async (blob: Blob) => {
+  const transcribe = async (blob: Blob, ms: number) => {
     const mode = h.mode()
     if (mode === 'deaf') return
     const t0 = performance.now()
+
+    /**
+     * Who is speaking, worked out at the same time as what they said.
+     *
+     * Started here rather than awaited here, and that ordering is the whole
+     * reason the check is affordable. The embedding takes a hundred-odd
+     * milliseconds of local compute and the transcription takes a network
+     * round trip; run in sequence they add up, run together the check is free
+     * because it finishes long before Scribe answers. Nothing is acted on
+     * until both have — see the await below the transcript arrives.
+     */
+    const whose = verify(blob, ms)
+
     try {
       const res = await fetch(`${BRIDGE_HTTP_URL}/stt`, {
         method: 'POST',
@@ -459,6 +510,7 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
       if (!res.ok) {
         diag.restarts++
         diag.lastError = `stt ${res.status}`
+        settleBarge(false)
         drop(`transcription failed (${res.status})`)
         return
       }
@@ -467,16 +519,49 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
       diag.lastError = ''
 
       if (!said) {
+        settleBarge(false)
         drop('nothing intelligible in the segment')
         return
       }
 
       // His own voice, come back through the microphone. The raised guard
-      // threshold stops most of it at the door; this catches the rest.
+      // threshold stops most of it at the door; this catches the rest — and
+      // because the barge-in is now provisional, catching it here is enough to
+      // stop him interrupting himself rather than merely stopping him acting
+      // on what he heard.
       if (isEcho(said, speakingNow())) {
+        settleBarge(false)
         drop('echo of his own voice')
         return
       }
+
+      /**
+       * Someone else in the room.
+       *
+       * Checked after the echo test, so his own playback is attributed to the
+       * speakers rather than counted as an intruder, and before anything at
+       * all is done with the words — no wake, no assembly, no turn, and
+       * crucially no transcript surfacing in the caption, because a stranger's
+       * sentence appearing on screen and then being ignored is more confusing
+       * than silence.
+       *
+       * `verify` fails open by design, so this is a no-op until the owner has
+       * actually enrolled a voiceprint.
+       */
+      const who = await whose
+      if (!who.ok) {
+        diag.strangers++
+        // A stranger talking over him is not an interruption. Bring him back up
+        // and let him finish the sentence he was saying to the owner.
+        settleBarge(false)
+        drop(who.why)
+        return
+      }
+
+      // The owner, confirmed by both the words and the voiceprint. Now the
+      // answer in flight can be abandoned — this is the only place that is
+      // true, and it is why the energy gate above no longer does it.
+      settleBarge(true)
 
       diag.heard = said
       diag.heardAt = Date.now()
@@ -500,6 +585,7 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
     } catch (err) {
       diag.restarts++
       diag.lastError = String(err)
+      settleBarge(false)
       drop('could not reach the speech service')
     }
   }
@@ -510,7 +596,8 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
     draining = true
     try {
       while (pendingAudio.length) {
-        await transcribe(pendingAudio.shift()!)
+        const next = pendingAudio.shift()!
+        await transcribe(next.blob, next.ms)
       }
     } finally {
       draining = false
@@ -526,20 +613,35 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
       // Standing down mid-thought throws the thought away with it. Otherwise
       // held text would surface as the opening of the *next* conversation.
       if (mode === 'wake') assemble.cancel()
-      // The barge-in. In guard mode the user has started talking over him, and
-      // because the guard threshold is high this is a real interruption rather
-      // than leaked playback — so cut him off now, do not wait for the words.
+      // The barge-in, raised but NOT acted on.
+      //
+      // This fires on energy, before a single sample has been embedded, so the
+      // thing that crossed the gate may be the owner, may be a stranger, and
+      // may be his own playback leaking past the canceller. Cutting the answer
+      // here — which is what this used to do — means the loudest event in the
+      // room decides whether he gets to finish a sentence, and his own first
+      // syllable is routinely the loudest event in the room.
+      //
+      // So: quieten him and owe a decision. `transcribe` settles it once the
+      // words and the voiceprint agree, and every path out of there settles it
+      // one way or the other. The user still gets an instant response to
+      // speaking over him — he drops to a murmur mid-word — but the answer is
+      // only abandoned for the voice that owns him.
       if (mode === 'guard') {
         const since = speakingSince()
         if (since && Date.now() - since < SELF_GUARD_MS) {
           diag.selfGuarded++
           return
         }
-        h.onSpeechStart()
+        if (!bargeAt) {
+          bargeAt = Date.now()
+          bargeTimer = setTimeout(() => settleBarge(false), BARGE_DECIDE_MS)
+          h.onSpeechMaybe()
+        }
       }
     },
-    onEnd: (blob) => {
-      pendingAudio.push(blob)
+    onEnd: (blob, ms) => {
+      pendingAudio.push({ blob, ms })
       void drain()
     },
     onLevel: (v) => {
@@ -599,13 +701,23 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
  * between "the wake word stopped working halfway through the lesson" and an
  * assistant that keeps listening.
  */
-function startBrowserVoice(h: VoiceHandlers): Voice {
+async function startBrowserVoice(h: VoiceHandlers): Promise<Voice> {
   const Ctor =
     (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition
   if (!Ctor) {
     h.onError('This browser has no speech recognition — use Chrome or Edge, or add an ElevenLabs key.')
     return { stop: () => {}, live: () => false }
   }
+
+  /**
+   * The voiceprint, on an engine that hands back no audio.
+   *
+   * A second, silent capture of the same microphone, judging every segment
+   * against the enrolled profile and keeping only the verdict. Null when
+   * nobody has enrolled, and the text-level defences below then stand alone
+   * exactly as they did before.
+   */
+  const gate: OwnerGate | null = await startOwnerGate().catch(() => null)
 
   let stopped = false
   let running = false
@@ -617,6 +729,36 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
   let lastWake = 0
   let lastAlive = Date.now()
   let silenceTimer: ReturnType<typeof setTimeout> | null = null
+  /** When the words currently being assembled were first seen. The voiceprint
+   *  is asked about that moment, not about now. */
+  let speechFrom = 0
+  /** A barge-in raised on the words but not yet confirmed by the voice. */
+  let bargeAt = 0
+  /** A verdict has been reached for this utterance; do not ask twice. */
+  let bargeSettled = false
+  /** ...and it was the owner, so the answer really was abandoned. */
+  let bargeOwner = false
+
+  /**
+   * Settle a provisional barge-in, once.
+   *
+   * `true` abandons the answer; `false` leaves it running and brings him back
+   * up. Mirrors the premium path: every route out of a judgement calls this, so
+   * he is never left half-interrupted by a noise nobody ever identified.
+   */
+  const settleBarge = (confirmed: boolean) => {
+    if (!bargeAt) return
+    bargeAt = 0
+    bargeSettled = true
+    if (confirmed) {
+      bargeOwner = true
+      started = true
+      barged = true
+      h.onSpeechStart()
+    } else {
+      h.onSpeechResume()
+    }
+  }
 
   /** Same assembly rules as the premium path — a pause is not a full stop. */
   const assemble = makeAssembler({
@@ -644,17 +786,61 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
     interim = ''
     started = false
     barged = false
+    speechFrom = 0
+    bargeSettled = false
+    bargeOwner = false
   }
 
   const emit = () => {
     const text = `${settled} ${interim}`.replace(/\s+/g, ' ').trim()
     const mode = h.mode()
+    const from = speechFrom || Date.now()
     reset()
-    if (!text || mode === 'deaf') return
+    if (!text || mode === 'deaf') {
+      settleBarge(false)
+      return
+    }
     if (isEcho(text, speakingNow())) {
+      settleBarge(false)
       drop('echo of his own voice')
       return
     }
+    void take(text, mode, from)
+  }
+
+  /**
+   * Act on a finished utterance — but only once the voice that produced it has
+   * been placed.
+   *
+   * This is the second half of the gate. Stopping a stranger from interrupting
+   * him is not the same as refusing to obey a stranger, and both are wanted: a
+   * sentence that was never the owner's goes no further than this function. No
+   * wake word, no assembly, no turn, and nothing in the caption either, because
+   * a stranger's words appearing on screen and then being ignored is more
+   * confusing than silence.
+   *
+   * Unknown verdicts are accepted, deliberately. The check cannot run on a
+   * segment too short to place or before the model has finished loading, and an
+   * assistant that goes deaf whenever its own verification is unavailable is a
+   * worse product than one that occasionally hears the television.
+   */
+  const take = async (text: string, mode: VoiceMode, from: number) => {
+    if (gate) {
+      const who = await gate.judge(from, OWNER_WAIT_MS)
+      if (who === 'stranger') {
+        diag.strangers++
+        // Not the owner, so nothing was interrupted. Whatever he was saying
+        // carries on from where it was ducked.
+        settleBarge(false)
+        drop('another voice in the room')
+        return
+      }
+      // The owner, confirmed acoustically. If the words had already raised a
+      // provisional barge-in that has not been settled — the verdict arrived
+      // late, or the wait timed out — it is settled now, before the turn.
+      if (who === 'owner') settleBarge(true)
+    }
+
     diag.heard = text
     diag.heardAt = Date.now()
     if (mode === 'wake') {
@@ -720,13 +906,18 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
     }
 
     settled += fresh
+    if (!speechFrom) speechFrom = Date.now()
     const full = `${settled} ${interim}`.replace(/\s+/g, ' ').trim()
+    /** True while this utterance is ducked and not yet placed as the owner's. */
+    let pending = false
     if (!started || (mode === 'guard' && !barged)) {
       const words = full.split(/\s+/).filter(Boolean).length
       if (mode === 'guard') {
         // An override word cuts through everything below it — "stop" has to
         // work on the first syllable or it is not a stop button.
-        if (!OVERRIDE.test(full)) {
+        // Only a stop word he is not saying himself — see cutsThrough.
+        const override = cutsThrough(full, speakingNow())
+        if (!override) {
           // His own first syllable, same as the premium path. This engine has
           // no energy gate, so without the clock the only defence is the word
           // count below, and a single clear word is exactly what leaks first.
@@ -742,17 +933,66 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
           // evidence of anything.
           if (words < 2) return
         }
+        /**
+         * The words are not allowed to abandon the answer on their own.
+         *
+         * They are a transcript of a microphone that is currently pointed at a
+         * speaker playing his voice, so on this engine "someone said two words"
+         * has always been indistinguishable from "he said two words". That is
+         * what has been cutting him off inside his own sentences, and no amount
+         * of tuning a bag-of-words comparison fixes it, because the input to the
+         * comparison is a mis-transcription of his own playback.
+         *
+         * So the words only raise the question. He drops his voice and waits,
+         * the voiceprint answers it from the audio, and the answer is abandoned
+         * only for the one person who owns him. Everything else — the
+         * television, someone in the doorway, his own speakers — brings him
+         * back up mid-sentence with nothing lost.
+         */
+        if (gate) {
+          if (!bargeAt && !bargeSettled) {
+            bargeAt = Date.now()
+            h.onSpeechMaybe()
+            void decideBarge(speechFrom, override)
+          }
+          // Deliberately not returning. The words still have to be collected
+          // and endpointed — if this does turn out to be the owner, the
+          // sentence that interrupted him is the sentence he has to answer, and
+          // dropping it while the verdict is out would make every interruption
+          // need saying twice. Only the caption and the abandonment wait.
+          pending = !bargeOwner
+        }
       }
-      started = true
-      if (mode === 'guard') barged = true
-      h.onSpeechStart()
+      if (!pending) {
+        started = true
+        if (mode === 'guard') barged = true
+        h.onSpeechStart()
+      }
     }
     diag.dropped = ''
-    // Show the whole thought, not just the fragment being spoken now — there
-    // may be an earlier half of it held by the assembler.
-    const carried = assemble.held()
-    h.onPartial(carried ? `${carried} ${full}` : full)
+    // Nothing on screen until the voice is placed. A stranger's sentence
+    // appearing in the caption and then being ignored reads as a fault.
+    if (!pending) {
+      // Show the whole thought, not just the fragment being spoken now — there
+      // may be an earlier half of it held by the assembler.
+      const carried = assemble.held()
+      h.onPartial(carried ? `${carried} ${full}` : full)
+    }
     bumpSilence()
+  }
+
+  /**
+   * Ask the voiceprint who raised this barge-in, and settle it.
+   *
+   * `unknown` — nothing measurable, or the model is still loading — resumes,
+   * except for an override word. "Stop" has to keep working on a machine where
+   * the check cannot run, and a stop that is only honoured for a verified voice
+   * is not a stop button.
+   */
+  const decideBarge = async (from: number, override: boolean) => {
+    if (!gate) return
+    const who = await gate.judge(from, BARGE_DECIDE_MS, BARGE_SLACK)
+    settleBarge(who === 'owner' || (who === 'unknown' && override))
   }
 
   const spin = () => {
@@ -819,6 +1059,7 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
       clearInterval(health)
       clearSilence()
       assemble.cancel()
+      gate?.stop()
       diag.running = false
       try {
         rec?.abort()

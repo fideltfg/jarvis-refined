@@ -17,6 +17,8 @@
  *     so it goes at the end, and only sometimes.
  */
 
+import { IS_LCARS } from '../theme'
+
 /** Said as soon as the first tool fires, before any answer exists. */
 const WORKING = [
   'Working on it, sir.',
@@ -63,9 +65,20 @@ function makePicker(pool: string[]) {
   }
 }
 
-export const working = makePicker(WORKING)
-export const acknowledge = makePicker(ACKNOWLEDGE)
-export const attention = makePicker(ATTENTION)
+/**
+ * The ship's computer. It never names the task and never softens anything:
+ * one word, or two, then silence. Answering to its name it says nothing at all
+ * — the chirp is the whole acknowledgement, which is exactly how the show does
+ * it, and an empty line is dropped by the speaker before it reaches either
+ * engine.
+ */
+const LCARS_WORKING = ['Working.', 'Processing.', 'Accessing.', 'Stand by.', 'Searching.', 'Compiling.']
+const LCARS_ACKNOWLEDGE = ['Acknowledged.', 'Confirmed.', 'Complying.', 'Affirmative.']
+const LCARS_ATTENTION = ['']
+
+export const working = makePicker(IS_LCARS ? LCARS_WORKING : WORKING)
+export const acknowledge = makePicker(IS_LCARS ? LCARS_ACKNOWLEDGE : ACKNOWLEDGE)
+export const attention = makePicker(IS_LCARS ? LCARS_ATTENTION : ATTENTION)
 
 /**
  * Naming the task is warmer than a generic acknowledgement and shows the
@@ -188,6 +201,7 @@ function split(toolName: string): { server: string; tool: string } {
 
 /** A phrase suited to the tool that just fired. */
 export function forTool(toolName: string): string {
+  if (IS_LCARS) return working()
   const { server, tool } = split(toolName)
   for (const r of pickers) {
     const hit =

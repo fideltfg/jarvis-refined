@@ -15,7 +15,7 @@
  * isn't waiting on it, and anything that goes wrong falls back to Daniel.
  */
 
-import { KOKORO_VOICE } from '../config'
+import { KOKORO_VOICE, THEME } from '../config'
 
 type Kokoro = {
   generate: (
@@ -38,11 +38,15 @@ export const isUnavailable = () => failed
 export let lastError = ''
 
 /**
- * British male voices, in the order they suit the character. George is the
- * closest to a measured RP baritone; Fable is warmer, Lewis lower, Daniel
- * brighter.
+ * The voices each character may use, in the order they suit it. For JARVIS,
+ * British males: George is the closest to a measured RP baritone; Fable is
+ * warmer, Lewis lower, Daniel brighter. For the ship's computer, American
+ * females: Nicole is the most level, then Sarah, Heart, Bella.
  */
-export const VOICES = ['bm_george', 'bm_fable', 'bm_lewis', 'bm_daniel'] as const
+export const VOICES =
+  THEME === 'lcars'
+    ? (['af_nicole', 'af_sarah', 'af_heart', 'af_bella'] as const)
+    : (['bm_george', 'bm_fable', 'bm_lewis', 'bm_daniel'] as const)
 
 /**
  * A voice id the model doesn't carry throws inside generate(), once per
