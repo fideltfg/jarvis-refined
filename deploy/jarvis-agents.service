@@ -1,0 +1,19 @@
+[Unit]
+Description=J.A.R.V.I.S. agent service (goals, coordinator, background workers)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/jarvis-refined
+Environment=PATH=%h/.local/node/bin:/usr/local/bin:/usr/bin:/bin
+Environment=NO_COLOR=1
+EnvironmentFile=-%h/.config/jarvis/secrets.env
+ExecStart=%h/.local/node/bin/node agents/service.mjs
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=15
+
+[Install]
+WantedBy=default.target
