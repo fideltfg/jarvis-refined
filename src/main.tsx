@@ -1,16 +1,25 @@
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
-import { copy, IS_LCARS } from './theme'
+import { THEME } from './config'
+import { copy } from './theme'
 
 // The theme is fixed for the life of the page, so it is stamped once here:
-// lcars.css scopes every rule under [data-theme='lcars'], and is only fetched
-// at all when it is going to be used.
-document.documentElement.dataset.theme = IS_LCARS ? 'lcars' : 'stark'
+document.documentElement.dataset.theme = THEME
 document.title = copy.title
-if (IS_LCARS) {
-  void import('./lcars.css')
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#000000')
+if (THEME !== 'stark') {
+  // LCARS carries its own stylesheet; the other classics share one.
+  void (THEME === 'lcars' ? import('./lcars.css') : import('./cult-classics.css'))
+  const themeColors = {
+    stark: '#01060c',
+    hal: '#050000',
+    wopr: '#090700',
+    mother: '#071006',
+    lcars: '#000000',
+  }
+  document
+    .querySelector('meta[name="theme-color"]')
+    ?.setAttribute('content', themeColors[THEME])
 }
 
 // Deliberately no StrictMode: its double-invoked effects would open the

@@ -3,7 +3,7 @@ import { motion, useReducedMotion } from 'framer-motion'
 import { useStore } from '../store'
 
 /**
- * The LCARS start-up: a starship computer's systems check.
+ * The LCARS start-up: the U.S.S. Voyager's systems check.
  *
  * Three beats on one clock, the same shape as the Iron Man boot so App's
  * nine-second hand-off fits either:
@@ -20,18 +20,18 @@ const T = { checks: 400, stride: 520, emblem: 5600 }
 
 const CHECKS = [
   'MAIN COMPUTER CORE',
-  'ISOLINEAR SUBPROCESSORS',
+  'BIO-NEURAL GEL PACKS',
   'OPTICAL DATA NETWORK',
+  'ASTROMETRICS',
   'SUBSPACE COMMUNICATIONS',
   'SENSOR ARRAYS',
   'VOICE INTERFACE',
   'DATABANK ACCESS',
-  'UNIVERSAL TRANSLATOR',
 ]
 
 const CASCADE_COLS = 6
 const CASCADE_ROWS = 14
-const TINTS = ['lc-t-orange', 'lc-t-tan', 'lc-t-lilac', 'lc-t-blue', 'lc-t-violet']
+const TINTS = ['lc-t-blue', 'lc-t-violet', 'lc-t-ice', 'lc-t-lilac', 'lc-t-gold']
 
 /** Cheap deterministic noise, so a frame of the cascade is a pure function of
  *  its tick and nothing needs to be held in state. */
@@ -68,13 +68,14 @@ export function LcarsBoot() {
       <div className="lcboot-upper">
         <div className="lcboot-elbow" />
         <div className="lcboot-bar">
-          <span className="lc-seg lc-c-orange" style={{ flex: 6 }} />
+          <span className="lc-seg lc-c-violet" style={{ flex: 6 }} />
+          <span className="lc-seg lc-c-gold" style={{ flex: 0.6 }} />
           <span className="lc-seg lc-c-lilac" style={{ flex: 1 }} />
-          <span className="lc-seg lc-c-tan lc-cap" style={{ flex: 1 }} />
+          <span className="lc-seg lc-c-sky lc-cap" style={{ flex: 1 }} />
         </div>
         <div className="lcboot-title">
-          <span className="lcboot-title-main">Starfleet Command</span>
-          <span className="lcboot-title-sub">LCARS · Systems check</span>
+          <span className="lcboot-title-main">U.S.S. Voyager</span>
+          <span className="lcboot-title-sub">NCC-74656 · LCARS systems check</span>
         </div>
       </div>
 

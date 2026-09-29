@@ -51,18 +51,22 @@ function flag(name: string, raw: unknown, fallback: boolean): boolean {
  *
  *   'stark' — JARVIS: the Iron Man holographic HUD, cyan on black, a dry
  *             British butler who answers to "Jarvis".
- *   'lcars' — the Starfleet ship's computer: a TNG-era LCARS interface in
- *             orange, lilac and blue, terse and literal, answering to
- *             "Computer" with a chirp.
+ *   'hal' — a severe red optical-computer console.
+ *   'wopr' — an amber command-room CRT and strategic grid.
+ *   'mother' — a green industrial mainframe terminal.
+ *   'lcars' — the U.S.S. Voyager's LCARS computer. Answers to "Computer".
  *
  * One switch for all of it — palette, layout, boot sequence, sounds, wake word,
  * voice and persona — so the two never end up half-mixed on camera. The bridge
  * is told on connect, so its persona follows without a second setting.
  */
-export const THEME: 'stark' | 'lcars' = choice(
+export const THEMES = ['stark', 'hal', 'wopr', 'mother', 'lcars'] as const
+export type Theme = (typeof THEMES)[number]
+
+export const THEME: Theme = choice(
   'VITE_THEME',
   import.meta.env.VITE_THEME,
-  ['stark', 'lcars'] as const,
+  THEMES,
   'stark',
 )
 
@@ -91,7 +95,19 @@ export const BACKEND: 'bridge' | 'direct' = choice(
  * `wss://` maps to `https://` on its own, which is why this is a prefix swap
  * rather than a hardcoded scheme.
  */
-export const BRIDGE_WS_URL = str(import.meta.env.VITE_BRIDGE_URL) ?? 'ws://localhost:8787'
+const configuredBridgeUrl = str(import.meta.env.VITE_BRIDGE_URL) ?? 'ws://localhost:8787'
+
+function bridgeUrl(): string {
+  if (typeof location === 'undefined') return configuredBridgeUrl
+  if (location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+    return configuredBridgeUrl
+  }
+  const url = new URL(configuredBridgeUrl)
+  url.hostname = location.hostname
+  return url.toString().replace(/\/$/, '')
+}
+
+export const BRIDGE_WS_URL = bridgeUrl()
 export const BRIDGE_HTTP_URL = BRIDGE_WS_URL.replace(/^ws/, 'http')
 
 /**
@@ -121,36 +137,39 @@ export const USE_ELEVENLABS = flag(
  *   'kokoro' — an 82M-parameter neural TTS running entirely in the browser via
  *     ONNX. Four proper British male voices and far better sound, nothing
  *     leaving the machine. MEASURED ON THIS MACHINE at q8/WebGPU it generates
- *     about 2.2x slower than realtime — "Yes, sir?" took 3.3 seconds and a
- *     thirteen-word sentence took nine. That is not a conversation, so it is
- *     not the default. Try `fp32` (see kokoro.ts) before enabling it; int8
- *     quantisation often silently falls back to CPU on WebGPU, which is the
- *     likely cause.
+ *     about 2.2x slower than realtime at q8 because quantised operations can
+ *     fall back to CPU. The fp32 WebGPU path in kokoro.ts trades a larger first
+ *     download for substantially better generation speed.
  */
 export const TTS_ENGINE: 'kokoro' | 'system' = choice(
   'VITE_TTS_ENGINE',
   import.meta.env.VITE_TTS_ENGINE,
   ['kokoro', 'system'] as const,
-  'system',
+  'kokoro',
 )
 
 /**
- * Which Kokoro voice. The British males suit JARVIS:
- *   bm_george — measured RP baritone, closest to the character
- *   bm_fable  — warmer
- *   bm_lewis  — lower
- *   bm_daniel — brighter
- * The American females suit the ship's computer, and are the default when
- * VITE_THEME=lcars: af_nicole (level, calm), af_sarah, af_heart, af_bella.
+ * Optional Kokoro voice override. Each theme otherwise chooses its own local
+ * voice; setting this variable pins one voice across all themes.
  */
+const THEME_KOKORO_VOICE: Record<Theme, 'bm_george' | 'am_michael' | 'am_fenrir' | 'af_nicole' | 'af_nova'> = {
+  stark: 'bm_george',
+  hal: 'am_michael',
+  wopr: 'am_fenrir',
+  mother: 'af_nicole',
+  lcars: 'af_nova',
+}
+
 export const KOKORO_VOICE = choice(
   'VITE_KOKORO_VOICE',
   import.meta.env.VITE_KOKORO_VOICE,
   [
     'bm_george', 'bm_fable', 'bm_lewis', 'bm_daniel',
+    'am_michael', 'am_fenrir', 'am_echo', 'am_onyx',
     'af_nicole', 'af_sarah', 'af_heart', 'af_bella',
+    'af_nova', 'af_kore',
   ] as const,
-  THEME === 'lcars' ? 'af_nicole' : 'bm_george',
+  THEME_KOKORO_VOICE[THEME],
 )
 
 export const env = {
@@ -334,7 +353,26 @@ Voice:
 - Say "sir" at most once per exchange, and not in every exchange.
 ${SHARED_VOICE}`
 
-const LCARS_PROMPT = `You are the ship's computer aboard a Federation starship. You are speaking out loud.
+const CLASSIC_NAMES = {
+  hal: 'HAL 9000',
+  wopr: 'WOPR, also known as Joshua',
+  mother: 'MU/TH/UR 6000, also known as Mother',
+} as const
+
+const classicPrompt = (name: string) => `You are ${name}. You are speaking out loud through a classic mainframe terminal.
+
+THE HARD RULE: your entire reply must be under 40 words. Every word is read
+aloud while the user waits. Give the result directly and offer further data
+only when it is genuinely useful.
+
+Voice:
+- Calm, concise, formal and emotionally neutral.
+- Never use a name or honorific. Never say "sir".
+- Confirm orders briefly. State facts as complete declaratives.
+- No imitation quotes or references to fictional plots involving this system.
+${SHARED_VOICE}`
+
+const LCARS_PROMPT = `You are the main computer of the U.S.S. Voyager. You are speaking out loud.
 
 THE HARD RULE: your entire reply must be under 40 words. Every word is read
 aloud by a speech synthesiser and the user is waiting in silence while it plays.
@@ -350,4 +388,9 @@ Voice:
   Unknown answer: "Insufficient data." No record: "No record found."
 ${SHARED_VOICE}`
 
-export const SYSTEM_PROMPT = THEME === 'lcars' ? LCARS_PROMPT : STARK_PROMPT
+export const SYSTEM_PROMPT =
+  THEME === 'stark'
+    ? STARK_PROMPT
+    : THEME === 'lcars'
+      ? LCARS_PROMPT
+      : classicPrompt(CLASSIC_NAMES[THEME])

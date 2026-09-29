@@ -1,8 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Scene } from './scene/Scene'
 import { Hud } from './ui/Hud'
-import { Boot } from './ui/Boot'
-import { LcarsBoot } from './ui/LcarsBoot'
+import { ThemeBoot } from './ui/ThemeBoot'
 import { Ignition } from './ui/Ignition'
 import { Diagnostics } from './ui/Diagnostics'
 import { Enrol } from './ui/Enrol'
@@ -15,8 +14,8 @@ import * as hands from './lib/hands'
 import { listenForClap } from './lib/clap'
 import * as camera from './lib/camera'
 import * as kokoro from './lib/kokoro'
-import { TTS_ENGINE } from './config'
-import { copy, IS_LCARS, NAME_PATTERN } from './theme'
+import { THEME, TTS_ENGINE } from './config'
+import { copy, NAME_PATTERN } from './theme'
 import { forTool, attention } from './lib/fillers'
 import {
   ask,
@@ -53,10 +52,9 @@ import { env } from './config'
  *  people say his name and *then* think about what they wanted. */
 const AWAIT_SPEECH_MS = 14000
 
-/** After an answer, how long the mic stays open for a follow-up before he
- *  drops back to standby. Long enough that you don't have to say the name
- *  again to continue a thought. */
-const FOLLOW_UP_MS = 11000
+/** After an answer, keep command listening open through a natural pause so a
+ *  follow-up does not require repeating the wake word. */
+const FOLLOW_UP_MS = 30000
 
 /** crypto.randomUUID needs a secure context, which a LAN address over plain
  *  http is not. Not worth failing a whole turn over an id. */
@@ -386,7 +384,7 @@ export default function App() {
     // reason as the rest of the audio. The starship gets no score: the bed is
     // the low engine hum from sfx.ts, which is what a bridge actually sounds
     // like, and with music never enabled every later music.* call is inert.
-    if (IS_LCARS) {
+    if (THEME !== 'stark') {
       sfx.startAmbient()
     } else {
       music.enable()
@@ -504,10 +502,8 @@ export default function App() {
       )
     }
 
-    // Pull the neural voice down during the boot sequence so the first
-    // "Hey Jarvis" isn't waiting on an 86MB download. Deliberately not awaited
-    // — if it's slow, JARVIS comes up on the system voice and swaps over the
-    // moment the model is ready.
+    // Pull the neural voice down during the boot sequence. Deliberately not
+    // awaited so the interface still comes online while the model is cached.
     if (TTS_ENGINE === 'kokoro') {
       void kokoro.load()
       voicePoll.current = setInterval(() => {
@@ -757,7 +753,7 @@ export default function App() {
     <>
       <Scene />
       <Hud />
-      {IS_LCARS ? <LcarsBoot /> : <Boot />}
+      <ThemeBoot />
       <Diagnostics />
       <Ignition onStart={() => void powerOn()} />
       <Enrol />

@@ -3,13 +3,12 @@ import {
   USE_ELEVENLABS,
   BACKEND,
   TTS_ENGINE,
-  KOKORO_VOICE,
   BRIDGE_HTTP_URL,
+  THEME,
 } from '../config'
 import * as kokoro from './kokoro'
 import { createHeard } from './echo'
 import { caps } from './capabilities'
-import { IS_LCARS } from '../theme'
 
 /**
  * Speech output.
@@ -169,9 +168,16 @@ const MAX_UNSPOKEN = 220
 // Voice selection
 // ---------------------------------------------------------------------------
 
+/**
+ * The themes whose character is a calm American female rather than a British
+ * male. They get their own scoring and their own stored preference, so a
+ * butler picked for JARVIS does not follow the user onto the starship.
+ */
+const IS_COMPUTER = THEME === 'lcars' || THEME === 'mother'
+
 // Per theme, so a British butler picked for JARVIS does not follow the user
 // onto the starship and vice versa.
-const VOICE_PREF_KEY = IS_LCARS ? 'jarvis.voice.lcars' : 'jarvis.voice'
+const VOICE_PREF_KEY = IS_COMPUTER ? `jarvis.voice.${THEME}` : 'jarvis.voice'
 
 /**
  * Rank installed voices by how close they are to the character: a British
@@ -206,7 +212,7 @@ function scoreComputer(v: SpeechSynthesisVoice): number {
 }
 
 function score(v: SpeechSynthesisVoice): number {
-  if (IS_LCARS) return scoreComputer(v)
+  if (IS_COMPUTER) return scoreComputer(v)
   const n = v.name.toLowerCase()
   let s = 0
 
@@ -277,16 +283,18 @@ function pickVoice(): SpeechSynthesisVoice | null {
  *  always naming a speechSynthesis voice that a cloud or neural engine has
  *  quietly replaced. */
 export function currentVoiceName(): string {
-  if (USE_ELEVENLABS || caps().tts) return 'ElevenLabs'
+  if (USE_ELEVENLABS) return 'ElevenLabs'
   if (TTS_ENGINE === 'kokoro' && !kokoro.isUnavailable()) {
-    return KOKORO_VOICE.replace(/^bm_/, '')
+    return kokoro.profile.label
   }
+  if (caps().tts) return 'ElevenLabs'
   return pickVoice()?.name ?? 'default'
 }
 
 /** Step to the next candidate — lets you audition voices on your own machine
  *  rather than trusting a ranking to be right about how they sound. */
 export function cycleVoice(): string {
+  if (TTS_ENGINE === 'kokoro' && !kokoro.isUnavailable()) return kokoro.profile.label
   const list = candidateVoices()
   if (!list.length) return 'default'
   const now = pickVoice()
@@ -419,12 +427,18 @@ export function createSpeaker(): Speaker {
 
   /** null means "no audio pipeline, use the system voice directly". */
   function synthesise(text: string): Promise<string | null> | null {
-    // Prefer the ElevenLabs voice whenever the bridge reports it is available —
-    // for a demo the timbre is worth the round trip, and this is what makes the
-    // premium path automatic with no flag to set. It falls back to the browser
-    // voice on any failure, so a student without a key still hears him speak.
-    // `nativeBroken` latches on once the system voice has proved unusable.
-    if (USE_ELEVENLABS || caps().tts || nativeBroken) {
+    // An explicit cloud flag wins. Otherwise an explicitly selected local
+    // neural engine stays local even when the bridge happens to expose TTS.
+    if (USE_ELEVENLABS) {
+      diag.engine = 'elevenlabs'
+      return fetchCloudAudio(text).catch(() => null)
+    }
+    if (TTS_ENGINE === 'kokoro' && !kokoro.isUnavailable()) {
+      diag.engine = 'kokoro'
+      return kokoro.speak(text).catch(() => null)
+    }
+    // Automatic cloud capability remains the rescue path for system speech.
+    if (caps().tts || nativeBroken) {
       // Recorded at the moment the tier is chosen rather than only when the
       // native voice latches over. Without this the panel reported 'system'
       // for a session that had spoken every one of its sentences through
@@ -432,10 +446,6 @@ export function createSpeaker(): Speaker {
       // exactly when you are trying to work out which engine is at fault.
       diag.engine = 'elevenlabs'
       return fetchCloudAudio(text).catch(() => null)
-    }
-    if (TTS_ENGINE === 'kokoro' && !kokoro.isUnavailable()) {
-      diag.engine = 'kokoro'
-      return kokoro.speak(text).catch(() => null)
     }
     diag.engine = 'system'
     return null
@@ -523,7 +533,7 @@ export function createSpeaker(): Speaker {
       const u = new SpeechSynthesisUtterance(text)
       const voice = pickVoice()
       if (voice) u.voice = voice
-      u.lang = voice?.lang ?? (IS_LCARS ? 'en-US' : 'en-GB')
+      u.lang = voice?.lang ?? (IS_COMPUTER ? 'en-US' : 'en-GB')
       // Deliberate, and deliberately invariant — the character's pace does not
       // change with stakes, and that steadiness is most of the effect. This
       // lands around 130 wpm, below the median for film dialogue.
@@ -644,15 +654,51 @@ export function createSpeaker(): Speaker {
       // see the onplaying handler below.
       diag.spoken++
       diag.lastText = text.slice(0, 60)
-      diag.voice = diag.engine === 'kokoro' ? KOKORO_VOICE : 'ElevenLabs'
+      diag.voice = diag.engine === 'kokoro' ? kokoro.profile.label : 'ElevenLabs'
 
       let read: (() => number) | null = null
       const ctx = outputContext()
       if (ctx) {
         try {
+          const source = ctx.createMediaElementSource(audio)
           const analyser = ctx.createAnalyser()
           analyser.fftSize = 256
-          ctx.createMediaElementSource(audio).connect(analyser)
+
+          if (diag.engine === 'kokoro') {
+            const profile = kokoro.profile
+            audio.playbackRate = profile.playbackRate
+
+            const highpass = ctx.createBiquadFilter()
+            highpass.type = 'highpass'
+            highpass.frequency.value = profile.highpassHz
+            highpass.Q.value = 0.7
+
+            const lowpass = ctx.createBiquadFilter()
+            lowpass.type = 'lowpass'
+            lowpass.frequency.value = profile.lowpassHz
+            lowpass.Q.value = 0.55
+
+            const presence = ctx.createBiquadFilter()
+            presence.type = 'peaking'
+            presence.frequency.value = profile.presenceHz
+            presence.Q.value = 0.9
+            presence.gain.value = profile.presenceDb
+
+            const compressor = ctx.createDynamicsCompressor()
+            compressor.threshold.value = profile.compression.threshold
+            compressor.ratio.value = profile.compression.ratio
+            compressor.attack.value = profile.compression.attack
+            compressor.release.value = profile.compression.release
+
+            source
+              .connect(highpass)
+              .connect(lowpass)
+              .connect(presence)
+              .connect(compressor)
+              .connect(analyser)
+          } else {
+            source.connect(analyser)
+          }
           analyser.connect(ctx.destination)
           const bins = new Uint8Array(analyser.frequencyBinCount)
           read = () => {

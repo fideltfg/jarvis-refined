@@ -18,14 +18,15 @@ import { BACKEND, BRIDGE_HTTP_URL, env } from '../config'
  */
 
 export type Capabilities = {
-  /** ElevenLabs speech-to-text (Scribe) is reachable via the bridge. */
+  /** Server-side speech-to-text is reachable via the bridge. */
   stt: boolean
+  sttProvider: 'elevenlabs' | 'openai' | null
   /** ElevenLabs text-to-speech is reachable via the bridge. */
   tts: boolean
 }
 
 /** Browser-only until the probe says otherwise. Safe default: the app works. */
-let current: Capabilities = { stt: false, tts: false }
+let current: Capabilities = { stt: false, sttProvider: null, tts: false }
 let probed = false
 
 /** The last known capabilities. Read synchronously by the voice and speech
@@ -47,7 +48,7 @@ export function capabilitiesProbed(): boolean {
 export async function probeCapabilities(): Promise<Capabilities> {
   if (BACKEND !== 'bridge') {
     // No bridge to ask. Direct mode has no server-side speech, so browser only.
-    current = { stt: false, tts: false }
+    current = { stt: false, sttProvider: null, tts: false }
     probed = true
     return current
   }
@@ -56,8 +57,16 @@ export async function probeCapabilities(): Promise<Capabilities> {
       signal: AbortSignal.timeout(3000),
     })
     if (res.ok) {
-      const h = (await res.json()) as { stt?: boolean; tts?: boolean }
-      current = { stt: Boolean(h.stt), tts: Boolean(h.tts) }
+      const h = (await res.json()) as {
+        stt?: boolean
+        sttProvider?: 'elevenlabs' | 'openai' | null
+        tts?: boolean
+      }
+      current = {
+        stt: Boolean(h.stt),
+        sttProvider: h.sttProvider ?? null,
+        tts: Boolean(h.tts),
+      }
     }
   } catch {
     // Bridge down or slow — stay on the browser engines rather than blocking
@@ -71,6 +80,7 @@ export async function probeCapabilities(): Promise<Capabilities> {
 export function engineLabel(): string {
   const c = current
   if (c.stt && c.tts) return 'ElevenLabs'
+  if (c.sttProvider === 'openai') return 'OpenAI hearing'
   if (c.tts) return 'ElevenLabs voice'
   // env.elevenKey is only meaningful in direct mode; harmless to mention.
   if (env.elevenKey && BACKEND !== 'bridge') return 'ElevenLabs (direct)'

@@ -1,29 +1,35 @@
 @import url('https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&display=swap');
 
 /* =========================================================================
-   LCARS — the Starfleet theme.
+   LCARS — the Starfleet theme, in the style of the U.S.S. Voyager.
 
    Loaded only when VITE_THEME=lcars (see main.tsx), and every rule is scoped
-   under [data-theme='lcars'] anyway, so nothing here can leak into the Iron
-   Man look. This file restyles the existing HUD rather than replacing it: the
+   under [data-theme='lcars'] anyway, so nothing here can leak into the other
+   themes. This file restyles the existing HUD rather than replacing it: the
    components are the same, the frame in LcarsFrame.tsx is the only new chrome.
 
    The grammar being quoted: flat colour on true black, no glow, no scanlines,
    rounded "elbows" joining thick bars to columns, tall condensed capitals, and
    black text set on coloured blocks rather than coloured text on black.
+
+   Voyager's dialect of it: blue and periwinkle carry the frame where the
+   Enterprise-D used orange, gold is kept for accents, and the panels are
+   busier — blinking data cells, churning codes, a light sweeping a bar.
    ========================================================================= */
 
 [data-theme='lcars'] {
   --bg: #000;
-  --interface: #ff9900;
+  --interface: #7a8cff;
 
-  --lc-orange: #ff9900;
-  --lc-peach: #ff9966;
-  --lc-tan: #ffcc99;
-  --lc-lilac: #cc99cc;
-  --lc-violet: #9999ff;
+  --lc-orange: #ff9933;
+  --lc-peach: #ffaa88;
+  --lc-tan: #f5c99b;
+  --lc-lilac: #b399ff;
+  --lc-violet: #7a8cff;
   --lc-blue: #99ccff;
-  --lc-red: #cc6666;
+  --lc-ice: #d4e6ff;
+  --lc-navy: #34529e;
+  --lc-red: #e05a5a;
   --lc-gold: #ffaa00;
 
   /* Frame geometry. The column is the spine everything else lines up to. */
@@ -48,12 +54,20 @@
 [data-theme='lcars'] .lc-c-violet { background: var(--lc-violet); }
 [data-theme='lcars'] .lc-c-blue   { background: var(--lc-blue); }
 [data-theme='lcars'] .lc-c-red    { background: var(--lc-red); }
+[data-theme='lcars'] .lc-c-peach  { background: var(--lc-peach); }
+[data-theme='lcars'] .lc-c-gold   { background: var(--lc-gold); }
+[data-theme='lcars'] .lc-c-sky    { background: var(--lc-blue); }
+[data-theme='lcars'] .lc-c-ice    { background: var(--lc-ice); }
+/* The one dark block in the set; black would vanish on it. */
+[data-theme='lcars'] .lc-c-navy   { background: var(--lc-navy); color: var(--lc-ice); }
 
 [data-theme='lcars'] .lc-t-orange { color: var(--lc-orange); }
 [data-theme='lcars'] .lc-t-tan    { color: var(--lc-tan); }
 [data-theme='lcars'] .lc-t-lilac  { color: var(--lc-lilac); }
 [data-theme='lcars'] .lc-t-blue   { color: var(--lc-blue); }
 [data-theme='lcars'] .lc-t-violet { color: var(--lc-violet); }
+[data-theme='lcars'] .lc-t-ice    { color: var(--lc-ice); }
+[data-theme='lcars'] .lc-t-gold   { color: var(--lc-gold); }
 
 /* ----------------------------------------------------------------- frame */
 
@@ -152,7 +166,7 @@
 }
 [data-theme='lcars'] .lc-elbow-down::after {
   top: 0;
-  height: calc(52px - 16px);
+  height: calc(52px - 12px);
   border-bottom-left-radius: 22px;
 }
 
@@ -163,7 +177,7 @@
 }
 [data-theme='lcars'] .lc-elbow-up::after {
   bottom: 0;
-  height: calc(64px - 28px);
+  height: calc(64px - 22px);
   border-top-left-radius: 24px;
 }
 
@@ -177,11 +191,12 @@
 }
 [data-theme='lcars'] .lc-bar-thin {
   bottom: 0;
-  height: 16px;
+  height: 12px;
+  overflow: hidden;
 }
 [data-theme='lcars'] .lc-bar-thick {
   top: 0;
-  height: 28px;
+  height: 22px;
 }
 
 [data-theme='lcars'] .lc-seg {
@@ -192,12 +207,62 @@
   border-radius: 0 999px 999px 0;
 }
 
-/* While it works, one bar segment breathes — the only motion in the frame. */
-[data-theme='lcars'] .lc-busy .lc-pulse {
-  animation: lcPulse 0.9s ease-in-out infinite;
+/* The data-cell bank in the thick bar. At rest it sits dim and still; while
+   the computer works each cell blinks on its own offset, the Voyager panel
+   chatter. */
+[data-theme='lcars'] .lc-cells {
+  display: flex;
+  gap: 3px;
+  height: 100%;
 }
-@keyframes lcPulse {
-  50% { background: var(--lc-peach); opacity: 0.45; }
+[data-theme='lcars'] .lc-cell {
+  flex: 1 1 0;
+  height: 100%;
+  opacity: 0.35;
+  transition: opacity 300ms ease;
+}
+[data-theme='lcars'] .lc-busy .lc-cell {
+  opacity: 1;
+  animation: lcCell 0.9s steps(2, jump-none) infinite;
+}
+@keyframes lcCell {
+  50% { opacity: 0.2; }
+}
+
+/* While it speaks, a band of light runs along the thin bar. */
+[data-theme='lcars'] .lc-sweep {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(90deg, transparent 0, rgba(255, 255, 255, 0.75) 50%, transparent 100%);
+  background-size: 18% 100%;
+  background-repeat: no-repeat;
+  background-position: -20% 0;
+  transition: opacity 300ms ease;
+}
+[data-theme='lcars'] .lc-speaking .lc-sweep {
+  opacity: 1;
+  animation: lcSweep 1.6s linear infinite;
+}
+@keyframes lcSweep {
+  to { background-position: 120% 0; }
+}
+
+/* Column codes flicker as they churn. */
+[data-theme='lcars'] .lc-busy .lc-col-long .lc-blk {
+  animation: lcFlicker 0.7s steps(1) infinite;
+}
+@keyframes lcFlicker {
+  85% { filter: brightness(1.35); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-theme='lcars'] .lc-busy .lc-cell,
+  [data-theme='lcars'] .lc-speaking .lc-sweep,
+  [data-theme='lcars'] .lc-busy .lc-col-long .lc-blk {
+    animation: none;
+  }
 }
 
 /* ------------------------------------------------------------------- hud */
@@ -226,7 +291,7 @@
   line-height: 0.9;
   font-weight: 700;
   letter-spacing: 0.04em;
-  color: var(--lc-orange);
+  color: var(--lc-blue);
   text-shadow: none;
 }
 
@@ -254,12 +319,12 @@
 
 [data-theme='lcars'] .provider-control {
   margin: 6px 0 0;
-  color: var(--lc-orange);
+  color: var(--lc-blue);
 }
 
 [data-theme='lcars'] .provider-control select {
-  border-color: var(--lc-orange);
-  color: var(--lc-orange);
+  border-color: var(--lc-blue);
+  color: var(--lc-blue);
 }
 
 [data-theme='lcars'] .dot {
@@ -299,8 +364,9 @@
   text-transform: uppercase;
 }
 [data-theme='lcars'] .rail-left .rail-item:nth-child(3n) { background: var(--lc-lilac); }
-[data-theme='lcars'] .rail-left .rail-item:nth-child(3n + 1) { background: var(--lc-tan); }
-[data-theme='lcars'] .rail-left .rail-item.dim { background: #333; color: #999; }
+[data-theme='lcars'] .rail-left .rail-item:nth-child(3n + 1) { background: var(--lc-blue); }
+[data-theme='lcars'] .rail-left .rail-item:nth-child(4n) { background: var(--lc-gold); }
+[data-theme='lcars'] .rail-left .rail-item.dim { background: #1c2438; color: #7d8bb0; }
 
 [data-theme='lcars'] .rail-left .tick { display: none; }
 
@@ -380,27 +446,27 @@
   letter-spacing: 0.16em;
   color: #000;
   opacity: 1;
-  background: var(--lc-blue);
+  background: var(--lc-tan);
 }
-[data-theme='lcars'] .log-jarvis .log-who { background: var(--lc-orange); }
+[data-theme='lcars'] .log-jarvis .log-who { background: var(--lc-violet); }
 
 [data-theme='lcars'] .log-user .log-text {
-  color: var(--lc-blue);
+  color: var(--lc-tan);
   opacity: 0.85;
 }
 [data-theme='lcars'] .log-jarvis .log-text {
-  color: var(--lc-tan);
+  color: var(--lc-ice);
   text-shadow: none;
 }
 
 [data-theme='lcars'] .decode-ghost {
-  color: var(--lc-orange);
+  color: var(--lc-blue);
   text-shadow: none;
 }
 
 [data-theme='lcars'] .caption {
   left: calc(50% + (var(--lc-col) / 2));
-  color: var(--lc-blue);
+  color: var(--lc-ice);
   font-size: 20px;
 }
 
@@ -430,7 +496,7 @@
 [data-theme='lcars'] .hud-bottom {
   bottom: calc(var(--lc-gutter) + 10px);
   padding-left: calc(var(--lc-col) + var(--lc-gutter));
-  color: var(--lc-tan);
+  color: var(--lc-blue);
   opacity: 0.6;
   font-size: 11px;
   letter-spacing: 0.14em;
@@ -441,7 +507,7 @@
   border: 0;
   border-radius: 999px;
   padding: 1px 8px;
-  background: var(--lc-tan);
+  background: var(--lc-blue);
   color: #000;
   font-size: 10px;
 }
@@ -501,7 +567,7 @@
   font-size: 12px;
 }
 [data-theme='lcars'] .bl-btn:hover {
-  background: var(--lc-lilac);
+  background: var(--lc-blue);
   color: #000;
   border-color: transparent;
 }
@@ -510,7 +576,7 @@
 
 [data-theme='lcars'] .ignition {
   background: #000;
-  color: var(--lc-orange);
+  color: var(--lc-violet);
 }
 [data-theme='lcars'] .ignition-ring {
   display: none;
@@ -521,7 +587,7 @@
 [data-theme='lcars'] .ignition-word {
   padding: 16px 56px 16px 64px;
   border-radius: 999px;
-  background: var(--lc-orange);
+  background: var(--lc-violet);
   color: #000;
   font-size: 26px;
   font-weight: 700;
@@ -537,7 +603,7 @@
   text-shadow: none;
 }
 [data-theme='lcars'] .ignition-sub {
-  color: var(--lc-tan);
+  color: var(--lc-blue);
   font-size: 12px;
   opacity: 0.7;
 }
@@ -545,11 +611,14 @@
 /* ------------------------------------------------------------------ boot */
 
 [data-theme='lcars'] .lcboot {
+  /* Above the HUD, as the other classic boots are — the frame and brand
+     underneath would otherwise print through the systems check. */
+  z-index: 20;
   display: grid;
   grid-template-rows: auto 1fr auto;
   gap: 10px;
   padding: var(--lc-gutter);
-  color: var(--lc-orange);
+  color: var(--lc-blue);
 }
 
 [data-theme='lcars'] .lcboot-upper,
@@ -572,7 +641,7 @@
   bottom: 0;
   width: calc(var(--lc-col) + 60px);
   height: 72px;
-  background: var(--lc-orange);
+  background: var(--lc-violet);
   border-bottom-left-radius: 50px;
 }
 [data-theme='lcars'] .lcboot-elbow::after {
@@ -589,7 +658,7 @@
   top: 0;
   bottom: auto;
   height: 64px;
-  background: var(--lc-lilac);
+  background: var(--lc-blue);
   border-bottom-left-radius: 0;
   border-top-left-radius: 50px;
 }
@@ -659,12 +728,12 @@
   from { opacity: 0; transform: translateX(-12px); }
 }
 [data-theme='lcars'] .lcboot-check-name {
-  color: var(--lc-tan);
+  color: var(--lc-ice);
   white-space: nowrap;
 }
 [data-theme='lcars'] .lcboot-check-dots {
   flex: 1 1 auto;
-  border-bottom: 2px dotted #444;
+  border-bottom: 2px dotted #2c3a5c;
   transform: translateY(-4px);
 }
 [data-theme='lcars'] .lcboot-check-state {
@@ -674,7 +743,7 @@
   text-align: right;
   font-size: 13px;
   color: #000;
-  background: var(--lc-lilac);
+  background: var(--lc-gold);
   animation: lcBlink 0.5s steps(2) infinite;
 }
 [data-theme='lcars'] .lcboot-ok {
@@ -731,7 +800,7 @@
 [data-theme='lcars'] .lcboot-granted {
   padding: 8px 28px;
   border-radius: 999px;
-  background: var(--lc-orange);
+  background: var(--lc-blue);
   color: #000;
   font-size: 20px;
   font-weight: 600;
@@ -749,14 +818,14 @@
 }
 [data-theme='lcars'] .lcboot-cell {
   flex: 1 1 0;
-  background: #222;
+  background: #141b2c;
   transition: background 200ms ease;
 }
 [data-theme='lcars'] .lcboot-cell:last-child {
   border-radius: 0 999px 999px 0;
 }
 [data-theme='lcars'] .lcboot-cell[data-on='1'] {
-  background: var(--lc-lilac);
+  background: var(--lc-violet);
 }
 
 /* ------------------------------------------------------------ small screens */

@@ -7,7 +7,8 @@ import { Effects } from './Effects'
 import { Pointer } from './Pointer'
 import { GestureGuide } from './GestureGuide'
 import { LcarsFrame } from './LcarsFrame'
-import { copy, IS_LCARS } from '../theme'
+import { THEME } from '../config'
+import { copy } from '../theme'
 import { providerState, watchProviders, selectProvider, usingBridge } from '../lib/brain'
 
 const statusText: Record<Phase, string> = copy.status
@@ -175,13 +176,13 @@ export function Hud() {
   }, [ui.background])
 
   return (
-    <div className="hud" style={{ ['--accent' as string]: colour }}>
+    <div className={`hud hud-${phase}`} style={{ ['--accent' as string]: colour }}>
       {/* First in the tree on purpose. Everything after it is positioned with
           `z-index: auto`, so paint order is document order and the sweep stays
           behind the transcript and the panels without a z-index war. */}
       <BladeSweep />
 
-      {IS_LCARS ? (
+      {THEME === 'lcars' ? (
         <LcarsFrame phase={phase} />
       ) : (
         <>

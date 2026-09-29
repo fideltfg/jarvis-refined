@@ -13,13 +13,12 @@
  * this file is only the fallback for when that file isn't there.
  */
 
-import { IS_LCARS } from '../theme'
+import { THEME, type Theme } from '../config'
 
 type Cue = 'boot' | 'wake' | 'listen' | 'tool' | 'done' | 'error'
 
-/** Each theme looks for its own recordings, so dropping in LCARS chirps never
- *  replaces the Iron Man set and vice versa. */
-const OVERRIDE_DIR = IS_LCARS ? '/audio/lcars' : '/audio'
+/** Each theme looks for its own recordings, so overrides never cross themes. */
+const OVERRIDE_DIR = THEME === 'stark' ? '/audio' : `/audio/${THEME}`
 
 let ctx: AudioContext | null = null
 let master: GainNode | null = null
@@ -80,7 +79,10 @@ export async function unlockAudio(): Promise<void> {
        */
     }
   }
-  void loadOverrides()
+  await Promise.race([
+    loadOverrides(),
+    new Promise<void>((resolve) => setTimeout(resolve, 250)),
+  ])
 }
 
 /** Pick up any real audio files the user has dropped into public/audio/. */
@@ -208,6 +210,83 @@ const synth: Record<Cue, () => void> = {
   },
 }
 
+/** Sparse, rounded tones: a large machine speaking through one perfect lens. */
+const hal: Record<Cue, () => void> = {
+  boot: () => {
+    blip(48, { dur: 6.4, type: 'sine', gain: 0.16, sweepTo: 72 })
+    blip(96, { at: 0.4, dur: 5.8, type: 'sine', gain: 0.05, sweepTo: 144 })
+    blip(523, { at: 3.2, dur: 1.1, type: 'sine', gain: 0.12 })
+    blip(659, { at: 6.7, dur: 0.8, type: 'sine', gain: 0.16 })
+  },
+  wake: () => blip(523, { dur: 0.42, type: 'sine', gain: 0.18 }),
+  listen: () => blip(392, { dur: 0.18, type: 'sine', gain: 0.08 }),
+  tool: () => {
+    blip(174, { dur: 0.07, type: 'sine', gain: 0.1 })
+    blip(261, { at: 0.12, dur: 0.16, type: 'sine', gain: 0.09 })
+  },
+  done: () => blip(659, { dur: 0.36, type: 'sine', gain: 0.12 }),
+  error: () => {
+    blip(82, { dur: 0.55, type: 'sine', gain: 0.18 })
+    blip(87, { at: 0.04, dur: 0.58, type: 'sine', gain: 0.12 })
+  },
+}
+
+/** Hard-edged command-terminal tones, with boot chatter that reads as a modem. */
+const wopr: Record<Cue, () => void> = {
+  boot: () => {
+    noise({ dur: 1.4, gain: 0.08, from: 5000, to: 350 })
+    const data = [440, 880, 587, 1174, 392, 784, 659, 1318, 523, 1046, 330, 660]
+    data.forEach((freq, index) =>
+      blip(freq, { at: 0.35 + index * 0.17, dur: 0.1, type: 'square', gain: 0.055 }),
+    )
+    blip(110, { at: 2.7, dur: 3.8, type: 'sawtooth', gain: 0.04, sweepTo: 220 })
+    blip(880, { at: 6.8, dur: 0.12, type: 'square', gain: 0.12 })
+    blip(880, { at: 7.05, dur: 0.2, type: 'square', gain: 0.12 })
+  },
+  wake: () => {
+    blip(697, { dur: 0.08, type: 'square', gain: 0.1 })
+    blip(1209, { at: 0.1, dur: 0.12, type: 'square', gain: 0.1 })
+  },
+  listen: () => blip(880, { dur: 0.07, type: 'square', gain: 0.06 }),
+  tool: () => {
+    ;[1760, 1174, 1568].forEach((freq, index) =>
+      blip(freq, { at: index * 0.045, dur: 0.035, type: 'square', gain: 0.045 }),
+    )
+  },
+  done: () => {
+    blip(988, { dur: 0.08, type: 'square', gain: 0.08 })
+    blip(659, { at: 0.1, dur: 0.14, type: 'square', gain: 0.07 })
+  },
+  error: () => blip(185, { dur: 0.62, type: 'sawtooth', gain: 0.12 }),
+}
+
+/** Relays, ventilation and blunt terminal acknowledgements for an old ship core. */
+const mother: Record<Cue, () => void> = {
+  boot: () => {
+    noise({ dur: 6.6, gain: 0.075, from: 90, to: 900 })
+    blip(42, { dur: 6.8, type: 'sawtooth', gain: 0.08, sweepTo: 63 })
+    ;[0.5, 1.25, 2.1, 3.05, 4.1, 5.2].forEach((at, index) => {
+      noise({ at, dur: 0.07, gain: 0.09, from: 2600, to: 420 })
+      blip(index % 2 ? 196 : 174, { at, dur: 0.08, type: 'square', gain: 0.055 })
+    })
+    blip(294, { at: 6.5, dur: 0.65, type: 'triangle', gain: 0.13 })
+  },
+  wake: () => {
+    noise({ dur: 0.08, gain: 0.07, from: 2400, to: 500 })
+    blip(294, { at: 0.06, dur: 0.2, type: 'triangle', gain: 0.09 })
+  },
+  listen: () => blip(220, { dur: 0.12, type: 'triangle', gain: 0.06 }),
+  tool: () => {
+    noise({ dur: 0.09, gain: 0.065, from: 3200, to: 380 })
+    blip(147, { at: 0.04, dur: 0.12, type: 'square', gain: 0.055 })
+  },
+  done: () => blip(294, { dur: 0.28, type: 'triangle', gain: 0.09 }),
+  error: () => {
+    blip(92, { dur: 0.42, type: 'square', gain: 0.11 })
+    noise({ at: 0.1, dur: 0.35, gain: 0.06, from: 700, to: 120 })
+  },
+}
+
 /**
  * The starship set. LCARS panels talk in short, pure, slightly hollow tones —
  * triangle waves, high register, no sweeps, no noise — stepped rather than
@@ -257,6 +336,14 @@ const lcars: Record<Cue, () => void> = {
   },
 }
 
+const CUE_BANKS: Record<Theme, Record<Cue, () => void>> = {
+  stark: synth,
+  hal,
+  wopr,
+  mother,
+  lcars,
+}
+
 export function play(cue: Cue) {
   if (!ctx || ctx.state !== 'running') return
 
@@ -268,15 +355,20 @@ export function play(cue: Cue) {
     src.start()
     return
   }
-  ;(IS_LCARS ? lcars : synth)[cue]()
+  CUE_BANKS[THEME][cue]()
 }
 
 // ---------------------------------------------------------------------------
 // Ambient bed
 // ---------------------------------------------------------------------------
 
-/** Resting level of the synthesised bed. */
-const BED = 0.05
+const AMBIENT: Record<Theme, { tones: [number, number]; noise: number; cutoff: number; level: number }> = {
+  stark: { tones: [55, 55.6], noise: 0.06, cutoff: 260, level: 0.05 },
+  hal: { tones: [48, 96], noise: 0.012, cutoff: 180, level: 0.026 },
+  wopr: { tones: [60, 120], noise: 0.035, cutoff: 420, level: 0.032 },
+  mother: { tones: [42, 43.2], noise: 0.16, cutoff: 190, level: 0.06 },
+  lcars: { tones: [46, 46.4], noise: 0.07, cutoff: 230, level: 0.04 },
+}
 
 /**
  * A quiet room tone under everything. Two detuned low oscillators through a
@@ -284,9 +376,7 @@ const BED = 0.05
  * interface feeling powered rather than paused.
  *
  * For JARVIS this is only a fallback: when public/audio/ambient.mp3 is present
- * music.ts owns this layer. For the LCARS theme it IS the bed — two detuned
- * fifty-five hertz tones through a lowpass are, near enough, a starship's
- * engine hum.
+ * music.ts owns this layer.
  */
 export function startAmbient() {
   if (ambient || !ctx || ctx.state !== 'running') return
@@ -299,12 +389,13 @@ export function startAmbient() {
   const frames = c.sampleRate * 4
   const buf = c.createBuffer(1, frames, c.sampleRate)
   const data = buf.getChannelData(0)
+  const profile = AMBIENT[THEME]
   for (let i = 0; i < frames; i++) {
     const t = i / c.sampleRate
     data[i] =
-      (Math.sin(2 * Math.PI * 55 * t) * 0.5 +
-        Math.sin(2 * Math.PI * 55.6 * t) * 0.5 + // slight detune = slow beating
-        (Math.random() * 2 - 1) * 0.06) *
+      (Math.sin(2 * Math.PI * profile.tones[0] * t) * 0.5 +
+        Math.sin(2 * Math.PI * profile.tones[1] * t) * 0.5 +
+        (Math.random() * 2 - 1) * profile.noise) *
       0.5
   }
 
@@ -314,12 +405,12 @@ export function startAmbient() {
 
   const lp = c.createBiquadFilter()
   lp.type = 'lowpass'
-  lp.frequency.value = 260
+  lp.frequency.value = profile.cutoff
 
   source.connect(lp).connect(gain)
   source.start()
   ambient = { source, gain }
-  rampTo(gain.gain, BED, 3)
+  rampTo(gain.gain, profile.level, 3)
 }
 
 export function stopAmbient() {

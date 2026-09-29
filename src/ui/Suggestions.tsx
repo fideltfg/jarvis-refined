@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useStore } from '../store'
-import { copy, IS_LCARS } from '../theme'
+import { THEME } from '../config'
+import { copy } from '../theme'
 
 /**
  * Rotating example commands, shown only while idle.
@@ -14,7 +15,15 @@ import { copy, IS_LCARS } from '../theme'
  */
 const EXAMPLES = [
   'what happened in AI this week',
-  IS_LCARS ? 'generate an image of a starship in orbit' : 'generate an image of the Mark Seven suit',
+  THEME === 'hal'
+      ? 'show me the mission systems'
+      : THEME === 'wopr'
+        ? 'run a strategic weather simulation'
+        : THEME === 'mother'
+          ? 'display the ship status'
+          : THEME === 'lcars'
+            ? 'run a level one diagnostic'
+            : 'generate an image of the Mark Seven suit',
   'take a screenshot of my phone',
   "what's on my calendar tomorrow",
   'search for the best coffee near me',

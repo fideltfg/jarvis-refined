@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { useStore } from '../store'
+import { copy } from '../theme'
 
 /**
  * The start-up sequence, rebuilt to the Iron Man boot it is quoting.
@@ -78,7 +79,7 @@ export function Boot() {
         <div className={`boot-bar ${stage !== 'bar' ? 'boot-bar-dim' : ''}`}>
           <div className="boot-bar-frame">
             <span className="boot-bar-title">
-              INITIATING SYSTEM 1<span className="boot-dots">…</span>
+              {copy.status.boot}<span className="boot-dots">…</span>
               <span className="boot-cursor" />
             </span>
             <div className="boot-seg">
@@ -146,7 +147,7 @@ function Rings({ reduced }: { reduced: boolean }) {
         animate={{ opacity: 1, letterSpacing: '0.42em' }}
         transition={{ duration: 0.7, delay: 0.5, ease }}
       >
-        J.A.R.V.I.S
+        {copy.brand}
       </motion.text>
     </svg>
   )

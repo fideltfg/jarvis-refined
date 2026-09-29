@@ -6,7 +6,7 @@ import { startVad, type Vad } from './vad'
 import { caps } from './capabilities'
 import { getProfile, verify, warmSpeaker } from './speaker'
 import { startOwnerGate, type OwnerGate } from './owner'
-import { IS_LCARS, NAME_PATTERN } from '../theme'
+import { NAME_PATTERN, SPEECH_LANGUAGE, WAKE_PHRASES } from '../theme'
 
 /**
  * The voice loop.
@@ -90,9 +90,10 @@ const WAKE_DEBOUNCE = 1500
  * used to be silently discarded, so the wake word "just didn't work" with no
  * indication why. Better a rare false wake than a name that does not answer.
  */
-const WAKE = IS_LCARS
-  ? new RegExp(`\\b(?:hey|hi|ok|okay)?\\s*${NAME_PATTERN}\\b(?!'s)`, 'i')
-  : /\b(?:hey|hi|ok|okay|yo)?\s*(?:jarvis|jarvys|jervis|jarvis's|travis|jarviss|java's|jarv)\b(?!'s)/i
+const WAKE = new RegExp(
+  `\\b(?:hey|hi|ok|okay|yo)?\\s*${NAME_PATTERN}\\b(?!'s)`,
+  'i',
+)
 
 /** Everything after the wake phrase, which is usually the actual command. */
 function afterWake(text: string): string {
@@ -102,6 +103,13 @@ function afterWake(text: string): string {
     .slice(m.index + m[0].length)
     .replace(/^[\s,.:;!?-]+/, '')
     .trim()
+}
+
+/** Short wake names are often normalized into common words by a general STT
+ *  model. Correct only an isolated dormant utterance, never a real command. */
+function normalizeWake(text: string): string {
+  if (WAKE_PHRASES[0] === 'Hal' && /^how[\s,.!?]*$/i.test(text)) return 'Hal'
+  return text
 }
 
 // ---------------------------------------------------------------------------
@@ -316,7 +324,7 @@ function makeAssembler(h: {
  * apart in one glance.
  */
 export const diag = {
-  /** Which input engine is running: 'elevenlabs' (VAD+Scribe) or 'browser'. */
+  /** Which input engine is running: server transcription or browser speech. */
   engine: 'browser',
   /** Whether the microphone pipeline is live. */
   running: false,
@@ -329,6 +337,12 @@ export const diag = {
   lastError: '',
   /** Times the wake word matched. */
   wakes: 0,
+  /** Theme-specific names the recogniser is expected to preserve. */
+  wakePhrases: [...WAKE_PHRASES],
+  /** Exact matcher used after transcription. */
+  wakePattern: WAKE.source,
+  /** Recognition locale, kept independent from the output voice. */
+  language: SPEECH_LANGUAGE,
   /** Current mode, as the app last reported it. */
   mode: '',
   /** Why the last transcript was ignored — '' when it was accepted. */
@@ -388,7 +402,7 @@ export async function startVoice(h: VoiceHandlers): Promise<Voice> {
     )
     return { stop: () => {}, live: () => false }
   }
-  diag.engine = caps().stt ? 'elevenlabs' : 'browser'
+  diag.engine = caps().sttProvider ?? 'browser'
 
   /**
    * Whether the speaker gate can run at all.
@@ -408,11 +422,11 @@ export async function startVoice(h: VoiceHandlers): Promise<Voice> {
   diag.gate = enrolled ? 'on' : 'off'
   if (enrolled) warmSpeaker()
 
-  return caps().stt ? startElevenVoice(h) : startBrowserVoice(h)
+  return caps().stt ? startServerVoice(h) : startBrowserVoice(h)
 }
 
-/** VAD + ElevenLabs Scribe. */
-async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
+/** Local VAD plus transcription through the configured bridge provider. */
+async function startServerVoice(h: VoiceHandlers): Promise<Voice> {
   let lastWake = 0
   let vad: Vad | null = null
 
@@ -501,7 +515,8 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
     const whose = verify(blob, ms)
 
     try {
-      const res = await fetch(`${BRIDGE_HTTP_URL}/stt`, {
+      const wake = encodeURIComponent(WAKE_PHRASES.join(', '))
+      const res = await fetch(`${BRIDGE_HTTP_URL}/stt?wake=${wake}`, {
         method: 'POST',
         headers: { 'content-type': blob.type || 'audio/webm' },
         body: blob,
@@ -515,7 +530,8 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
         return
       }
       const { text } = (await res.json()) as { text?: string }
-      const said = (text ?? '').trim()
+      const raw = (text ?? '').trim()
+      const said = mode === 'wake' ? normalizeWake(raw) : raw
       diag.lastError = ''
 
       if (!said) {
@@ -723,11 +739,14 @@ async function startBrowserVoice(h: VoiceHandlers): Promise<Voice> {
   let running = false
   let rec: any = null
   let settled = ''
+  const finalResults = new Map<number, string>()
   let interim = ''
   let started = false
   let barged = false
   let lastWake = 0
   let lastAlive = Date.now()
+  let consumedWakeThrough = -1
+  let phraseBias = true
   let silenceTimer: ReturnType<typeof setTimeout> | null = null
   /** When the words currently being assembled were first seen. The voiceprint
    *  is asked about that moment, not about now. */
@@ -783,6 +802,7 @@ async function startBrowserVoice(h: VoiceHandlers): Promise<Voice> {
   const reset = () => {
     clearSilence()
     settled = ''
+    finalResults.clear()
     interim = ''
     started = false
     barged = false
@@ -877,26 +897,40 @@ async function startBrowserVoice(h: VoiceHandlers): Promise<Voice> {
       interim = ''
       return
     }
-    let fresh = ''
+    let first = e.resultIndex
+    if (consumedWakeThrough >= 0) {
+      first = Math.max(first, consumedWakeThrough + 1)
+      if (first >= e.results.length) return
+      consumedWakeThrough = -1
+    }
     interim = ''
-    for (let i = e.resultIndex; i < e.results.length; i++) {
+    for (let i = first; i < e.results.length; i++) {
       const chunk = e.results[i][0].transcript as string
-      if (e.results[i].isFinal) fresh += chunk
+      if (e.results[i].isFinal) finalResults.set(i, chunk)
       else interim += chunk
     }
-    const heard = `${settled}${fresh} ${interim}`.replace(/\s+/g, ' ').trim()
+    settled = [...finalResults.entries()]
+      .sort(([left], [right]) => left - right)
+      .map(([, text]) => text)
+      .join(' ')
+    const rawHeard = `${settled} ${interim}`.replace(/\s+/g, ' ').trim()
+    const heard = mode === 'wake' ? normalizeWake(rawHeard) : rawHeard
     if (!heard) return
-    if (isEcho(`${fresh} ${interim}`, speakingNow())) {
+    if (isEcho(heard, speakingNow())) {
       interim = ''
       return
     }
 
     if (mode === 'wake') {
-      settled += fresh
       if (WAKE.test(heard) && Date.now() - lastWake > WAKE_DEBOUNCE) {
+        const trailing = afterWake(heard)
+        const latest = e.results[e.results.length - 1]
+        // A bare name often arrives as the first interim result of a longer
+        // one-breath command. Wait for finality unless words already follow it.
+        if (!trailing && !latest?.isFinal) return
         lastWake = Date.now()
         diag.wakes++
-        const trailing = afterWake(heard)
+        consumedWakeThrough = e.results.length - 1
         reset()
         h.onWake(trailing)
       } else if (settled.length > 400) {
@@ -905,7 +939,6 @@ async function startBrowserVoice(h: VoiceHandlers): Promise<Voice> {
       return
     }
 
-    settled += fresh
     if (!speechFrom) speechFrom = Date.now()
     const full = `${settled} ${interim}`.replace(/\s+/g, ' ').trim()
     /** True while this utterance is ducked and not yet placed as the owner's. */
@@ -1000,16 +1033,38 @@ async function startBrowserVoice(h: VoiceHandlers): Promise<Voice> {
     rec = new Ctor()
     rec.continuous = true
     rec.interimResults = true
-    rec.lang = 'en-GB'
+    rec.lang = SPEECH_LANGUAGE
+    // Chrome's contextual-bias API keeps unusual proper names from being
+    // normalized into more common words before our matcher sees them. Older
+    // browsers simply lack the constructor and continue without the hint.
+    const Phrase = (window as any).SpeechRecognitionPhrase
+    if (Phrase && phraseBias && 'phrases' in rec) {
+      try {
+        rec.phrases = WAKE_PHRASES.map((phrase) => new Phrase(phrase, 10))
+      } catch {
+        /* contextual bias is optional */
+      }
+    }
     rec.onstart = () => {
       running = true
       diag.running = true
+      diag.lastError = ''
       diag.sessions++
       touch()
     }
     rec.onresult = onResult
     rec.onerror = (ev: any) => {
       diag.lastError = String(ev.error ?? '')
+      if (ev.error === 'phrases-not-supported') {
+        phraseBias = false
+        diag.lastError = ''
+        try {
+          rec?.abort()
+        } catch {
+          /* recogniser is already restarting */
+        }
+        return
+      }
       if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') {
         stopped = true
         diag.running = false

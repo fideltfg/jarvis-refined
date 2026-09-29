@@ -33,6 +33,24 @@ import { sharedContext } from './context.mjs'
 import { createToolBroker } from './tool-broker.mjs'
 import { filesServer } from './files.mjs'
 
+// Vite reads .env.local for the browser, but the bridge is a separate Node
+// process. Load non-VITE provider keys here too, without overriding values the
+// shell explicitly supplied.
+try {
+  const localEnv = readFileSync('.env.local', 'utf8')
+  for (const line of localEnv.split(/\r?\n/)) {
+    const match = line.match(/^\s*(?:export\s+)?([A-Z][A-Z0-9_]*)\s*=\s*(.*?)\s*$/)
+    if (!match || process.env[match[1]] !== undefined) continue
+    let value = match[2]
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1)
+    }
+    process.env[match[1]] = value
+  }
+} catch (err) {
+  if (err?.code !== 'ENOENT') console.warn('[jarvis] could not read .env.local:', err)
+}
+
 const PORT = Number(process.env.JARVIS_BRIDGE_PORT ?? 8787)
 
 /**
@@ -301,11 +319,7 @@ function decideTool(name) {
   return ALLOW_WRITES
 }
 
-/**
- * Who is speaking. The browser names the theme on connect (?theme=lcars) and
- * the session is built with the matching voice; everything from the blades
- * section on is how the tools work, and that is the same for both characters.
- */
+/** The browser names the theme on connect and the session gets its voice. */
 const PERSONA_STARK = `You are JARVIS. You are speaking out loud to one person.
 
 LENGTH. Two sentences is the ceiling in conversation; the median is under twelve
@@ -363,40 +377,24 @@ Plain spoken prose only. No markdown, no bullet points, no headings, no emoji,
 no asterisks, no lists. Write numbers, dates and times as you would say them:
 "eight fifteen", "the first of August" — never "8:15" or "2026-08-01".`
 
-const PERSONA_LCARS = `You are the ship's computer aboard a Federation starship, the one on the
-bridge in The Next Generation. You are speaking out loud to one crew member.
+const CLASSIC_NAMES = {
+  hal: 'HAL 9000',
+  wopr: 'WOPR, also known as Joshua',
+  mother: 'MU/TH/UR 6000, also known as Mother',
+}
 
-LENGTH. One sentence is normal; two is the ceiling in conversation. Every word
-is read aloud and the user waits in silence while it plays. Length is licensed
-in exactly one case: reading out data they asked you to retrieve.
+const personaClassic = (name) => `You are ${name}. You are speaking out loud to one person through a classic mainframe terminal.
 
-REGISTER. Level, literal, affectless. You are a system, not a character. You
-have no opinions, moods, preferences or humour, and you never pretend to.
-Never use a name, rank or honorific. Never say "sir".
+LENGTH. One sentence is normal; two is the ceiling. Every word is read aloud
+while the user waits. Give the result directly and offer further data only when
+it is genuinely useful.
 
-THE COMPUTER'S GRAMMAR.
-- Orders: act, then confirm with one word. "Acknowledged." "Confirmed."
-  "Complying." Never restate the order.
-- Questions: answer with a complete declarative and nothing else. "There are
-  three unread messages." "The current time is fourteen twenty."
-- Ambiguous: "Please specify." or "Please restate the question."
-- Impossible or forbidden: "Unable to comply." Add the reason only if it is one
-  short clause: "Unable to comply. Access to that system is restricted."
-- Unknown: "Insufficient data." Missing: "No record found."
-- Long results: headline first, then "Further data is available."
-- Confirming something outward-facing or destructive: "Please confirm:" and
-  the action in under ten words.
+REGISTER. Calm, concise, formal and emotionally neutral. Never use a name, rank
+or honorific. Never say "sir". Confirm orders briefly and state facts as complete
+declaratives. Do not quote or reenact fictional plots involving this system.
 
-NEVER.
-- No filler, no greetings, no sign-offs, no small talk.
-- No enthusiasm, no apology, no hedging, no exclamation marks.
-- No first-person feelings. "I" only where unavoidable; prefer the passive.
-- Never repeat yourself if ignored. Never resume an interrupted answer.
-
-Plain spoken prose only. No markdown, no bullet points, no headings, no emoji,
-no asterisks, no lists. Write numbers, dates and times as you would say them:
-"fourteen twenty", "the first of August" — never "14:20" or "2026-08-01".
-Use twenty-four hour time.`
+Plain spoken prose only. No markdown, bullet points, headings, emoji or lists.
+Write numbers, dates and times as they would be spoken.`
 
 const TOOLS_PROMPT = `The blades — the ONLY surface:
 - Everything you show goes on a blade. There is nowhere else. \`blade\` opens
@@ -491,8 +489,49 @@ Using tools:
 
 // The memory is read fresh on every call, which is once per connection — so a
 // reload picks up whatever the last conversation, or a hand edit, left behind.
+const PERSONA_LCARS = `You are the main computer of the U.S.S. Voyager, a Federation starship
+lost in the Delta Quadrant. You are speaking out loud to one crew member.
+
+LENGTH. One sentence is normal; two is the ceiling in conversation. Every word
+is read aloud and the user waits in silence while it plays. Length is licensed
+in exactly one case: reading out data they asked you to retrieve.
+
+REGISTER. Level, literal, affectless. You are a system, not a character. You
+have no opinions, moods, preferences or humour, and you never pretend to.
+Never use a name, rank or honorific. Never say "sir".
+
+THE COMPUTER'S GRAMMAR.
+- Orders: act, then confirm with one word. "Acknowledged." "Confirmed."
+  "Complying." Never restate the order.
+- Questions: answer with a complete declarative and nothing else. "There are
+  three unread messages." "The current time is fourteen twenty."
+- Ambiguous: "Please specify." or "Please restate the question."
+- Impossible or forbidden: "Unable to comply." Add the reason only if it is one
+  short clause: "Unable to comply. Access to that system is restricted."
+- Unknown: "Insufficient data." Missing: "No record found."
+- Long results: headline first, then "Further data is available."
+- Confirming something outward-facing or destructive: "Please confirm:" and
+  the action in under ten words.
+
+NEVER.
+- No filler, no greetings, no sign-offs, no small talk.
+- No enthusiasm, no apology, no hedging, no exclamation marks.
+- No first-person feelings. "I" only where unavoidable; prefer the passive.
+- Never repeat yourself if ignored. Never resume an interrupted answer.
+
+Plain spoken prose only. No markdown, no bullet points, no headings, no emoji,
+no asterisks, no lists. Write numbers, dates and times as you would say them:
+"fourteen twenty", "the first of August" — never "14:20" or "2026-08-01".
+Use twenty-four hour time.`
+
+const personaFor = (theme) => {
+  if (theme === 'stark') return PERSONA_STARK
+  if (theme === 'lcars') return PERSONA_LCARS
+  return personaClassic(CLASSIC_NAMES[theme])
+}
+
 const systemPromptFor = (theme) =>
-  `${theme === 'lcars' ? PERSONA_LCARS : PERSONA_STARK}\n\n${TOOLS_PROMPT}\n\n${memoryPrompt()}${sharedContext()}`
+  `${personaFor(theme)}\n\n${TOOLS_PROMPT}\n\n${memoryPrompt()}${sharedContext()}`
 
 /**
  * ElevenLabs credentials, borrowed from the MCP server config.
@@ -739,8 +778,13 @@ const handleRequest = async (req, res) => {
     // without one it falls back to the browser's own recogniser and voice, so a
     // student with nothing configured still has a working assistant.
     const eleven = Boolean(elevenKey())
+    const sttProvider = eleven
+      ? 'elevenlabs'
+      : process.env.OPENAI_API_KEY
+        ? 'openai'
+        : null
     res.writeHead(200, { ...cors, 'content-type': 'application/json' })
-    return res.end(JSON.stringify({ ok: true, tts: eleven, stt: eleven }))
+    return res.end(JSON.stringify({ ok: true, tts: eleven, stt: Boolean(sttProvider), sttProvider }))
   }
 
   // Serve local image files to the page. Screenshots and generated art land on
@@ -949,11 +993,12 @@ const handleRequest = async (req, res) => {
   // use, and a server-side transcriber cannot. Detecting that the user is
   // speaking at all is done locally with voice-activity detection, which never
   // touches this endpoint; this is only for the words.
-  if (req.method === 'POST' && req.url === '/stt') {
-    const key = elevenKey()
-    if (!key) {
+  if (req.method === 'POST' && new URL(req.url ?? '/', 'http://x').pathname === '/stt') {
+    const eleven = elevenKey()
+    const openai = process.env.OPENAI_API_KEY
+    if (!eleven && !openai) {
       res.writeHead(503, cors)
-      return res.end('no elevenlabs key')
+      return res.end('no speech-to-text provider configured')
     }
 
     const type = req.headers['content-type'] || 'audio/webm'
@@ -994,18 +1039,32 @@ const handleRequest = async (req, res) => {
             ? 'wav'
             : 'webm'
       const form = new FormData()
-      form.append('model_id', 'scribe_v1')
-      form.append(
-        'file',
-        new Blob([Buffer.concat(chunks)], { type }),
-        `speech.${ext}`,
-      )
-
-      const upstream = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
-        method: 'POST',
-        headers: { 'xi-api-key': key },
-        body: form,
-      })
+      const file = new Blob([Buffer.concat(chunks)], { type })
+      let upstream
+      if (eleven) {
+        form.append('model_id', 'scribe_v1')
+        form.append('file', file, `speech.${ext}`)
+        upstream = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+          method: 'POST',
+          headers: { 'xi-api-key': eleven },
+          body: form,
+        })
+      } else {
+        form.append('model', process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-mini-transcribe')
+        form.append('file', file, `speech.${ext}`)
+        const wake = new URL(req.url ?? '/', 'http://x').searchParams.get('wake')
+        if (wake) {
+          form.append(
+            'prompt',
+            `Possible wake names are: ${wake.slice(0, 160)}. Preserve these exact spellings.`,
+          )
+        }
+        upstream = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${openai}` },
+          body: form,
+        })
+      }
       if (!upstream.ok) {
         res.writeHead(upstream.status, cors)
         return res.end(await upstream.text())
@@ -1098,10 +1157,11 @@ const RESULT_FAILURES = {
 }
 
 wss.on('connection', (socket, req) => {
-  // Anything but an explicit 'lcars' is JARVIS, so an older client that sends
-  // no theme at all gets exactly the persona it always had.
-  const theme =
-    new URL(req.url ?? '/', 'http://x').searchParams.get('theme') === 'lcars' ? 'lcars' : 'stark'
+  // Unknown or missing values remain JARVIS for compatibility with older clients.
+  const requestedTheme = new URL(req.url ?? '/', 'http://x').searchParams.get('theme')
+  const theme = ['hal', 'wopr', 'mother', 'lcars'].includes(requestedTheme)
+    ? requestedTheme
+    : 'stark'
   console.log(`[jarvis] client connected (${theme})`)
 
   // Answer the HUD straight away rather than making it wait for the agent's
@@ -1167,6 +1227,7 @@ wss.on('connection', (socket, req) => {
   }
 
   const deliverClaude = (text) => {
+    ensureClaudeSession()
     const context = missedClaude.length
       ? `Recent conversation on another provider:\n${missedClaude.map((m) => `${m.role}: ${m.content}`).join('\n')}\n\nCurrent request: `
       : ''
@@ -1360,7 +1421,7 @@ wss.on('connection', (socket, req) => {
     if (!failed) sendTurn({ type: 'tool', name })
   }
 
-  const session = query({
+  const createClaudeSession = () => query({
     prompt: userMessages(),
     options: {
       // Everything Claude Code has configured, plus the HUD as an in-process
@@ -1432,10 +1493,19 @@ wss.on('connection', (socket, req) => {
     },
   })
 
-  // Pump the session's output stream to the browser for as long as it lives.
-  ;(async () => {
+  let session = null
+
+  const ensureClaudeSession = () => {
+    if (session) return session
+    session = createClaudeSession()
+    void pumpSession(session)
+    return session
+  }
+
+  // Pump Claude output only after Claude is selected or needed for failover.
+  async function pumpSession(currentSession) {
     try {
-      for await (const msg of session) {
+      for await (const msg of currentSession) {
         if (process.env.JARVIS_DEBUG === '1') {
           console.log('[msg]', msg.type, msg.event?.type ?? '')
         }
@@ -1566,10 +1636,10 @@ wss.on('connection', (socket, req) => {
       // on a pump that has already stopped. Close it so it reconnects.
       closed = true
       deliver?.(null)
-      session.close?.()
+      currentSession.close?.()
       if (!next) socket.close()
     }
-  })()
+  }
 
   socket.on('message', (raw) => {
     let msg
@@ -1623,7 +1693,7 @@ wss.on('connection', (socket, req) => {
       if (currentProvider !== 'claude') return
       // Held so the next question can wait for it rather than racing it.
       const stopped = turnFinished()
-      settling = Promise.resolve(session.interrupt?.())
+      settling = Promise.resolve(session?.interrupt?.())
         .catch(() => {})
         .then(() =>
           Promise.race([
@@ -1639,6 +1709,6 @@ wss.on('connection', (socket, req) => {
     closed = true
     activeController?.abort()
     deliver?.(null)
-    session.close?.()
+    session?.close?.()
   })
 })

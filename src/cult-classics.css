@@ -1,0 +1,320 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Michroma&family=Share+Tech+Mono&display=swap');
+
+/* Three cult-computer skins. They deliberately share the existing scene and
+   HUD DOM; every difference is scoped to the build-time data-theme value. */
+
+[data-theme='hal'] {
+  --bg: #050000;
+  --interface: #e21b16;
+  font-family: 'Michroma', sans-serif;
+}
+
+[data-theme='hal'] body::after {
+  background:
+    radial-gradient(circle at 50% 48%, transparent 0 13%, rgba(5, 0, 0, 0.5) 35%, #050000 82%),
+    repeating-linear-gradient(0deg, rgba(255, 36, 28, 0.018) 0 1px, transparent 1px 4px);
+}
+
+[data-theme='hal'] .hud::before {
+  content: '';
+  position: absolute;
+  inset: 18px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  clip-path: polygon(0 0, 28% 0, 30% 5px, 70% 5px, 72% 0, 100% 0, 100% 100%, 72% 100%, 70% calc(100% - 5px), 30% calc(100% - 5px), 28% 100%, 0 100%);
+}
+
+[data-theme='hal'] .corner { width: 72px; height: 18px; border-width: 2px; }
+[data-theme='hal'] .brand-mark { font-size: 24px; letter-spacing: 0.22em; color: #f4ece6; }
+[data-theme='hal'] .brand-sub { color: #d84237; opacity: 0.75; letter-spacing: 0.08em; }
+[data-theme='hal'] .status {
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, #300);
+  background: rgba(31, 0, 0, 0.75);
+  letter-spacing: 0.08em;
+}
+[data-theme='hal'] .dot { border-radius: 0; transform: rotate(45deg); animation: halPulse 2.4s ease-in-out infinite; }
+@keyframes halPulse { 50% { background: #fff4e8; box-shadow: 0 0 24px #ff241b; } }
+[data-theme='hal'] .rail-item { padding: 5px 8px; border-left: 2px solid var(--accent); background: rgba(88, 3, 0, 0.22); }
+[data-theme='hal'] .tick { border-radius: 50%; transform: none; }
+[data-theme='hal'] .tool-badge { border-radius: 0; background: rgba(25, 0, 0, 0.9); }
+[data-theme='hal'] .tool-name,
+[data-theme='hal'] .log-jarvis .log-text { color: #fff2eb; }
+[data-theme='hal'] .ignition-ring { border-radius: 50%; border-width: 8px; box-shadow: inset 0 0 28px #000, 0 0 35px #a10d09; }
+
+[data-theme='wopr'] {
+  --bg: #090700;
+  --interface: #ffb000;
+  font-family: 'Share Tech Mono', monospace;
+}
+
+[data-theme='wopr'] body::after {
+  background:
+    linear-gradient(rgba(255, 176, 0, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 176, 0, 0.018) 1px, transparent 1px),
+    repeating-linear-gradient(0deg, rgba(255, 176, 0, 0.045) 0 1px, transparent 1px 5px),
+    radial-gradient(ellipse, transparent 35%, rgba(0, 0, 0, 0.72));
+  background-size: 56px 56px, 56px 56px, auto, auto;
+}
+
+[data-theme='wopr'] .hud {
+  letter-spacing: 0.08em;
+  text-shadow: 0 0 7px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+[data-theme='wopr'] .hud::before {
+  content: 'NORAD // PRIMARY COMMAND CHANNEL';
+  position: absolute;
+  left: 28px;
+  bottom: 25px;
+  padding-left: 12px;
+  border-left: 4px solid var(--accent);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+}
+[data-theme='wopr'] .corner { width: 90px; height: 58px; border-width: 2px; }
+[data-theme='wopr'] .brand-mark { font: 600 28px 'IBM Plex Mono', monospace; letter-spacing: 0.12em; }
+[data-theme='wopr'] .brand-sub { opacity: 0.72; }
+[data-theme='wopr'] .status { border-bottom: 2px solid var(--accent); padding: 5px 0; }
+[data-theme='wopr'] .dot { border-radius: 0; box-shadow: none; animation: woprBlink 1s steps(1) infinite; }
+@keyframes woprBlink { 50% { opacity: 0; } }
+[data-theme='wopr'] .rail { border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); padding: 12px; background: rgba(20, 14, 0, 0.5); }
+[data-theme='wopr'] .tick { width: 9px; height: 2px; transform: none; }
+[data-theme='wopr'] .tool-badge,
+[data-theme='wopr'] .panel { border-radius: 0; background: rgba(18, 12, 0, 0.9); }
+[data-theme='wopr'] .tool-name,
+[data-theme='wopr'] .log-jarvis .log-text { color: #ffe7a1; }
+[data-theme='wopr'] .ignition-ring { border-radius: 0; transform: rotate(45deg); }
+[data-theme='wopr'] .ignition-label { font-family: 'Share Tech Mono', monospace; }
+
+[data-theme='mother'] {
+  --bg: #071006;
+  --interface: #91bd60;
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+[data-theme='mother'] body::after {
+  background:
+    repeating-linear-gradient(0deg, rgba(160, 205, 100, 0.035) 0 1px, transparent 1px 4px),
+    radial-gradient(ellipse at center, rgba(29, 50, 20, 0.14), rgba(0, 0, 0, 0.78));
+}
+
+[data-theme='mother'] .hud::before,
+[data-theme='mother'] .hud::after {
+  position: absolute;
+  top: 22px;
+  bottom: 22px;
+  width: 12px;
+  content: '';
+  border-block: 18px solid #c7d8a5;
+  background: repeating-linear-gradient(0deg, #789450 0 24px, transparent 24px 34px);
+  opacity: 0.55;
+}
+[data-theme='mother'] .hud::before { left: 28px; }
+[data-theme='mother'] .hud::after { right: 28px; }
+[data-theme='mother'] .corner { display: none; }
+[data-theme='mother'] .brand-mark {
+  padding: 6px 10px;
+  border: 2px solid #a8c67b;
+  font-size: 22px;
+  letter-spacing: 0.08em;
+  color: #dce9bb;
+  text-shadow: none;
+}
+[data-theme='mother'] .brand-sub { margin-top: 11px; max-width: 430px; line-height: 1.5; color: #a9c77c; opacity: 0.7; }
+[data-theme='mother'] .status { padding: 7px 10px; border: 1px solid #7f9d59; background: rgba(12, 26, 9, 0.8); }
+[data-theme='mother'] .dot { border-radius: 0; box-shadow: 0 0 5px var(--accent); }
+[data-theme='mother'] .rail-title { color: #d0ddb0; opacity: 0.8; }
+[data-theme='mother'] .rail-item { border-bottom: 1px dotted color-mix(in srgb, var(--accent) 45%, transparent); padding: 4px 0; }
+[data-theme='mother'] .tick { width: 7px; height: 7px; border: 1px solid var(--accent); background: transparent; transform: none; }
+[data-theme='mother'] .tool-badge,
+[data-theme='mother'] .panel { border-radius: 0; background: rgba(8, 20, 7, 0.93); box-shadow: 8px 8px 0 rgba(91, 119, 59, 0.18); }
+[data-theme='mother'] .tool-name,
+[data-theme='mother'] .log-jarvis .log-text { color: #d9e8b7; text-shadow: none; }
+[data-theme='mother'] .log-who { border-left: 3px solid var(--accent); padding-left: 7px; }
+[data-theme='mother'] .ignition-ring { border-radius: 0; border: 2px solid var(--accent); box-shadow: inset 0 0 0 6px #071006, inset 0 0 0 8px #617e43; }
+[data-theme='mother'] .boot-name { font-size: 15px; }
+
+@media (max-width: 700px) {
+  [data-theme='hal'] .brand-sub,
+  [data-theme='mother'] .brand-sub { display: none; }
+  [data-theme='wopr'] .hud::before { display: none; }
+  [data-theme='mother'] .hud::before,
+  [data-theme='mother'] .hud::after { opacity: 0.25; }
+}
+
+/* ---------------------------------------------------------- themed intros */
+
+.classic-boot {
+  z-index: 20;
+  color: var(--interface);
+  overflow: hidden;
+}
+
+/* HAL: a quiet diagnostic room resolving into one watchful optical assembly. */
+.hal-boot {
+  background:
+    radial-gradient(circle at 50% 50%, #210000 0, #080000 28%, #020000 66%),
+    #020000;
+}
+.hal-boot::before {
+  content: '';
+  position: absolute;
+  inset: 24px;
+  border: 1px solid #4f0a08;
+  box-shadow: inset 0 0 90px #000;
+}
+.hal-boot-model {
+  position: absolute;
+  top: 46px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #c7bdb5;
+  font-size: 10px;
+  letter-spacing: 0.32em;
+  white-space: nowrap;
+}
+.hal-boot-checks {
+  position: absolute;
+  top: 50%;
+  left: clamp(42px, 8vw, 120px);
+  width: min(300px, 28vw);
+  transform: translateY(-50%);
+}
+.hal-boot-check {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 10px 0;
+  border-bottom: 1px solid #35100e;
+  color: #5b322e;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  transition: color 500ms ease, border-color 500ms ease;
+}
+.hal-boot-check[data-on='1'] { color: #e4d8cf; border-color: #9f1b15; }
+.hal-boot-check[data-on='1'] span:last-child { color: #ff3027; }
+.hal-lens {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(34vw, 310px);
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  border-radius: 50%;
+  background: #050505;
+  box-shadow: 0 0 0 16px #161616, 0 0 0 19px #4b4b4b, 0 0 80px #000;
+}
+.hal-lens span { position: absolute; inset: 50%; transform: translate(-50%, -50%); border-radius: 50%; }
+.hal-lens-bezel { width: 76%; height: 76%; background: radial-gradient(circle, #111 45%, #030303 47%); border: 2px solid #393939; }
+.hal-lens-glass { width: 58%; height: 58%; background: radial-gradient(circle at 42% 35%, #fff5df 0 2%, #ff5b34 8%, #ab0905 30%, #230000 66%, #050000 72%); box-shadow: 0 0 42px #df110b, inset 0 0 28px #000; animation: halIris 2.8s ease-in-out infinite; }
+.hal-lens-core { width: 12%; height: 12%; background: #fff9e9; box-shadow: 0 0 18px #fff, 0 0 48px #ff271c; }
+@keyframes halIris { 50% { filter: brightness(1.25); transform: translate(-50%, -50%) scale(1.035); } }
+.hal-boot-scan { position: absolute; inset: 0; background: linear-gradient(90deg, transparent 35%, rgba(255, 34, 25, 0.05) 50%, transparent 65%); animation: halBootScan 3.4s ease-in-out infinite; }
+@keyframes halBootScan { from { transform: translateX(-60%); } to { transform: translateX(60%); } }
+.hal-boot-ready { position: absolute; left: 0; right: 0; bottom: 55px; text-align: center; color: #eee5de; font-size: 11px; letter-spacing: 0.42em; }
+
+/* WOPR: block terminal output gives way to an active strategic display. */
+.wopr-boot {
+  background: #080600;
+  font-family: 'Share Tech Mono', monospace;
+  text-shadow: 0 0 8px rgba(255, 176, 0, 0.55);
+}
+.wopr-boot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(255, 176, 0, 0.06) 0 1px, transparent 1px 5px);
+}
+.wopr-terminal-head { position: absolute; top: 34px; left: 38px; right: 38px; padding-bottom: 8px; border-bottom: 2px solid #b77c00; letter-spacing: 0.15em; }
+.wopr-log { position: absolute; top: 90px; left: clamp(35px, 6vw, 90px); width: 42%; font-size: clamp(13px, 1.4vw, 20px); line-height: 1.85; }
+.wopr-log > div { animation: woprType 180ms steps(2) both; }
+@keyframes woprType { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0); } }
+.wopr-cursor, .wopr-question span { animation: woprBlink 0.65s steps(1) infinite; }
+.wopr-map {
+  position: absolute;
+  top: 105px;
+  right: 6vw;
+  bottom: 130px;
+  width: 42%;
+  border: 1px solid #6a4900;
+  opacity: 0;
+  transform: perspective(800px) rotateX(5deg) scale(0.96);
+  transition: opacity 700ms steps(5), transform 700ms steps(5);
+}
+.wopr-map[data-on='1'] { opacity: 1; transform: perspective(800px) rotateX(5deg) scale(1); }
+.wopr-map-grid { position: absolute; inset: 0; background: linear-gradient(rgba(255,176,0,.13) 1px, transparent 1px), linear-gradient(90deg, rgba(255,176,0,.13) 1px, transparent 1px); background-size: 12.5% 16.66%; }
+.wopr-map-grid::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255, 193, 49, .24), transparent); animation: woprSweep 2.1s linear infinite; }
+@keyframes woprSweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+.wopr-node { position: absolute; width: 7px; height: 7px; border: 1px solid #ffc547; transform: translate(-50%, -50%); animation: woprNode 1.1s steps(2) infinite; }
+@keyframes woprNode { 50% { background: #ffb000; box-shadow: 0 0 10px #ffb000; } }
+.wopr-trajectory { position: absolute; left: 18%; height: 1px; background: #ffb000; transform-origin: left; opacity: .65; }
+.wopr-trajectory-a { top: 67%; width: 67%; transform: rotate(-30deg); }
+.wopr-trajectory-b { top: 28%; width: 60%; transform: rotate(24deg); }
+.wopr-defcon { position: absolute; right: 6vw; bottom: 72px; width: 42%; display: flex; justify-content: space-between; gap: 4px; }
+.wopr-defcon span { flex: 1; padding: 6px 3px; border: 1px solid #805700; text-align: center; font-size: 10px; }
+.wopr-defcon span:nth-child(3) { color: #ffdda0; background: #713b00; }
+.wopr-question { position: absolute; left: clamp(35px, 6vw, 90px); bottom: 74px; color: #ffe0a1; font-size: clamp(16px, 2vw, 28px); letter-spacing: 0.08em; }
+
+/* MU/TH/UR: physical shutters expose a dense monochrome ship terminal. */
+.mother-boot { background: #020601; font-family: 'IBM Plex Mono', monospace; }
+.mother-shutter { position: absolute; left: 0; right: 0; height: 20%; z-index: 2; background: repeating-linear-gradient(90deg, #161b12 0 8%, #242b1c 8% 9%, #0c1009 9% 17%); border-color: #4b5940; transition: transform 2.2s cubic-bezier(.7,0,.3,1); animation: motherOpen 2.2s 0.35s cubic-bezier(.7,0,.3,1) both; }
+.mother-shutter-top { top: 0; border-bottom: 4px solid; }
+.mother-shutter-bottom { bottom: 0; border-top: 4px solid; }
+@keyframes motherOpen { from { transform: scaleY(2.55); } to { transform: scaleY(1); } }
+.mother-terminal { position: absolute; inset: clamp(38px, 7vh, 78px) clamp(35px, 9vw, 140px); border: 2px solid #718951; padding: clamp(18px, 3vw, 38px); background: #071006; box-shadow: inset 0 0 80px #000, 0 0 0 8px #121a0e; }
+.mother-terminal header { display: flex; justify-content: space-between; color: #d7e6b8; font-size: clamp(12px, 1.5vw, 20px); letter-spacing: .08em; }
+.mother-rule { height: 10px; margin: 20px 0 26px; background: repeating-linear-gradient(90deg, #94b562 0 4%, transparent 4% 5%); }
+.mother-log > div { display: flex; justify-content: space-between; gap: 30px; padding: 8px 6px; border-bottom: 1px dotted #41562f; color: #aaca79; font-size: clamp(11px, 1.2vw, 16px); animation: motherPrint 250ms steps(3) both; }
+@keyframes motherPrint { from { opacity: 0; transform: translateY(-5px); filter: brightness(2); } }
+.mother-log > div span:last-child { color: #dbeabd; text-align: right; }
+.mother-priority { display: flex; justify-content: space-between; margin-top: 26px; padding: 12px; border: 1px solid #6c844d; color: #7b925b; }
+.mother-priority[data-on='1'] { color: #e1edc7; background: #314422; animation: motherStamp 500ms steps(3) both; }
+@keyframes motherStamp { from { transform: scaleX(1.08); filter: brightness(2); } }
+.mother-prompt { position: absolute; left: 38px; bottom: 28px; color: #d7e6b8; }
+.mother-prompt span { animation: woprBlink .9s steps(1) infinite; }
+
+/* --------------------------------------------------------- live movement */
+
+[data-theme='hal'] .hud-thinking .corner,
+[data-theme='hal'] .hud-tooling .corner { animation: halFrame 2.2s ease-in-out infinite; }
+@keyframes halFrame { 50% { opacity: .35; filter: drop-shadow(0 0 6px var(--accent)); } }
+[data-theme='hal'] .hud-listening .meter { box-shadow: 0 0 24px rgba(255, 36, 27, .4); }
+[data-theme='hal'] .hud-speaking .dot { background: #fff4e8; }
+
+[data-theme='wopr'] .hud::after { content: ''; position: absolute; inset: 110px 25% 110px 25%; pointer-events: none; opacity: 0; background: linear-gradient(180deg, transparent, rgba(255,176,0,.12), transparent); }
+[data-theme='wopr'] .hud-thinking::after,
+[data-theme='wopr'] .hud-tooling::after { opacity: 1; animation: woprLiveScan 1.4s steps(8) infinite; }
+@keyframes woprLiveScan { from { transform: translateY(-35%); } to { transform: translateY(35%); } }
+[data-theme='wopr'] .hud-tooling .rail-item { animation: woprData .8s steps(2) infinite alternate; }
+@keyframes woprData { to { color: #fff0bd; border-color: #ffb000; } }
+
+[data-theme='mother'] .hud-thinking .rail-item { animation: motherRead 1.6s steps(1) infinite; }
+[data-theme='mother'] .hud-thinking .rail-item:nth-child(even) { animation-delay: .8s; }
+@keyframes motherRead { 50% { color: #e4f2c7; background: rgba(127, 159, 80, .13); } }
+[data-theme='mother'] .hud-tooling::before { animation: motherRailLeft 1.2s steps(4) infinite; }
+[data-theme='mother'] .hud-tooling::after { animation: motherRailRight 1.2s steps(4) infinite reverse; }
+@keyframes motherRailLeft { 50% { transform: translateY(18px); opacity: .9; } }
+@keyframes motherRailRight { 50% { transform: translateY(-18px); opacity: .9; } }
+
+@media (max-width: 720px) {
+  .hal-boot-checks { top: auto; left: 28px; right: 28px; bottom: 105px; width: auto; transform: none; }
+  .hal-boot-check { padding: 5px 0; }
+  .hal-lens { width: min(54vw, 250px); top: 40%; }
+  .wopr-log { top: 82px; left: 26px; width: calc(100% - 52px); font-size: 12px; line-height: 1.55; }
+  .wopr-map { top: 260px; left: 26px; right: 26px; bottom: 135px; width: auto; }
+  .wopr-defcon { left: 26px; right: 26px; bottom: 84px; width: auto; }
+  .wopr-question { left: 26px; bottom: 42px; }
+  .mother-terminal { inset: 42px 24px; padding: 20px 14px; }
+  .mother-terminal header span:last-child { display: none; }
+  .mother-rule { margin: 14px 0; }
+  .mother-log > div { padding: 7px 2px; font-size: 10px; }
+  .mother-priority { margin-top: 16px; font-size: 10px; }
+  .mother-prompt { left: 14px; bottom: 16px; font-size: 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .classic-boot *,
+  [data-theme='hal'] .hud *,
+  [data-theme='wopr'] .hud *,
+  [data-theme='mother'] .hud * { animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
+}

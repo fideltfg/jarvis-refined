@@ -1,4 +1,4 @@
-# J.A.R.V.I.S.
+# J.A.R.V.I.S. - REFINED
 
 A browser voice assistant with an Iron Man holographic interface. Say
 **"Hey Jarvis"**, he wakes, listens, and does real things through your tools —
@@ -9,32 +9,48 @@ run headless as a library.
 Claude Code is the default brain and needs no API key when bridge mode uses your
 existing Claude Code login. OpenAI and other OpenAI-compatible providers are
 optional alternatives configured on the bridge; their keys stay server-side.
-The heavy model work runs remotely, so even a low-end laptop only has to draw
-the interface. **ElevenLabs is an optional add-on** that gives JARVIS a much
-better voice and sharper hearing; without it he speaks and listens through the
-browser's own speech, and everything still works.
+The main model work runs remotely. Speech output uses Kokoro locally in the
+browser by default, with a distinct voice design for each visual theme.
+**ElevenLabs is an optional add-on** for transcription or an explicitly enabled
+cloud voice; without it, speech still works with no subscription or API key.
+
+## Jarvis and Jarvis-refined
+
+This is the provider-aware version of Jarvis. The original Jarvis is Claude-first: it starts Claude at bridge startup and uses Claude Code for its model, native filesystem tools, and configured MCP servers. The original does not include the provider selector, OpenAI/local adapters, automatic
+provider failover, or the shared provider tool broker.
+
+Jarvis-refined can switch between Claude, OpenAI, and an OpenAI-compatible local
+model from the HUD. Its bridge shares memory, preferences, skills, MCP tools,
+browser, vision, UI, display, and restricted filesystem tools across providers.
+Claude-native tools and Anthropic-hosted web search remain Claude-specific.
+Claude starts lazily, so OpenAI or Local can run without a Claude login unless
+Claude is selected or automatic failover needs it.
 
 ---
 
 ## Requirements
 
-**In one line:** a Claude Code subscription, plus two free things every computer
-can have — Node.js and Chrome. That's the whole list.
+**In one line:** one configured provider, plus two free things every computer
+can have — Node.js and Chrome. Claude needs a Claude Code login; OpenAI needs an
+OpenAI API key; Local needs an OpenAI-compatible endpoint.
 
-- **Claude Code, installed and logged in** — this is the only account you need.
-  Install it with the official method — `npm install -g @anthropic-ai/claude-code`,
+- **Claude Code, installed and logged in** — required only when Claude is
+  selected or used for automatic failover. Install it with the official method —
+  `npm install -g @anthropic-ai/claude-code`,
   or the platform installer at <https://docs.claude.com/en/docs/claude-code> —
   then run `claude` once and complete login. The bridge reuses that login. **No
   API key**, and usage is billed to your existing Claude account.
+- **OpenAI API key** — required only when OpenAI is selected. Set
+  `OPENAI_API_KEY` on the bridge; it is never sent to the browser.
 - **Node.js 20 or newer** — free, one installer from <https://nodejs.org>. This
   is a Node web app, so it is the one unavoidable tool.
 - **Google Chrome or Microsoft Edge**, in a **real browser window** — not an
   embedded preview pane. Preview panes (including the one inside editors and
   Claude Code) block microphone access, so the page loads and looks right but
   never hears you. JARVIS also needs WebGL, which these browsers provide.
-- **Optional: an ElevenLabs API key** — a good add-on, not a requirement. It
-  gives a better voice and sharper transcription; the free tier is plenty for a
-  demo. Without it, everything runs on the browser's own speech.
+- **Optional: an ElevenLabs API key** — enables sharper transcription and an
+  optional cloud voice. Without it, Kokoro speech generation runs locally and
+  voice recognition falls back to the browser.
 
 Run `npm run setup` after cloning and it checks all of this for you, in plain
 language.
@@ -121,20 +137,30 @@ The loop is designed so that nothing silently dies and barge-in feels natural.
   (`src/lib/vad.ts`) decides when you are speaking. It is instant, cannot quietly
   fail, and is what makes **barge-in** work — speak while JARVIS is talking and he
   stops.
-- **Transcription has two tiers, chosen automatically at boot.** The browser asks
+- **Transcription has three tiers, chosen automatically at boot.** The browser asks
   the bridge `/health` and picks the best available:
   - **ElevenLabs key present** → ElevenLabs Scribe, via the bridge `/stt` endpoint.
+  - **OpenAI key present** → OpenAI transcription through the same bridge endpoint.
   - **Nothing configured** → the browser's own `SpeechRecognition` (Chrome/Edge),
     guarded by a heartbeat so it recovers when Chrome throttles it.
-- **Speaking** uses the **ElevenLabs voice when a key is present**, and the
-  browser's `speechSynthesis` otherwise. If a cloud call fails it falls back to
-  the browser voice, and if the OS voice itself is broken it latches over to the
-  cloud voice.
+- **Speaking is local by default.** Kokoro runs in the browser through WebGPU,
+  using a different base voice, pace, EQ and compression profile for each
+  theme. Its Apache-licensed model is downloaded once (about 330 MB) and cached
+  by the browser. If Kokoro cannot load, speech falls back to the operating
+  system voice. Set `VITE_USE_ELEVENLABS=true` to explicitly prefer the cloud
+  voice instead.
 
-So it works with no keys and auto-upgrades when a key appears — there is no flag
-to set. Capability detection lives in `src/lib/capabilities.ts`, which probes the
-bridge's `GET /health` (returning `{ ok, tts, stt }`, both tracking the
-ElevenLabs key) once at boot and picks the engines.
+So it works with no speech-service keys. Capability detection lives in
+`src/lib/capabilities.ts`, which probes the bridge's `GET /health` (returning
+`{ ok, tts, stt }`) once at boot and selects transcription and fallback paths.
+
+| Theme | Local voice design |
+|---|---|
+| JARVIS | George, measured British delivery with clean presence |
+| HAL 9000 | Michael, slower and tightly compressed with a darker bandwidth |
+| WOPR | Fenrir, command-terminal pacing with narrow communications EQ |
+| MU/TH/UR | Nicole, slower ship-mainframe delivery with dense compression |
+| LCARS | Nova, even starship-computer delivery with a crisp intercom band |
 
 ---
 
@@ -206,20 +232,75 @@ chose.
 
 ---
 
-## The boot sequence
+## Boot sequences
 
-Power-up plays a four-beat Iron Man start-up (`src/ui/Boot.tsx`): an
-"INITIATING SYSTEM" status bar with a segmented progress bar and boot log; then
-concentric reticle rings resolving into "J.A.R.V.I.S"; then a suit schematic;
-then the triangular arc reactor lighting up — with a start-up sound under it
-(`public/audio/boot-music.mp3`).
+Every theme has its own power-up sequence and sound design:
+
+| Theme | Intro |
+|---|---|
+| JARVIS | Segmented diagnostics, reticle assembly, suit schematic and reactor ignition |
+| HAL 9000 | Quiet logic diagnostics resolving into a bright optical lens |
+| WOPR | Dial-up terminal session, strategic network grid, DEFCON display and game prompt |
+| MU/TH/UR | Mechanical shutters, line-printed ship checks and priority-access terminal |
+
+The new themes also keep their identity after boot. HAL uses slow optical pulses
+and restrained frame movement; WOPR scans in discrete CRT steps; MU/TH/UR moves
+its side rails like machinery and updates data with a line-printer cadence.
 
 ---
 
 ## Configuration
 
-Everything is optional in bridge mode. Frontend settings live in `.env.local`
-(copy `.env.example`); bridge settings are environment variables.
+Everything is optional in bridge mode. Copy `.env.example` to `.env.local` for
+both frontend settings and local bridge credentials; shell environment variables
+take precedence over values in that file.
+
+### Changing themes
+
+Themes are selected when the frontend starts. Create or edit `.env.local` in
+the project root and set `VITE_THEME` to the theme you want:
+
+```dotenv
+VITE_THEME=wopr
+```
+
+Then stop and restart `npm start` or `npm run dev`. Reloading the browser alone
+does not pick up a changed environment variable.
+
+| Value | Interface | Wake phrase |
+|---|---|---|
+| `stark` | Cyan holographic JARVIS HUD (default) | “Hey Jarvis” |
+| `hal` | Restrained red optical-computer console | “Hal” |
+| `wopr` | Amber military CRT command grid | “Joshua” |
+| `mother` | Green industrial mainframe terminal | “Mother” |
+| `lcars` | Voyager-style LCARS: blue elbow frame, data cells, starship chirps | “Computer” |
+
+For a temporary preview on macOS or Linux, set the value for one command
+without changing `.env.local`:
+
+```bash
+VITE_THEME=hal npm run dev
+```
+
+The selected theme controls the palette, typography, complete intro, interface
+sounds, ambient bed, live animations, wake phrase, scene lighting and spoken
+persona. It is fixed for that browser build; there is no in-app theme selector.
+
+Interface cues are synthesized locally with Web Audio and need no downloaded
+assets. To replace a cue, add `boot.mp3`, `wake.mp3`, `listen.mp3`, `tool.mp3`,
+`done.mp3` or `error.mp3` under the theme's directory:
+
+```text
+public/audio/hal/
+public/audio/wopr/
+public/audio/mother/
+```
+
+The default `stark` theme reads overrides directly from `public/audio/`.
+Only add recordings you have permission to redistribute. Fan archives may make
+recognizable franchise clips downloadable without granting reuse rights; those
+files should remain local unless the copyright holder licenses them for your
+distribution.
 
 To use OpenAI, set `OPENAI_API_KEY` in the environment of the bridge process
 before `npm start`. Choose Claude or OpenAI from the HUD provider menu. The
@@ -261,16 +342,18 @@ to the newly selected provider for context.
 | `JARVIS_FILE_ROOTS` | — | Roots the `/file` endpoint may serve from |
 | `JARVIS_VOICE_ID` | — | ElevenLabs voice id |
 | `ELEVENLABS_API_KEY` | — | Optional; enables the ElevenLabs voice + Scribe |
+| `OPENAI_TRANSCRIBE_MODEL` | `gpt-4o-mini-transcribe` | OpenAI speech-recognition model |
 
 ### Frontend (`.env.local`)
 
 | Variable | Effect |
 |---|---|
+| `VITE_THEME` | `stark` (default), `hal`, `wopr`, `mother`, or `lcars` |
 | `VITE_BACKEND` | `bridge` (default) or `direct` |
 | `VITE_BRIDGE_URL` | Where to reach the bridge |
-| `VITE_TTS_ENGINE` | `system` or `kokoro` |
-| `VITE_KOKORO_VOICE` | Voice for the Kokoro engine |
-| `VITE_USE_ELEVENLABS` | Force the ElevenLabs voice on |
+| `VITE_TTS_ENGINE` | `kokoro` (default) or `system` |
+| `VITE_KOKORO_VOICE` | Optional override for the theme's Kokoro base voice |
+| `VITE_USE_ELEVENLABS` | Explicitly prefer the ElevenLabs voice |
 | `VITE_ANTHROPIC_API_KEY` | Direct mode only |
 
 ### Adding an ElevenLabs key
