@@ -12,8 +12,10 @@ import { BUDGETS, DEFAULT_TASK_CAP, KINDS, WORK_DIR } from './config.mjs'
  * with a warning rather than taking the service down.
  */
 
+/** Time, then a per-process sequence, then noise — so ids sort in creation order. */
+let seq = 0
 export const newId = (prefix) =>
-  `${prefix}_${Date.now().toString(36)}${randomBytes(3).toString('hex')}`
+  `${prefix}_${Date.now().toString(36)}${(seq++ % 1296).toString(36).padStart(2, '0')}${randomBytes(3).toString('hex')}`
 
 export const slug = (text) =>
   String(text).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'task'
