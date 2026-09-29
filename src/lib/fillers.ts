@@ -21,33 +21,32 @@ import { IS_STARK } from '../theme'
 
 /** Said as soon as the first tool fires, before any answer exists. */
 const WORKING = [
-  'Working on it, sir.',
+  'Working.',
   'Compiling.',
   'Retrieving.',
-  'Accessing the archive.',
+  'Accessing.',
   'Cross-referencing.',
-  'Running the query now.',
+  'Running query.',
   'Searching.',
   'Under way.',
 ]
 
 /** Acknowledging an order where no tool is involved. */
 const ACKNOWLEDGE = [
-  'As you wish, sir.',
-  'Very good, sir.',
+  'Roger that.',
+  'Very good.',
   'Certainly.',
   'Understood.',
   'Consider it done.',
-  'Directly, sir.',
+  'Directly.',
 ]
 
 /** Answering to his name, before the user has said what they want. */
 const ATTENTION = [
-  'Yes, sir?',
-  'Sir?',
-  'At your service, sir.',
+  'Aye?',
+  'I am here.',
   'Standing by.',
-  'Awake, sir.',
+  'Awake.',
 ]
 
 /**
