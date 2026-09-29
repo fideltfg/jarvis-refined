@@ -156,6 +156,7 @@ export function Hud() {
   const error = useStore((s) => s.error)
   const level = useStore((s) => s.level)
   const voice = useStore((s) => s.voice)
+  const agentsSeen = useStore((s) => s.agentsSeen)
   const bootNote = useStore((s) => s.bootNote)
   const gestures = useStore((s) => s.gestures)
   const looking = useStore((s) => s.looking)
@@ -339,6 +340,12 @@ export function Hud() {
       <footer className="hud-bottom">
         <span className="hint">
           say <b>“{copy.wakePhrase}”</b> · <kbd>Space</kbd> to talk · <kbd>G</kbd> hands
+          {agentsSeen && (
+            <>
+              {' · '}
+              <kbd>A</kbd> agents
+            </>
+          )}
           {voice && (
             <>
               {' · '}
