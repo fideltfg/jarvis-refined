@@ -94,6 +94,9 @@ open http://localhost:5173
 
 Click **INITIALISE**, allow the microphone when asked, and say **"Hey Jarvis"**.
 
+> In a noisy room, press **K** to switch to [push-to-talk](#push-to-talk):
+> JARVIS then only hears you while you hold a key.
+
 > It has to be a real browser window. Embedded preview panes block the
 > microphone, so JARVIS will look perfectly alive and simply never respond.
 
@@ -161,6 +164,41 @@ So it works with no speech-service keys. Capability detection lives in
 | WOPR | Fenrir, command-terminal pacing with narrow communications EQ |
 | MU/TH/UR | Nicole, slower ship-mainframe delivery with dense compression |
 | LCARS | Nova, even starship-computer delivery with a crisp intercom band |
+
+### Push-to-talk
+
+By default JARVIS listens all the time and wakes on his name. In a noisy room
+that means background chatter and television can wake him or leak into a
+command. Push-to-talk turns that off: **nothing is transcribed unless you are
+holding the push-to-talk key or button.**
+
+- Press **K** to toggle between push-to-talk and hands-free (wake word) mode.
+- **Hold** the push-to-talk key, speak, and **release**. Releasing ends the
+  sentence and sends it immediately — there is no pause detection to wait for.
+- Holding the key while JARVIS is talking cuts him off at once.
+- The default key is **Right Alt**. Press **Shift+K**, then press any key or a
+  mouse button (middle, right, back or forward — not left) to choose another.
+  **Escape** cancels the choice. Keys already used by JARVIS (listed under
+  [Controls](#controls)) cannot be chosen; **Space** can.
+- The on/off setting and the chosen key are remembered in this browser
+  (`localStorage` key `jarvis-ptt`).
+
+What changes while push-to-talk is on:
+
+- **The wake word is disabled.** Saying "Hey Jarvis" does nothing; the key is
+  the wake word.
+- **Voice-profile checking is skipped.** Holding the key already proves it is
+  you, so a noisy room cannot cause your own voice to be rejected.
+- **With a speech service (ElevenLabs/OpenAI)**, the energy detector no longer
+  starts recordings. Audio is recorded from key-down to key-up only (up to two
+  minutes; taps shorter than a quarter of a second are ignored).
+- **With browser speech recognition**, the recogniser only runs while the key is
+  held.
+- The microphone stream itself stays open so the reactor can still pulse with
+  sound, but nothing heard outside a key press is recorded or transcribed.
+
+The footer hint shows the current mode and key. `window.__voice.ptt` in the
+browser console reports whether push-to-talk is active.
 
 ---
 
@@ -248,15 +286,47 @@ chose.
 
 ## Controls
 
+Keyboard shortcuts are single keys with no modifier (except **Shift+K**) and are
+ignored while typing in a text field.
+
+### Voice and conversation
+
 | Key / phrase | Does |
 |---|---|
-| **"Hey Jarvis"** | Wake him |
-| **Space** | Talk without the wake word |
-| Just speak | Interrupt him mid-sentence (barge-in) |
-| **V** | Cycle the browser voice |
-| **Escape** | Stand down |
-| **D** | Live diagnostics panel |
-| **T** | One-line audio self-test |
+| **"Hey Jarvis"** | Wake him (hands-free mode only; the phrase depends on the theme) |
+| Just speak | Interrupt him mid-sentence (barge-in; hands-free mode) |
+| **Space** | On the ignition screen: power on. Afterwards: start a turn without the wake word, or interrupt him and listen if he is busy |
+| **K** | Toggle [push-to-talk](#push-to-talk) on or off |
+| **Shift+K** | Choose the push-to-talk key or mouse button (**Escape** cancels) |
+| **Right Alt** (default, hold) | Push-to-talk: talk while held, send on release |
+| **Escape** | Stand down — stop talking, clear the caption, go back to sleep |
+
+### Interface
+
+| Key | Does |
+|---|---|
+| **V** | Cycle to the next installed voice and speak a sample |
+| **G** | Turn the camera and hand-gesture control on or off |
+| **A** | Show or hide the agent board |
+| **P** | Open or close the voice profile (enrol, re-record, or forget your voiceprint) |
+| **D** | Show or hide the live diagnostics panel |
+| **T** | One-line audio self-test (speaks a fixed line and reports if no sound was produced) |
+
+### Blades (only while a blade is open)
+
+| Key | Does |
+|---|---|
+| **E** | Expand the front blade to full screen, or restore it |
+| **X** | Close the front blade |
+| **]** | Bring the next blade to the front |
+| **[** | Bring the previous blade to the front |
+
+### Other ways to start
+
+| Action | Does |
+|---|---|
+| Click **INITIALISE** | Power on |
+| Clap | Power on (ignition screen only) |
 
 ---
 

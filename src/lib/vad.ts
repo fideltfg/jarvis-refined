@@ -43,6 +43,10 @@ export type Vad = {
   /** Raise the trigger bar while JARVIS speaks, so his own playback leaking
    *  past echo cancellation does not register as the user talking. */
   setGuard: (on: boolean) => void
+  /** Push-to-talk: energy no longer starts segments; only `hold` does. */
+  setManual: (on: boolean) => void
+  /** Begin (true) or end (false) a push-to-talk segment. */
+  hold: (down: boolean) => void
   live: () => boolean
   /** Live internals, for the diagnostics panel. */
   meter: () => { energy: number; floor: number; threshold: number; speaking: boolean }
@@ -78,6 +82,10 @@ const START_MS = 110
 const SILENCE_MS = 950
 /** Nobody speaks one segment for this long; cut it and transcribe what we have. */
 const MAX_MS = 20000
+/** Push-to-talk segments are bounded by the key, so allow a much longer one. */
+const MANUAL_MAX_MS = 120000
+/** A push-to-talk tap shorter than this is a slip, not a sentence. */
+const MANUAL_MIN_MS = 250
 
 /** The floor adapts slowly upward (a fan spinning up) and quickly downward (a
  *  door closing), so it settles to genuine ambient noise without chasing speech. */
@@ -109,12 +117,12 @@ export async function startVad(h: VadHandlers): Promise<Vad> {
         ? 'Microphone access denied — voice input is unavailable.'
         : 'No microphone available.',
     )
-    return { stop: () => {}, setGuard: () => {}, live: () => false, meter: () => ({ energy: 0, floor: 0, threshold: 0, speaking: false }) }
+    return { stop: () => {}, setGuard: () => {}, setManual: () => {}, hold: () => {}, live: () => false, meter: () => ({ energy: 0, floor: 0, threshold: 0, speaking: false }) }
   }
 
   if (typeof MediaRecorder === 'undefined') {
     h.onError('This browser cannot record audio — voice input is unavailable.')
-    return { stop: () => {}, setGuard: () => {}, live: () => false, meter: () => ({ energy: 0, floor: 0, threshold: 0, speaking: false }) }
+    return { stop: () => {}, setGuard: () => {}, setManual: () => {}, hold: () => {}, live: () => false, meter: () => ({ energy: 0, floor: 0, threshold: 0, speaking: false }) }
   }
 
   const mime = pickMime()
@@ -131,6 +139,7 @@ export async function startVad(h: VadHandlers): Promise<Vad> {
 
   let stopped = false
   let guard = false
+  let manual = false
   let floor = 0.01
   let smoothEnergy = 0
   let threshold = 0
@@ -219,6 +228,11 @@ export async function startVad(h: VadHandlers): Promise<Vad> {
     const release = threshold * RELEASE_RATIO
     const now = performance.now()
 
+    if (manual) {
+      if (speaking && now - speechStartedAt >= MANUAL_MAX_MS) endSegment()
+      return
+    }
+
     if (!speaking) {
       if (smoothEnergy > threshold) {
         if (armedAt === 0) {
@@ -266,6 +280,34 @@ export async function startVad(h: VadHandlers): Promise<Vad> {
     },
     setGuard: (on) => {
       guard = on
+    },
+    setManual: (on) => {
+      if (on === manual) return
+      manual = on
+      // Whatever was mid-capture belongs to the other mode.
+      armedAt = 0
+      speaking = false
+      speechStartedAt = 0
+      discardRecorder()
+    },
+    hold: (down) => {
+      if (!manual || stopped) return
+      if (down) {
+        if (speaking) return
+        startRecorder()
+        speaking = true
+        speechStartedAt = performance.now()
+        h.onStart()
+        return
+      }
+      if (!speaking) return
+      if (performance.now() - speechStartedAt < MANUAL_MIN_MS) {
+        speaking = false
+        speechStartedAt = 0
+        discardRecorder()
+        return
+      }
+      endSegment()
     },
     live: () => !stopped,
     meter: () => ({ energy: smoothEnergy, floor, threshold, speaking }),

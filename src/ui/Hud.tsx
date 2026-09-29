@@ -160,6 +160,7 @@ export function Hud() {
   const bootNote = useStore((s) => s.bootNote)
   const gestures = useStore((s) => s.gestures)
   const looking = useStore((s) => s.looking)
+  const ptt = useStore((s) => s.ptt)
   const ui = useStore((s) => s.ui)
 
   // accentFor folds JARVIS's overrides in over the phase colour, so one
@@ -339,7 +340,21 @@ export function Hud() {
 
       <footer className="hud-bottom">
         <span className="hint">
-          say <b>“{copy.wakePhrase}”</b> · <kbd>Space</kbd> to talk · <kbd>G</kbd> hands
+          {ptt.binding ? (
+            <>
+              press the key or mouse button to hold for talking · <kbd>Esc</kbd> cancels
+            </>
+          ) : ptt.enabled ? (
+            <>
+              hold <kbd>{ptt.label}</kbd> to talk · <kbd>K</kbd> hands-free ·{' '}
+              <kbd>⇧K</kbd> change key · <kbd>G</kbd> hands
+            </>
+          ) : (
+            <>
+              say <b>“{copy.wakePhrase}”</b> · <kbd>Space</kbd> to talk · <kbd>K</kbd>{' '}
+              push-to-talk · <kbd>G</kbd> hands
+            </>
+          )}
           {agentsSeen && (
             <>
               {' · '}

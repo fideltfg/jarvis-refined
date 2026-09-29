@@ -4,7 +4,7 @@ import { speakingNow, speakingSince } from './tts'
 import { OVERRIDE, cutsThrough, isEcho } from './echo'
 import { startVad, type Vad } from './vad'
 import { caps } from './capabilities'
-import { getProfile, verify, warmSpeaker } from './speaker'
+import { getProfile, verify, warmSpeaker, diag as speakerDiag } from './speaker'
 import { startOwnerGate, type OwnerGate } from './owner'
 import { NAME_PATTERN, SPEECH_LANGUAGE, WAKE_PHRASES } from '../theme'
 
@@ -68,6 +68,21 @@ export type Voice = {
   stop: () => void
   /** True while a recogniser is actually running. */
   live: () => boolean
+  /** Only hear what is said while `hold(true)` is in effect. */
+  setPushToTalk: (on: boolean) => void
+  /** The push-to-talk key went down (true) or up (false). */
+  hold: (down: boolean) => void
+}
+
+export type VoiceOptions = {
+  pushToTalk?: boolean
+}
+
+const NO_VOICE: Voice = {
+  stop: () => {},
+  live: () => false,
+  setPushToTalk: () => {},
+  hold: () => {},
 }
 
 // ---------------------------------------------------------------------------
@@ -365,6 +380,8 @@ export const diag = {
    *  `speakerGate` — the browser fallback hands back words with no audio,
    *  so there is nothing to measure and the gate is necessarily off. */
   gate: 'off' as 'off' | 'on' | 'unavailable',
+  /** Push-to-talk: nothing is transcribed unless the key is held. */
+  ptt: false,
 }
 
 /** Record why a transcript went nowhere. Silence always has a reason; this is
@@ -390,7 +407,7 @@ if (typeof window !== 'undefined') {
  * The microphone is opened once here so a denied permission is reported loudly
  * rather than surfacing later as an unexplained deafness, whichever engine runs.
  */
-export async function startVoice(h: VoiceHandlers): Promise<Voice> {
+export async function startVoice(h: VoiceHandlers, opts: VoiceOptions = {}): Promise<Voice> {
   try {
     await getMic()
   } catch (err) {
@@ -400,7 +417,7 @@ export async function startVoice(h: VoiceHandlers): Promise<Voice> {
         ? 'Microphone access denied — voice input is unavailable.'
         : 'No microphone available.',
     )
-    return { stop: () => {}, live: () => false }
+    return NO_VOICE
   }
   diag.engine = caps().sttProvider ?? 'browser'
 
@@ -422,13 +439,15 @@ export async function startVoice(h: VoiceHandlers): Promise<Voice> {
   diag.gate = enrolled ? 'on' : 'off'
   if (enrolled) warmSpeaker()
 
-  return caps().stt ? startServerVoice(h) : startBrowserVoice(h)
+  diag.ptt = !!opts.pushToTalk
+  return caps().stt ? startServerVoice(h, diag.ptt) : startBrowserVoice(h, diag.ptt)
 }
 
 /** Local VAD plus transcription through the configured bridge provider. */
-async function startServerVoice(h: VoiceHandlers): Promise<Voice> {
+async function startServerVoice(h: VoiceHandlers, pushToTalk: boolean): Promise<Voice> {
   let lastWake = 0
   let vad: Vad | null = null
+  let ptt = pushToTalk
 
   /**
    * Segments waiting for the transcriber, oldest first.
@@ -443,7 +462,7 @@ async function startServerVoice(h: VoiceHandlers): Promise<Voice> {
    * Order is preserved because the drain is single-flight, which matters —
    * "London" arriving before "what's the weather in" is worse than either.
    */
-  const pendingAudio: { blob: Blob; ms: number }[] = []
+  const pendingAudio: { blob: Blob; ms: number; manual: boolean }[] = []
   let draining = false
 
   /**
@@ -497,7 +516,7 @@ async function startServerVoice(h: VoiceHandlers): Promise<Voice> {
    * transcript arriving — and the transcript belongs to the mode the user is in
    * now, not the one they interrupted.
    */
-  const transcribe = async (blob: Blob, ms: number) => {
+  const transcribe = async (blob: Blob, ms: number, manual: boolean) => {
     const mode = h.mode()
     if (mode === 'deaf') return
     const t0 = performance.now()
@@ -511,12 +530,13 @@ async function startServerVoice(h: VoiceHandlers): Promise<Voice> {
      * round trip; run in sequence they add up, run together the check is free
      * because it finishes long before Scribe answers. Nothing is acted on
      * until both have — see the await below the transcript arrives.
+     *
+     * Skipped for push-to-talk: holding the key is the proof of ownership.
      */
-    const whose = verify(blob, ms)
+    const whose = manual ? null : verify(blob, ms)
 
     try {
-      const wake = encodeURIComponent(WAKE_PHRASES.join(', '))
-      const res = await fetch(`${BRIDGE_HTTP_URL}/stt?wake=${wake}`, {
+      const res = await fetch(`${BRIDGE_HTTP_URL}/stt`, {
         method: 'POST',
         headers: { 'content-type': blob.type || 'audio/webm' },
         body: blob,
@@ -531,7 +551,7 @@ async function startServerVoice(h: VoiceHandlers): Promise<Voice> {
       }
       const { text } = (await res.json()) as { text?: string }
       const raw = (text ?? '').trim()
-      const said = mode === 'wake' ? normalizeWake(raw) : raw
+      const said = mode === 'wake' && !manual ? normalizeWake(raw) : raw
       diag.lastError = ''
 
       if (!said) {
@@ -564,7 +584,7 @@ async function startServerVoice(h: VoiceHandlers): Promise<Voice> {
        * `verify` fails open by design, so this is a no-op until the owner has
        * actually enrolled a voiceprint.
        */
-      const who = await whose
+      const who = whose ? await whose : { ok: true as const, why: '' }
       if (!who.ok) {
         diag.strangers++
         // A stranger talking over him is not an interruption. Bring him back up
@@ -581,6 +601,13 @@ async function startServerVoice(h: VoiceHandlers): Promise<Voice> {
 
       diag.heard = said
       diag.heardAt = Date.now()
+
+      // Releasing the key is the end of the thought; no wake word, no waiting.
+      if (manual) {
+        assemble.feed(said, true)
+        assemble.flush()
+        return
+      }
 
       if (mode === 'wake') {
         if (WAKE.test(said) && Date.now() - lastWake > WAKE_DEBOUNCE) {
@@ -613,7 +640,7 @@ async function startServerVoice(h: VoiceHandlers): Promise<Voice> {
     try {
       while (pendingAudio.length) {
         const next = pendingAudio.shift()!
-        await transcribe(next.blob, next.ms)
+        await transcribe(next.blob, next.ms, next.manual)
       }
     } finally {
       draining = false
@@ -625,7 +652,7 @@ async function startServerVoice(h: VoiceHandlers): Promise<Voice> {
       const mode = h.mode()
       diag.mode = mode
       diag.sessions++
-      if (mode === 'deaf') return
+      if (mode === 'deaf' || ptt) return
       // Standing down mid-thought throws the thought away with it. Otherwise
       // held text would surface as the opening of the *next* conversation.
       if (mode === 'wake') assemble.cancel()
@@ -657,7 +684,7 @@ async function startServerVoice(h: VoiceHandlers): Promise<Voice> {
       }
     },
     onEnd: (blob, ms) => {
-      pendingAudio.push({ blob, ms })
+      pendingAudio.push({ blob, ms, manual: ptt })
       void drain()
     },
     onLevel: (v) => {
@@ -678,6 +705,7 @@ async function startServerVoice(h: VoiceHandlers): Promise<Voice> {
     },
   })
   diag.running = vad.live()
+  vad.setManual(ptt)
 
   // Raise the trigger bar exactly while he speaks. The mode is polled rather
   // than pushed because nothing in the app pushes phase changes here, and a
@@ -700,6 +728,15 @@ async function startServerVoice(h: VoiceHandlers): Promise<Voice> {
       diag.running = false
     },
     live: () => vad?.live() ?? false,
+    setPushToTalk: (on) => {
+      ptt = on
+      diag.ptt = on
+      assemble.cancel()
+      vad?.setManual(on)
+    },
+    hold: (down) => {
+      if (ptt) vad?.hold(down)
+    },
   }
 }
 
@@ -717,12 +754,12 @@ async function startServerVoice(h: VoiceHandlers): Promise<Voice> {
  * between "the wake word stopped working halfway through the lesson" and an
  * assistant that keeps listening.
  */
-async function startBrowserVoice(h: VoiceHandlers): Promise<Voice> {
+async function startBrowserVoice(h: VoiceHandlers, pushToTalk: boolean): Promise<Voice> {
   const Ctor =
     (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition
   if (!Ctor) {
     h.onError('This browser has no speech recognition — use Chrome or Edge, or add an ElevenLabs key.')
-    return { stop: () => {}, live: () => false }
+    return NO_VOICE
   }
 
   /**
@@ -738,6 +775,12 @@ async function startBrowserVoice(h: VoiceHandlers): Promise<Voice> {
   let stopped = false
   let running = false
   let rec: any = null
+  /** Push-to-talk: the recogniser only runs while the key is held. */
+  let ptt = pushToTalk
+  let held = false
+  /** Text from an earlier session within the same hold — Chrome can end a
+   *  session on its own mid-press, and the words must not be lost. */
+  let carry = ''
   let settled = ''
   const finalResults = new Map<number, string>()
   let interim = ''
@@ -801,6 +844,7 @@ async function startBrowserVoice(h: VoiceHandlers): Promise<Voice> {
 
   const reset = () => {
     clearSilence()
+    carry = ''
     settled = ''
     finalResults.clear()
     interim = ''
@@ -839,14 +883,30 @@ async function startBrowserVoice(h: VoiceHandlers): Promise<Voice> {
    * a stranger's words appearing on screen and then being ignored is more
    * confusing than silence.
    *
-   * Unknown verdicts are accepted, deliberately. The check cannot run on a
-   * segment too short to place or before the model has finished loading, and an
-   * assistant that goes deaf whenever its own verification is unavailable is a
-   * worse product than one that occasionally hears the television.
+   * Unknown verdicts are refused whenever the verifier could actually have
+   * answered. A loaded model that still cannot place a voice has told us
+   * something — the segment was too short, too far from the microphone, or
+   * buried under another voice — and acting on it is how the television and the
+   * other half of the room get a turn. So the benefit of the doubt survives
+   * only while verification is genuinely unavailable: no model, still loading,
+   * or failed outright. There the alternative is going deaf, which is worse.
    */
   const take = async (text: string, mode: VoiceMode, from: number) => {
+    if (ptt) {
+      diag.heard = text
+      diag.heardAt = Date.now()
+      assemble.feed(text, true)
+      assemble.flush()
+      return
+    }
     if (gate) {
       const who = await gate.judge(from, OWNER_WAIT_MS)
+      if (who === 'unknown' && speakerDiag.model === 'ready') {
+        diag.strangers++
+        settleBarge(false)
+        drop('voice not placed as his')
+        return
+      }
       if (who === 'stranger') {
         diag.strangers++
         // Not the owner, so nothing was interrupted. Whatever he was saying
@@ -909,19 +969,23 @@ async function startBrowserVoice(h: VoiceHandlers): Promise<Voice> {
       if (e.results[i].isFinal) finalResults.set(i, chunk)
       else interim += chunk
     }
-    settled = [...finalResults.entries()]
-      .sort(([left], [right]) => left - right)
-      .map(([, text]) => text)
+    settled = [
+      carry,
+      ...[...finalResults.entries()]
+        .sort(([left], [right]) => left - right)
+        .map(([, text]) => text),
+    ]
       .join(' ')
+      .trim()
     const rawHeard = `${settled} ${interim}`.replace(/\s+/g, ' ').trim()
-    const heard = mode === 'wake' ? normalizeWake(rawHeard) : rawHeard
+    const heard = mode === 'wake' && !ptt ? normalizeWake(rawHeard) : rawHeard
     if (!heard) return
     if (isEcho(heard, speakingNow())) {
       interim = ''
       return
     }
 
-    if (mode === 'wake') {
+    if (mode === 'wake' && !ptt) {
       if (WAKE.test(heard) && Date.now() - lastWake > WAKE_DEBOUNCE) {
         const trailing = afterWake(heard)
         const latest = e.results[e.results.length - 1]
@@ -1011,7 +1075,8 @@ async function startBrowserVoice(h: VoiceHandlers): Promise<Voice> {
       const carried = assemble.held()
       h.onPartial(carried ? `${carried} ${full}` : full)
     }
-    bumpSilence()
+    // Push-to-talk ends on release, not on a pause.
+    if (!ptt) bumpSilence()
   }
 
   /**
@@ -1029,7 +1094,7 @@ async function startBrowserVoice(h: VoiceHandlers): Promise<Voice> {
   }
 
   const spin = () => {
-    if (stopped || running) return
+    if (stopped || running || (ptt && !held)) return
     rec = new Ctor()
     rec.continuous = true
     rec.interimResults = true
@@ -1076,6 +1141,15 @@ async function startBrowserVoice(h: VoiceHandlers): Promise<Voice> {
       diag.running = false
       touch()
       rec = null
+      if (ptt) {
+        if (!held) {
+          emit()
+          return
+        }
+        carry = `${settled} ${interim}`.replace(/\s+/g, ' ').trim()
+        finalResults.clear()
+        interim = ''
+      }
       if (!stopped) setTimeout(spin, 80)
     }
     try {
@@ -1091,7 +1165,7 @@ async function startBrowserVoice(h: VoiceHandlers): Promise<Voice> {
   // The heartbeat. If nothing has been heard from the engine for a while it has
   // gone quiet on us — tear it down and build a fresh one.
   const health = setInterval(() => {
-    if (stopped) return
+    if (stopped || ptt) return
     const idle = Date.now() - lastAlive
     diag.idleMs = idle
     if (idle < 15000) return
@@ -1123,5 +1197,43 @@ async function startBrowserVoice(h: VoiceHandlers): Promise<Voice> {
       }
     },
     live: () => running,
+    setPushToTalk: (on) => {
+      if (on === ptt) return
+      ptt = on
+      diag.ptt = on
+      held = false
+      reset()
+      consumedWakeThrough = -1
+      assemble.cancel()
+      if (on) {
+        try {
+          rec?.abort()
+        } catch {
+          /* already gone */
+        }
+      } else {
+        touch()
+        spin()
+      }
+    },
+    hold: (down) => {
+      if (!ptt || stopped || down === held) return
+      held = down
+      if (down) {
+        touch()
+        spin()
+        return
+      }
+      // Released in the gap between two sessions: nothing left to stop.
+      if (!rec) {
+        emit()
+        return
+      }
+      try {
+        rec.stop()
+      } catch {
+        /* already stopping */
+      }
+    },
   }
 }

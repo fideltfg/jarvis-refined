@@ -248,6 +248,10 @@ type State = {
    *  for the duration — the enrolment phrases are samples, not commands, and
    *  transcribing them would have him answering the script. */
   enrolling: boolean
+  /** Push-to-talk state for the HUD. `binding` is true while waiting for the
+   *  user to press the key they want to use. */
+  ptt: { enabled: boolean; label: string; held: boolean; binding: boolean }
+  setPtt: (patch: Partial<State['ptt']>) => void
   /** Cards currently on the display, newest last. */
   panels: Panel[]
   agentBoard: AgentBoardData | null
@@ -319,6 +323,8 @@ export const useStore = create<State>((set) => ({
   expandedBlade: null,
   bootNote: '',
   enrolling: false,
+  ptt: { enabled: false, label: '', held: false, binding: false },
+  setPtt: (patch) => set((s) => ({ ptt: { ...s.ptt, ...patch } })),
   ui: defaultUi(),
 
   setVoice: (voice) => set({ voice }),
