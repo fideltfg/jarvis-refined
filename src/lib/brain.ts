@@ -2,7 +2,7 @@ import { BACKEND } from '../config'
 import * as direct from './anthropic'
 import * as bridge from './bridge'
 import type { AskHandlers, Msg } from './anthropic'
-import type { AgentBoardData, Blade, Panel } from '../store'
+import type { AgentBoardData, Blade, Panel, SessionAgent } from '../store'
 import type { AgentEvent } from './announce'
 
 export type { AskHandlers, Msg }
@@ -80,6 +80,12 @@ export function watchAgents(fn: (board: AgentBoardData | null, online: boolean) 
 
 export function watchAgentEvents(fn: (event: AgentEvent) => void): void {
   if (usingBridge) bridge.watchAgentEvents(fn)
+}
+
+/** Subagents dispatched inside the voice session. Only the bridge has them: a
+ *  direct provider has no subagents to report. */
+export function watchSessionAgents(fn: (agents: SessionAgent[]) => void): void {
+  if (usingBridge) bridge.watchSessionAgents(fn)
 }
 
 export function decideApproval(id: string, decision: 'approve' | 'deny'): void {

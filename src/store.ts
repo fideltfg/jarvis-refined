@@ -66,6 +66,25 @@ export type AgentGoal = { id: string; title: string; outcome: string; status: st
 export type AgentApproval = { id: string; taskId: string; category: string; action: string; detail: string }
 export type AgentBoardData = { goals: AgentGoal[]; approvals: AgentApproval[]; running: string[] }
 
+/**
+ * A Claude Code subagent spawned inside the voice session itself.
+ *
+ * Separate from AgentTask because it is a different thing with a different
+ * lifecycle — it lives and dies inside one turn, has no goal above it and no
+ * approvals below it — but it belongs on the same board, because from the
+ * user's side "what are your agents doing" is one question, not two.
+ */
+export type SessionAgent = {
+  id: string
+  title: string
+  /** The subagent type, e.g. 'Explore' or 'general-purpose'. */
+  kind: string
+  status: 'running' | 'done' | 'failed'
+  startedAt: string
+  finishedAt?: string
+  summary: string | null
+}
+
 export type Turn = {
   id: string
   role: 'user' | 'jarvis'
@@ -259,7 +278,10 @@ type State = {
   /** True once the bridge has said anything about agents — off without JARVIS_AGENTS. */
   agentsSeen: boolean
   boardOpen: boolean
+  /** Subagents spawned in this voice session, newest last. */
+  sessionAgents: SessionAgent[]
   setAgents: (board: AgentBoardData | null, online: boolean) => void
+  setSessionAgents: (agents: SessionAgent[]) => void
   toggleBoard: () => void
   /** Blades currently open, newest last — which is also front-most. */
   blades: Blade[]
@@ -316,7 +338,9 @@ export const useStore = create<State>((set) => ({
   agentsOnline: false,
   agentsSeen: false,
   boardOpen: false,
+  sessionAgents: [],
   setAgents: (board, online) => set({ agentBoard: board, agentsOnline: online, agentsSeen: true }),
+  setSessionAgents: (sessionAgents) => set({ sessionAgents }),
   toggleBoard: () => set((s) => ({ boardOpen: !s.boardOpen })),
   blades: [],
   focusedBlade: null,

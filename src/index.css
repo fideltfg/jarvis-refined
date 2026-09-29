@@ -2164,6 +2164,9 @@ kbd {
 .ab-chip-done { opacity: 0.5; }
 @keyframes abPulse { 50% { opacity: 0.4; } }
 .ab-task-title { flex: 1 1 auto; min-width: 0; }
+.ab-session { border-top: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); padding-top: 10px; }
+.ab-kind { flex: 0 0 auto; font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; opacity: 0.55; }
+.ab-summary { flex-basis: 100%; padding-left: 72px; font-size: 11px; opacity: 0.6; }
 .ab-actions { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-left: 72px; }
 .ab-ask { color: #ffb000; }
 .ab-actions button {

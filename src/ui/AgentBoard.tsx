@@ -2,10 +2,17 @@ import { useStore, type AgentTask } from '../store'
 import { decideApproval } from '../lib/brain'
 
 /**
- * The agent board: one card per goal, one row per task. It opens by itself
- * while agents are working or waiting on the user, and on the A key; with
- * nothing happening it stays out of the way. Colours come from the theme's
- * accent so every theme styles it without its own rules.
+ * The agent board: every agent JARVIS has running, in one view.
+ *
+ * Two kinds of agent reach it. The agent service contributes goals, each with
+ * its tasks and any approval it is waiting on. The voice session contributes
+ * the subagents a turn dispatches, which belong to no goal and finish within
+ * the turn. They are listed apart because their lifecycles differ, but on one
+ * board, because "what are your agents doing" is one question.
+ *
+ * It opens by itself while anything is working or waiting on the user, and on
+ * the A key; with nothing happening it stays out of the way. Colours come from
+ * the theme's accent so every theme styles it without its own rules.
  */
 
 const LABEL: Record<AgentTask['status'], string> = {
@@ -23,18 +30,22 @@ export function AgentBoard() {
   const online = useStore((s) => s.agentsOnline)
   const seen = useStore((s) => s.agentsSeen)
   const open = useStore((s) => s.boardOpen)
+  const session = useStore((s) => s.sessionAgents)
 
-  if (!seen) return null
-  const active = board?.goals.some((g) => g.tasks.some((t) => t.status === 'running' || t.status === 'awaiting_approval')) ?? false
-  if (!open && !active) return null
+  // Subagents alone are reason enough to have a board: the agent service can be
+  // switched off entirely and a turn can still dispatch one.
+  if (!seen && !session.length) return null
+  const goalsActive = board?.goals.some((g) => g.tasks.some((t) => t.status === 'running' || t.status === 'awaiting_approval')) ?? false
+  const sessionActive = session.some((a) => a.status === 'running')
+  if (!open && !goalsActive && !sessionActive) return null
 
   return (
     <div className="agent-board" role="region" aria-label="Agent board">
       <div className="ab-head">
-        AGENTS{!online && <span className="ab-offline"> · offline</span>}
+        AGENTS{seen && !online && <span className="ab-offline"> · offline</span>}
       </div>
-      {!online && <div className="ab-empty">The agent service is offline.</div>}
-      {online && board && !board.goals.length && <div className="ab-empty">No goals in progress.</div>}
+      {seen && !online && <div className="ab-empty">The agent service is offline.</div>}
+      {online && board && !board.goals.length && !session.length && <div className="ab-empty">No goals in progress.</div>}
       {online &&
         board?.goals.map((g) => {
           const live = g.tasks.filter((t) => t.status !== 'cancelled')
@@ -69,6 +80,21 @@ export function AgentBoard() {
             </section>
           )
         })}
+      {session.length > 0 && (
+        <section className="ab-goal ab-session">
+          <div className="ab-goal-title">This session</div>
+          <ul className="ab-tasks">
+            {session.map((a) => (
+              <li key={a.id} className="ab-task">
+                <span className={`ab-chip ab-chip-${a.status}`}>{a.status}</span>
+                <span className="ab-task-title">{a.title}</span>
+                <span className="ab-kind">{a.kind}</span>
+                {a.summary && <span className="ab-summary">{a.summary}</span>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   )
 }

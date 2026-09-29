@@ -17,6 +17,8 @@
 
 import { WebSocketServer } from 'ws'
 import { query } from '@anthropic-ai/claude-agent-sdk'
+
+import { SESSION_AGENT_TOOL, createSessionAgents } from './session-agents.mjs'
 import { displayServer } from './panels.mjs'
 import { uiServer } from './ui.mjs'
 import { chromeAvailable, chromeServer } from './chrome.mjs'
@@ -1504,6 +1506,9 @@ wss.on('connection', (socket, req) => {
     if (!failed) sendTurn({ type: 'tool', name })
   }
 
+  /** Subagents spawned in this session, so the board covers every kind of agent. */
+  const sessionAgents = createSessionAgents({ send })
+
   const createClaudeSession = () => query({
     prompt: userMessages(),
     options: {
@@ -1632,6 +1637,7 @@ wss.on('connection', (socket, req) => {
               if (block.type === 'tool_use') {
                 activity = true
                 announceTool(block.id, block.name)
+                if (block.name === SESSION_AGENT_TOOL) sessionAgents.start(block.id, block.input)
               }
             }
             break
@@ -1646,6 +1652,7 @@ wss.on('connection', (socket, req) => {
             for (const block of blocks) {
               if (block?.type === 'tool_result') {
                 settleTool(block.tool_use_id, block.is_error === true)
+                sessionAgents.settle(block.tool_use_id, block.is_error === true, block.content)
               }
             }
             break
@@ -1797,6 +1804,7 @@ wss.on('connection', (socket, req) => {
 
   socket.on('close', () => {
     agentFeed?.close()
+    sessionAgents.stop()
     console.log('[jarvis] client disconnected')
     closed = true
     activeController?.abort()

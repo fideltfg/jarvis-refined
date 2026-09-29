@@ -1,5 +1,5 @@
 import type { AskHandlers } from './anthropic'
-import type { AgentBoardData, Blade, Panel } from '../store'
+import type { AgentBoardData, Blade, Panel, SessionAgent } from '../store'
 import type { AgentEvent } from './announce'
 import { BRIDGE_WS_URL, THEME } from '../config'
 
@@ -51,6 +51,7 @@ type Frame = {
   board?: AgentBoardData | null
   online?: boolean
   event?: AgentEvent
+  agents?: SessionAgent[]
 }
 
 /** Every question gets an id so its answer can be told from anyone else's. */
@@ -152,6 +153,15 @@ export function watchAgents(fn: (board: AgentBoardData | null, online: boolean) 
 let onAgentEvent: ((event: AgentEvent) => void) | null = null
 export function watchAgentEvents(fn: (event: AgentEvent) => void) {
   onAgentEvent = fn
+}
+
+/** The session's subagents, kept for the same reason as the board above: a turn
+ *  can dispatch one before the app has subscribed. */
+let lastSessionAgents: SessionAgent[] | null = null
+let onSessionAgents: ((agents: SessionAgent[]) => void) | null = null
+export function watchSessionAgents(fn: (agents: SessionAgent[]) => void) {
+  onSessionAgents = fn
+  if (lastSessionAgents) fn(lastSessionAgents)
 }
 
 /** The board's Approve / Deny buttons. The bridge forwards it to the agent service. */
@@ -281,6 +291,9 @@ function dispatch(ws: WebSocket) {
       onAgents?.(lastAgents.board, lastAgents.online)
     } else if (msg.type === 'agent_event' && msg.event) {
       onAgentEvent?.(msg.event)
+    } else if (msg.type === 'session_agents') {
+      lastSessionAgents = msg.agents ?? []
+      onSessionAgents?.(lastSessionAgents)
     }
   })
 }

@@ -29,6 +29,7 @@ import {
   watchUi,
   watchAgents,
   watchAgentEvents,
+  watchSessionAgents,
   watchConnection,
   connectedLabels,
   usingBridge,
@@ -482,6 +483,7 @@ export default function App() {
         announcer.push({ at: new Date().toISOString(), type: 'approval_needed', taskId: a.taskId, text: a.action, data: { approvalId: a.id, action: a.action } })
       }
     })
+    watchSessionAgents((agents) => store.getState().setSessionAgents(agents))
     watchBlades((blade) => store.getState().pushBlade(blade))
 
     /**
