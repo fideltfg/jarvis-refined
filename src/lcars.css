@@ -854,3 +854,26 @@
     animation: none;
   }
 }
+
+/* The agent board as an LCARS panel: a violet spine, pill chips and buttons. */
+[data-theme='lcars'] .agent-board {
+  left: calc(var(--lc-gutter) + var(--lc-col) + 24px);
+  bottom: calc(var(--lc-gutter) + 40px);
+  border: 0;
+  border-left: 10px solid var(--lc-violet);
+  border-radius: 22px 0 0 22px;
+  background: #000;
+  color: var(--lc-ice);
+  font-family: 'Antonio', 'Arial Narrow', sans-serif;
+  font-size: 14px;
+}
+[data-theme='lcars'] .ab-head { color: var(--lc-blue); }
+[data-theme='lcars'] .ab-bar span { background: var(--lc-violet); }
+[data-theme='lcars'] .ab-chip { border: 0; border-radius: 999px; color: #000; background: var(--lc-blue); opacity: 1; }
+[data-theme='lcars'] .ab-chip-running { background: var(--lc-gold); }
+[data-theme='lcars'] .ab-chip-awaiting_approval { background: var(--lc-orange); color: #000; }
+[data-theme='lcars'] .ab-chip-blocked,
+[data-theme='lcars'] .ab-chip-failed { background: var(--lc-red); color: #000; }
+[data-theme='lcars'] .ab-chip-done { background: var(--lc-navy); color: var(--lc-ice); }
+[data-theme='lcars'] .ab-actions button { border: 0; border-radius: 999px; background: var(--lc-violet); color: #000; }
+[data-theme='lcars'] .ab-ask { color: var(--lc-orange); }

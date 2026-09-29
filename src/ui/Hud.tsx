@@ -7,6 +7,7 @@ import { Effects } from './Effects'
 import { Pointer } from './Pointer'
 import { GestureGuide } from './GestureGuide'
 import { LcarsFrame } from './LcarsFrame'
+import { AgentBoard } from './AgentBoard'
 import { THEME } from '../config'
 import { copy } from '../theme'
 import { providerState, watchProviders, selectProvider, usingBridge } from '../lib/brain'
@@ -329,6 +330,7 @@ export function Hud() {
           here now; Panels.tsx is unmounted rather than deleted so the design
           system it documents stays findable. */}
       <Blades />
+      <AgentBoard />
 
       {ui.chrome.suggestions && <Suggestions />}
 

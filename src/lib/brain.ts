@@ -2,7 +2,8 @@ import { BACKEND } from '../config'
 import * as direct from './anthropic'
 import * as bridge from './bridge'
 import type { AskHandlers, Msg } from './anthropic'
-import type { Blade, Panel } from '../store'
+import type { AgentBoardData, Blade, Panel } from '../store'
+import type { AgentEvent } from './announce'
 
 export type { AskHandlers, Msg }
 export type { ConnectionState } from './bridge'
@@ -70,6 +71,19 @@ export function watchBlades(fn: (blade: Blade) => void): void {
  */
 export function watchUi(fn: (op: string, args: any) => void): void {
   if (usingBridge) bridge.watchUi(fn)
+}
+
+/** Agent board snapshots and events — a bridge capability, like panels. */
+export function watchAgents(fn: (board: AgentBoardData | null, online: boolean) => void): void {
+  if (usingBridge) bridge.watchAgents(fn)
+}
+
+export function watchAgentEvents(fn: (event: AgentEvent) => void): void {
+  if (usingBridge) bridge.watchAgentEvents(fn)
+}
+
+export function decideApproval(id: string, decision: 'approve' | 'deny'): void {
+  if (usingBridge) bridge.decideApproval(id, decision)
 }
 
 /**

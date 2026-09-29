@@ -8,6 +8,7 @@ import { Enrol } from './ui/Enrol'
 import { useStore } from './store'
 import { startVoice, type Voice, type VoiceMode } from './lib/voice'
 import { createSpeaker, cycleVoice, currentVoiceName } from './lib/tts'
+import { createAnnouncer } from './lib/announce'
 import * as sfx from './lib/sfx'
 import * as music from './lib/music'
 import * as hands from './lib/hands'
@@ -26,6 +27,8 @@ import {
   watchBlades,
   watchCapture,
   watchUi,
+  watchAgents,
+  watchAgentEvents,
   watchConnection,
   connectedLabels,
   usingBridge,
@@ -396,6 +399,35 @@ export default function App() {
 
     watchServers((servers) => store.getState().setConnected(servers))
     watchPanels((panel) => store.getState().pushPanel(panel))
+
+    // Agent work: the board mirrors the service, and endings, blockers and
+    // approvals are spoken once JARVIS is idle. An approval is announced once,
+    // whether it arrives live or is found waiting in the first board after a
+    // reconnect.
+    const announcedApprovals = new Set<string>()
+    const announcer = createAnnouncer({
+      theme: THEME,
+      idle: () => store.getState().phase === 'dormant',
+      say: async (text) => {
+        const t = createSpeaker()
+        speaker.current = t
+        t.say(text)
+        await t.end()
+      },
+    })
+    watchAgentEvents((event) => {
+      const id = event.data?.approvalId
+      if (typeof id === 'string') announcedApprovals.add(id)
+      announcer.push(event)
+    })
+    watchAgents((board, online) => {
+      store.getState().setAgents(board, online)
+      for (const a of board?.approvals ?? []) {
+        if (announcedApprovals.has(a.id)) continue
+        announcedApprovals.add(a.id)
+        announcer.push({ at: new Date().toISOString(), type: 'approval_needed', taskId: a.taskId, text: a.action, data: { approvalId: a.id, action: a.action } })
+      }
+    })
     watchBlades((blade) => store.getState().pushBlade(blade))
 
     /**
@@ -643,6 +675,12 @@ export default function App() {
       // G puts the camera on and starts tracking hands. Off by default and
       // never implicit: a webcam that turns itself on because an interface
       // thought it might be useful is not a trade anyone agreed to.
+      // A toggles the agent board.
+      if (e.key === 'a' && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault()
+        store.getState().toggleBoard()
+        return
+      }
       if (e.key === 'g' && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault()
         const on = store.getState().gestures

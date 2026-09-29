@@ -53,6 +53,19 @@ export type Blade = {
   hold: 'turn' | 'sticky'
 }
 
+/** The agent service's board, as the bridge relays it. */
+export type AgentTask = {
+  id: string
+  title: string
+  kind: string
+  status: 'queued' | 'running' | 'blocked' | 'awaiting_approval' | 'done' | 'failed' | 'cancelled'
+  attempts: number
+  summary: string | null
+}
+export type AgentGoal = { id: string; title: string; outcome: string; status: string; priority: number; tasks: AgentTask[] }
+export type AgentApproval = { id: string; taskId: string; category: string; action: string; detail: string }
+export type AgentBoardData = { goals: AgentGoal[]; approvals: AgentApproval[]; running: string[] }
+
 export type Turn = {
   id: string
   role: 'user' | 'jarvis'
@@ -237,6 +250,13 @@ type State = {
   enrolling: boolean
   /** Cards currently on the display, newest last. */
   panels: Panel[]
+  agentBoard: AgentBoardData | null
+  agentsOnline: boolean
+  /** True once the bridge has said anything about agents — off without JARVIS_AGENTS. */
+  agentsSeen: boolean
+  boardOpen: boolean
+  setAgents: (board: AgentBoardData | null, online: boolean) => void
+  toggleBoard: () => void
   /** Blades currently open, newest last — which is also front-most. */
   blades: Blade[]
   /** The blade the user has pulled forward, or null for "the newest one". */
@@ -288,6 +308,12 @@ export const useStore = create<State>((set) => ({
   gestures: false,
   looking: null,
   panels: [],
+  agentBoard: null,
+  agentsOnline: false,
+  agentsSeen: false,
+  boardOpen: false,
+  setAgents: (board, online) => set({ agentBoard: board, agentsOnline: online, agentsSeen: true }),
+  toggleBoard: () => set((s) => ({ boardOpen: !s.boardOpen })),
   blades: [],
   focusedBlade: null,
   expandedBlade: null,

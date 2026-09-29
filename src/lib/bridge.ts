@@ -1,5 +1,6 @@
 import type { AskHandlers } from './anthropic'
-import type { Blade, Panel } from '../store'
+import type { AgentBoardData, Blade, Panel } from '../store'
+import type { AgentEvent } from './announce'
 import { BRIDGE_WS_URL, THEME } from '../config'
 
 /**
@@ -47,6 +48,9 @@ type Frame = {
   servers?: Array<string | { name?: string }>
   available?: string[]
   selected?: string
+  board?: AgentBoardData | null
+  online?: boolean
+  event?: AgentEvent
 }
 
 /** Every question gets an id so its answer can be told from anyone else's. */
@@ -129,6 +133,23 @@ export function watchBlades(fn: (blade: Blade) => void) {
 let onUi: ((op: string, args: any) => void) | null = null
 export function watchUi(fn: (op: string, args: any) => void) {
   onUi = fn
+}
+
+let onAgents: ((board: AgentBoardData | null, online: boolean) => void) | null = null
+export function watchAgents(fn: (board: AgentBoardData | null, online: boolean) => void) {
+  onAgents = fn
+}
+
+let onAgentEvent: ((event: AgentEvent) => void) | null = null
+export function watchAgentEvents(fn: (event: AgentEvent) => void) {
+  onAgentEvent = fn
+}
+
+/** The board's Approve / Deny buttons. The bridge forwards it to the agent service. */
+export function decideApproval(id: string, decision: 'approve' | 'deny'): void {
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: 'agent_decide', id, decision }))
+  }
 }
 
 /**
@@ -246,6 +267,10 @@ function dispatch(ws: WebSocket) {
       // A `ui` frame with no args is normal — reset and clear take none — so an
       // absent args object is an empty one, not a reason to drop the command.
       onUi?.(msg.op, (msg.args ?? {}) as Record<string, unknown>)
+    } else if (msg.type === 'agents') {
+      onAgents?.(msg.board ?? null, msg.online !== false)
+    } else if (msg.type === 'agent_event' && msg.event) {
+      onAgentEvent?.(msg.event)
     }
   })
 }
