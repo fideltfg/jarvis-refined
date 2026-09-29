@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
 import { z } from 'zod'
 import { KINDS, MAX_ATTEMPTS, MODELS } from './config.mjs'
+import { agentEnv } from './worker.mjs'
 
 /**
  * The coordinator is how a goal gets thought about: a short Opus pass that
@@ -40,7 +41,7 @@ const describe = (trigger) =>
 
 export function snapshot(store, goalId, trigger) {
   const goal = store.getGoal(goalId)
-  const tasks = store.listTasks({ goalId }).sort((a, b) => a.created.localeCompare(b.created))
+  const tasks = store.listTasks({ goalId }).filter((t) => !t.archived).sort((a, b) => a.created.localeCompare(b.created))
   const line = (t) => {
     const state = t.status === 'failed'
       ? `failed: ${t.failure?.reason ?? 'error'}, attempts ${t.attempts}/${MAX_ATTEMPTS}`
@@ -69,7 +70,7 @@ export function createActions(store, goalId, { mirror = {}, created = [] } = {})
     plan_tasks({ tasks }) {
       const g = goal()
       if (!Array.isArray(tasks) || !tasks.length) return 'No tasks given.'
-      const existing = store.listTasks({ goalId })
+      const existing = store.listTasks({ goalId }).filter((t) => !t.archived)
       if (existing.length + tasks.length > g.taskCap) {
         return `Refused: this goal may have at most ${g.taskCap} tasks and already has ${existing.length}. Use escalate to ask the user how to proceed.`
       }
@@ -229,6 +230,7 @@ export function sdkModel({ queryFn = query, model = MODELS.opus } = {}) {
         mcpServers: { coord: server },
         hooks: { PreToolUse: [{ hooks: [onlyCoord] }] },
         canUseTool: async () => ({ behavior: 'allow' }),
+        env: agentEnv(),
       },
     })
     for await (const msg of stream) {

@@ -8,7 +8,7 @@ const byPriority = (a, b) => a.priority - b.priority || a.created.localeCompare(
 const count = (n, word) => `${n === 1 ? 'One' : n} ${word}${n === 1 ? '' : 's'}`
 
 export function boardOf(store, running = new Set()) {
-  const tasks = store.listTasks().sort((a, b) => a.created.localeCompare(b.created))
+  const tasks = store.listTasks().filter((t) => !t.archived).sort((a, b) => a.created.localeCompare(b.created))
   return {
     goals: store
       .listGoals()
@@ -50,7 +50,7 @@ export function briefing(store, goalId) {
   if (goalId) {
     const goal = store.getGoal(goalId)
     if (!goal) return `There is no goal ${goalId}.`
-    const tasks = store.listTasks({ goalId }).sort((a, b) => a.created.localeCompare(b.created))
+    const tasks = store.listTasks({ goalId }).filter((t) => !t.archived).sort((a, b) => a.created.localeCompare(b.created))
     return [
       `${goal.title}. Done means: ${goal.outcome}. Status: ${goal.status}.`,
       goal.notes ? `Note: ${goal.notes}` : '',
@@ -59,7 +59,7 @@ export function briefing(store, goalId) {
   }
   const goals = store.listGoals().filter((g) => VISIBLE.includes(g.status)).sort(byPriority)
   if (!goals.length) return 'No agent work is in progress.'
-  const tasks = store.listTasks()
+  const tasks = store.listTasks().filter((t) => !t.archived)
   const lines = goals.map((g) => goalLine(g, tasks.filter((t) => t.goalId === g.id)))
   const pending = store.listApprovals('pending')
   const tail = pending.length ? ` ${count(pending.length, 'approval')} waiting: ${pending.map((a) => a.action).join('; ')}.` : ''

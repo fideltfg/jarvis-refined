@@ -160,3 +160,11 @@ test('the briefing is short and speakable', () => {
   assert.deepEqual(board.running, [a.id])
   assert.equal(board.goals[0].tasks.length, 2)
 })
+
+test('F11: the board leaves out archived tasks', () => {
+  const store = createStore(mkdtempSync(join(tmpdir(), 'agents-board11-')), { workDir: '/work' })
+  const g = store.newGoal({ title: 'G', outcome: 'O' })
+  store.saveTask({ ...store.newTask({ goalId: g.id, title: 'Old', brief: 'b' }), status: 'done', archived: true })
+  store.newTask({ goalId: g.id, title: 'New', brief: 'b' })
+  assert.deepEqual(boardOf(store).goals[0].tasks.map((t) => t.title), ['New'])
+})

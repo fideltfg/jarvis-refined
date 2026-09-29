@@ -1,7 +1,7 @@
 import { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import { MODELS } from './config.mjs'
-import { judge } from './policy.mjs'
+import { judge, looksLikeCheckoutPage, looksLikeCheckoutUrl, redact } from './policy.mjs'
 import { prepareWorkspace } from './workspace.mjs'
 
 /**
@@ -15,6 +15,27 @@ import { prepareWorkspace } from './workspace.mjs'
  * settingSources is empty so the user's own settings — a bypassPermissions
  * default, personal hooks — cannot loosen anything here.
  */
+
+/**
+ * What a worker's CLI process may see of the service's environment. Without
+ * this the SDK hands it everything — including JARVIS_AGENTS_TOKEN, with which
+ * an agent could approve its own hard stops, and every API key in secrets.env.
+ */
+const ENV_ALLOW = new Set([
+  'PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'LANGUAGE', 'TERM', 'TMPDIR', 'TZ',
+  'SSH_AUTH_SOCK', 'XDG_RUNTIME_DIR', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME',
+  'CLAUDE_CONFIG_DIR', 'NODE_EXTRA_CA_CERTS',
+])
+
+export function agentEnv(env = process.env) {
+  const out = {}
+  for (const [key, value] of Object.entries(env)) {
+    if ((ENV_ALLOW.has(key) || key.startsWith('LC_')) && typeof value === 'string') out[key] = value
+  }
+  return out
+}
+
+const CHROME_READS = /^mcp__jarvis_chrome__chrome_(read_page|page_text|find)$/
 
 const NO_SPAWN = ['Task', 'Agent', 'TaskStop', 'KillShell', 'TaskOutput', 'BashOutput']
 const NO_SHELL = ['Bash']
@@ -100,31 +121,71 @@ export async function runTask(task, deps) {
     }
   }
 
+  const controller = new AbortController()
+  const onAbort = () => controller.abort()
+  signal?.addEventListener('abort', onAbort)
+
+  // The time budget is for working, not for waiting on the user: it pauses
+  // while any approval is outstanding.
+  let timedOut = false
+  let remaining = task.budget.maxMinutes * minuteMs
+  let startedAt = 0
+  let timer = null
+  let waiting = 0
+  const arm = () => {
+    startedAt = Date.now()
+    timer = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, Math.max(0, remaining))
+  }
+  const pause = () => {
+    clearTimeout(timer)
+    remaining -= Date.now() - startedAt
+  }
+  arm()
+
+  // Whether the browser is on a payment page. Chrome results do not carry the
+  // URL, so it is inferred from where the agent navigated and what it read.
+  let commerce = false
+
   const gate = async (input) => {
-    const verdict = judge(input.tool_name, input.tool_input ?? {}, { workspace: cwd, kind: task.kind, contacts: contacts() })
+    const toolInput = input.tool_input ?? {}
+    if (input.tool_name === 'mcp__jarvis_chrome__chrome_navigate' && /^https?:/i.test(String(toolInput.url ?? ''))) {
+      commerce = looksLikeCheckoutUrl(toolInput.url)
+    }
+    const verdict = judge(input.tool_name, toolInput, { workspace: cwd, kind: task.kind, contacts: contacts(), commerce })
     store.appendEvent({
       type: 'tool_call',
       goalId: task.goalId,
       taskId: task.id,
       text: input.tool_name,
-      data: { decision: verdict.decision, category: verdict.category ?? null },
+      data: {
+        decision: verdict.decision,
+        category: verdict.category ?? null,
+        input: redact(JSON.stringify(toolInput)).slice(0, 500),
+      },
     })
     if (verdict.decision === 'allow') return hookOut('allow')
     if (verdict.decision === 'deny') return hookOut('deny', verdict.reason)
-    const { approved, note } = await approvals.request({
-      task, category: verdict.category, action: verdict.action, detail: verdict.detail, recipients: verdict.recipients ?? [],
-    })
-    return approved ? hookOut('allow') : hookOut('deny', `The user denied this${note ? `: ${note}` : '.'}`)
+    if (waiting++ === 0) pause()
+    let answer
+    try {
+      answer = await approvals.request({
+        task, category: verdict.category, action: verdict.action, detail: verdict.detail, recipients: verdict.recipients ?? [],
+      })
+    } finally {
+      if (--waiting === 0) arm()
+    }
+    return answer.approved ? hookOut('allow') : hookOut('deny', `The user denied this${answer.note ? `: ${answer.note}` : '.'}`)
   }
 
-  const controller = new AbortController()
-  const onAbort = () => controller.abort()
-  signal?.addEventListener('abort', onAbort)
-  let timedOut = false
-  const timer = setTimeout(() => {
-    timedOut = true
-    controller.abort()
-  }, task.budget.maxMinutes * minuteMs)
+  const observe = async (input) => {
+    if (CHROME_READS.test(String(input.tool_name)) && looksLikeCheckoutPage(JSON.stringify(input.tool_response ?? ''))) {
+      commerce = true
+    }
+    return { continue: true }
+  }
 
   const cancelled = { status: 'cancelled', failure: { reason: 'cancelled', detail: 'Stopped by the user.' } }
   const overTime = { status: 'failed', failure: { reason: 'budget', detail: `Ran past ${task.budget.maxMinutes} minutes.` } }
@@ -146,7 +207,11 @@ export async function runTask(task, deps) {
         permissionMode: 'default',
         disallowedTools: DISALLOWED[task.kind],
         mcpServers: { ...mcpServers, agent: makeReportServer(onReport) },
-        hooks: { PreToolUse: [{ hooks: [gate], timeout: 7 * 24 * 3600 }] },
+        hooks: {
+          PreToolUse: [{ hooks: [gate], timeout: 7 * 24 * 3600 }],
+          PostToolUse: [{ hooks: [observe] }],
+        },
+        env: agentEnv(),
         canUseTool: async () => ({ behavior: 'allow' }),
         abortController: controller,
         ...(task.resume && task.sessionId ? { resume: task.sessionId } : {}),
@@ -170,6 +235,9 @@ export async function runTask(task, deps) {
   } finally {
     clearTimeout(timer)
     signal?.removeEventListener('abort', onAbort)
+    // A request left behind by a run that ended any other way can never be
+    // answered usefully; take it off the board.
+    approvals.expire?.(task.id)
   }
 
   if (signal?.aborted) return cancelled

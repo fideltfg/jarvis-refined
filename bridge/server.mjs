@@ -1366,7 +1366,7 @@ wss.on('connection', (socket, req) => {
     jarvis_eyes: visionServer(ask),
     jarvis_memory: memoryServer(MEMORY_FILE),
     jarvis_files: filesServer({ roots: FILE_ROOTS, allowWrites: ALLOW_WRITES }),
-    ...(agents ? { jarvis_agents: agentsServer(agents) } : {}),
+    ...(agents ? { jarvis_agents: agentsServer(agents, { lastUserText: () => lastQuestion }) } : {}),
   }
   brokerMcpServers = {
     jarvis: displayServer(
@@ -1378,7 +1378,7 @@ wss.on('connection', (socket, req) => {
     jarvis_eyes: visionServer(ask),
     jarvis_memory: memoryServer(MEMORY_FILE),
     jarvis_files: filesServer({ roots: FILE_ROOTS, allowWrites: ALLOW_WRITES }),
-    ...(agents ? { jarvis_agents: agentsServer(agents) } : {}),
+    ...(agents ? { jarvis_agents: agentsServer(agents, { lastUserText: () => lastQuestion }) } : {}),
   }
   toolBrokerPromise = createToolBroker({ external: MCP_SERVERS, local: brokerMcpServers })
 

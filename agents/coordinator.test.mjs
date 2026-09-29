@@ -132,3 +132,13 @@ test('a model failure is recorded as an event and rethrown', async () => {
   await assert.rejects(coordinator.plan(goal.id), /overloaded/)
   assert.equal(store.readEvents().at(-1).type, 'coordinator_error')
 })
+
+test('F11: archived tasks do not count against the cap or appear in the snapshot', () => {
+  const { store, goal } = setup({ taskCap: 2 })
+  for (let i = 0; i < 3; i++) {
+    const t = store.newTask({ goalId: goal.id, title: `Old run ${i}`, brief: 'b' })
+    store.saveTask({ ...t, status: 'done', archived: true })
+  }
+  assert.doesNotMatch(snapshot(store, goal.id, { type: 'task_done', text: 'x' }), /Old run/)
+  assert.match(createActions(store, goal.id).plan_tasks({ tasks: [{ key: 'a', title: 'New', brief: 'b', kind: 'research' }] }), /^Created/)
+})

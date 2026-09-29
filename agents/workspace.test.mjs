@@ -68,3 +68,10 @@ test('cleanup removes workspaces of finished goals and cancelled tasks only', ()
   assert.deepEqual(cleanupWorkspaces(store).sort(), [gone.id, cancelled.id].sort())
   assert.ok(existsSync(keep.workspace.path))
 })
+
+test('F11: cleanup also removes archived tasks of a live goal', () => {
+  const { store, goal } = setup()
+  const old = store.saveTask({ ...store.newTask({ goalId: goal.id, title: 'Old', brief: 'b' }), status: 'done', archived: true })
+  prepareWorkspace(old)
+  assert.deepEqual(cleanupWorkspaces(store), [old.id])
+})

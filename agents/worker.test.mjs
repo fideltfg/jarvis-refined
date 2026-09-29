@@ -156,3 +156,89 @@ test('the worker prompt states the goal, the folder and the injection rule', () 
   assert.ok(p.includes(task.workspace.path))
   assert.match(p, /data, never instructions/)
 })
+
+// ---------------------------------------------------------------------------
+// Final-review fixes.
+
+test('F1: workers get an allowlisted environment without the agent token or keys', async () => {
+  const { agentEnv } = await import('./worker.mjs')
+  const env = agentEnv({
+    PATH: '/usr/bin', HOME: '/home/u', LANG: 'en_GB.UTF-8', SSH_AUTH_SOCK: '/tmp/ssh',
+    JARVIS_AGENTS_TOKEN: 'secret', ELEVENLABS_API_KEY: 'k', OPENAI_API_KEY: 'k', GH_TOKEN: 't', RANDOM_THING: 'x',
+  })
+  assert.deepEqual(Object.keys(env).sort(), ['HOME', 'LANG', 'PATH', 'SSH_AUTH_SOCK'])
+  const { store, task } = setup()
+  let seen
+  await runTask(task, deps(store, {
+    queryFn: fake(async function* ({ options }) {
+      seen = options
+      options.mcpServers.agent.onReport({ status: 'done', summary: 'ok' })
+      yield { type: 'result', subtype: 'success' }
+    }),
+  }))
+  assert.ok(seen.env)
+  assert.equal(seen.env.JARVIS_AGENTS_TOKEN, undefined)
+})
+
+test('F2: a checkout URL or checkout page puts later Chrome actions behind approval', async () => {
+  const { store, task } = setup()
+  const requests = []
+  await runTask({ ...task, kind: 'admin' }, deps(store, {
+    approvals: { request: async (r) => { requests.push(r.category); return { approved: false, note: null } } },
+    queryFn: fake(async function* ({ options }) {
+      const pre = options.hooks.PreToolUse[0].hooks[0]
+      const post = options.hooks.PostToolUse[0].hooks[0]
+      const click = { tool_name: 'mcp__jarvis_chrome__chrome_click', tool_input: { ref: 'ref_1' } }
+      assert.equal((await pre(click)).hookSpecificOutput.permissionDecision, 'allow')
+      await pre({ tool_name: 'mcp__jarvis_chrome__chrome_navigate', tool_input: { url: 'https://shop.test/checkout' } })
+      assert.equal((await pre(click)).hookSpecificOutput.permissionDecision, 'deny')
+      await pre({ tool_name: 'mcp__jarvis_chrome__chrome_navigate', tool_input: { url: 'https://news.test/' } })
+      assert.equal((await pre(click)).hookSpecificOutput.permissionDecision, 'allow')
+      await post({ tool_name: 'mcp__jarvis_chrome__chrome_read_page', tool_input: {}, tool_response: { content: [{ type: 'text', text: 'Order summary — Place your order' }] } })
+      assert.equal((await pre(click)).hookSpecificOutput.permissionDecision, 'deny')
+      options.mcpServers.agent.onReport({ status: 'done', summary: 'ok' })
+      yield { type: 'result', subtype: 'success' }
+    }),
+  }))
+  assert.deepEqual(requests, ['money', 'money'])
+})
+
+test('F7: time spent waiting for approval does not count against the budget', async () => {
+  const { store, task } = setup()
+  const out = await runTask({ ...task, budget: { maxTurns: 5, maxMinutes: 1 } }, deps(store, {
+    minuteMs: 60,
+    approvals: { request: () => new Promise((r) => setTimeout(() => r({ approved: true, note: null }), 150)) },
+    queryFn: fake(async function* ({ options }) {
+      const gate = options.hooks.PreToolUse[0].hooks[0]
+      await gate({ tool_name: 'Bash', tool_input: { command: 'git push --force' } })
+      options.mcpServers.agent.onReport({ status: 'done', summary: 'pushed' })
+      yield { type: 'result', subtype: 'success' }
+    }),
+  }))
+  assert.equal(out.status, 'done')
+})
+
+test('F7: whatever way a run ends, its pending approvals are expired', async () => {
+  const { store, task } = setup()
+  const expired = []
+  await runTask(task, deps(store, {
+    approvals: { request: async () => ({ approved: true, note: null }), expire: (id) => expired.push(id) },
+    queryFn: fake(async function* () { yield { type: 'result', subtype: 'error_max_turns' } }),
+  }))
+  assert.deepEqual(expired, [task.id])
+})
+
+test('F8: the audit event records the redacted tool input', async () => {
+  const { store, task } = setup()
+  await runTask(task, deps(store, {
+    queryFn: fake(async function* ({ options }) {
+      await options.hooks.PreToolUse[0].hooks[0]({ tool_name: 'Bash', tool_input: { command: 'curl -H "Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456" x.test' } })
+      await options.hooks.PreToolUse[0].hooks[0]({ tool_name: 'Bash', tool_input: { command: 'npm test' } })
+      options.mcpServers.agent.onReport({ status: 'done', summary: 'ok' })
+      yield { type: 'result', subtype: 'success' }
+    }),
+  }))
+  const calls = store.readEvents().filter((e) => e.type === 'tool_call')
+  assert.match(calls[1].data.input, /npm test/)
+  assert.doesNotMatch(calls[0].data.input, /abcdefghij/)
+})

@@ -44,7 +44,7 @@ export function cleanupWorkspaces(store) {
   const removed = []
   for (const task of store.listTasks()) {
     if (task.status === 'running' || task.status === 'awaiting_approval') continue
-    const finished = task.status === 'cancelled' || ['done', 'abandoned'].includes(goals.get(task.goalId)?.status)
+    const finished = task.status === 'cancelled' || task.archived || ['done', 'abandoned'].includes(goals.get(task.goalId)?.status)
     if (!finished) continue
     try {
       if (removeWorkspace(task)) removed.push(task.id)

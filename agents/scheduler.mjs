@@ -15,7 +15,7 @@ export function runnable(store, running) {
   const done = new Set(store.listTasks({ status: 'done' }).map((t) => t.id))
   return store
     .listTasks({ status: 'queued' })
-    .filter((t) => !running.has(t.id) && goals.get(t.goalId)?.status === 'active' && t.dependsOn.every((d) => done.has(d)))
+    .filter((t) => !running.has(t.id) && goals.get(t.goalId)?.status === 'active' && (t.dependsOn ?? []).every((d) => done.has(d)))
     .sort((a, b) => goals.get(a.goalId).priority - goals.get(b.goalId).priority || a.created.localeCompare(b.created) || a.id.localeCompare(b.id))
 }
 
@@ -31,6 +31,7 @@ export function createScheduler({
   tickMs = 5000,
   retryDelayMs = 30_000,
   onCancel = () => {},
+  onArchive = () => {},
 }) {
   const running = new Map()
   const inflight = new Set()
@@ -115,20 +116,54 @@ export function createScheduler({
     inflight.add(promise)
   }
 
+  const FINISHED = ['done', 'failed', 'blocked', 'cancelled']
+  const KEEP_RUNS = 3
+
+  /**
+   * A recurring goal would otherwise grow a task, a folder and a snapshot line
+   * per run forever. Only the last few runs stay live; older ones are marked
+   * archived — out of the cap, the snapshot and the board — and handed to
+   * onArchive so their workspaces can go.
+   */
+  function archiveOldRuns(goalId) {
+    const finished = store
+      .listTasks({ goalId })
+      .filter((t) => !t.archived && FINISHED.includes(t.status))
+      .sort((a, b) => a.updated.localeCompare(b.updated) || a.id.localeCompare(b.id))
+    for (const t of finished.slice(0, Math.max(0, finished.length - KEEP_RUNS))) {
+      const saved = store.saveTask({ ...t, archived: true })
+      try {
+        onArchive(saved)
+      } catch (err) {
+        console.warn(`[agents] could not archive ${t.id}: ${err.message}`)
+      }
+    }
+  }
+
+  function requeueGoal(goal) {
+    const tasks = store.listTasks({ goalId: goal.id }).filter((t) => !t.archived)
+    if (!tasks.length || tasks.some((t) => ['queued', 'running', 'awaiting_approval'].includes(t.status))) return
+    const last = tasks
+      .filter((t) => ['done', 'failed', 'blocked'].includes(t.status))
+      .sort((a, b) => a.updated.localeCompare(b.updated))
+      .at(-1)
+    if (!last || now() - Date.parse(last.updated) < parseEvery(goal.recurring.every)) return
+    const next = store.newTask({
+      goalId: goal.id, title: last.title, brief: last.brief, kind: last.kind, model: last.model, repo: last.workspace?.repo ?? null,
+    })
+    store.appendEvent({ type: 'task_queued', goalId: goal.id, taskId: next.id, text: `Recurring run queued: ${next.title}`, data: labels(next) })
+    archiveOldRuns(goal.id)
+  }
+
   function requeueRecurring() {
     for (const goal of store.listGoals()) {
       if (goal.status !== 'active' || !goal.recurring) continue
-      const tasks = store.listTasks({ goalId: goal.id })
-      if (!tasks.length || tasks.some((t) => ['queued', 'running', 'awaiting_approval'].includes(t.status))) continue
-      const last = tasks
-        .filter((t) => ['done', 'failed', 'blocked'].includes(t.status))
-        .sort((a, b) => a.updated.localeCompare(b.updated))
-        .at(-1)
-      if (!last || now() - Date.parse(last.updated) < parseEvery(goal.recurring.every)) continue
-      const next = store.newTask({
-        goalId: goal.id, title: last.title, brief: last.brief, kind: last.kind, model: last.model, repo: last.workspace.repo ?? null,
-      })
-      store.appendEvent({ type: 'task_queued', goalId: goal.id, taskId: next.id, text: `Recurring run queued: ${next.title}`, data: labels(next) })
+      // One goal with a hand-edited interval must not stop every other goal.
+      try {
+        requeueGoal(goal)
+      } catch (err) {
+        console.warn(`[agents] recurring goal ${goal.id} skipped: ${err.message}`)
+      }
     }
   }
 
@@ -148,6 +183,10 @@ export function createScheduler({
           launch(task)
         }
       } while (again)
+    } catch (err) {
+      // tick runs from a timer; an exception here would take the service down
+      // and systemd would bring it back into the same state every few seconds.
+      console.warn('[agents] scheduler tick failed:', err.message)
     } finally {
       ticking = false
     }

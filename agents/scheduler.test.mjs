@@ -158,3 +158,41 @@ test('a recurring goal re-queues its last task once the interval has passed', as
   assert.equal(next.kind, 'ops')
   assert.ok(h.runs.has(next.id))
 })
+
+test('F10: hand-edited files with bad values do not crash the loop', () => {
+  const h = harness()
+  const bad = h.store.newGoal({ title: 'Bad', outcome: 'O' })
+  h.store.saveGoal({ ...bad, recurring: { every: 'six hours' } })
+  h.store.saveTask({ ...h.store.newTask({ goalId: bad.id, title: 'Old', brief: 'b' }), status: 'done' })
+  const g = h.store.newGoal({ title: 'G', outcome: 'O' })
+  const t = h.store.newTask({ goalId: g.id, title: 'No deps field', brief: 'b' })
+  const { dependsOn, ...withoutDeps } = h.store.getTask(t.id)
+  h.store.saveTask(withoutDeps)
+  assert.doesNotThrow(() => h.scheduler.tick())
+  assert.ok(h.runs.has(t.id))
+})
+
+test('F11: recurring runs archive old tasks, keep the last three and hand them to onArchive', async () => {
+  let clock = Date.parse('2026-09-29T00:00:00Z')
+  const store = createStore(mkdtempSync(join(tmpdir(), 'agents-rec11-')), { workDir: '/work', now: () => new Date(clock) })
+  const archived = []
+  const runs = new Map()
+  const scheduler = createScheduler({
+    store, now: () => clock, sleep: async () => {}, retryDelayMs: 0, onArchive: (t) => archived.push(t.id),
+    coordinator: { review: async () => {} },
+    runTask: (task) => { const d = deferred(); runs.set(task.id, d); return d.promise },
+  })
+  const g = store.newGoal({ title: 'Check', outcome: 'O', recurring: { every: '1h' } })
+  store.newTask({ goalId: g.id, title: 'Run', brief: 'b', kind: 'ops' })
+  for (let i = 0; i < 6; i++) {
+    scheduler.tick()
+    const running = store.listTasks({ status: 'running' })[0]
+    runs.get(running.id).resolve(DONE)
+    await scheduler.idle()
+    clock += 61 * 60_000
+  }
+  const live = store.listTasks({ goalId: g.id }).filter((t) => !t.archived)
+  assert.ok(live.length <= 4)
+  assert.ok(archived.length >= 2)
+  assert.ok(store.listTasks({ goalId: g.id }).filter((t) => t.archived).every((t) => archived.includes(t.id)))
+})

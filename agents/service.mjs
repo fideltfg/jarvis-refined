@@ -12,7 +12,7 @@ import { recover } from './recover.mjs'
 import { createScheduler } from './scheduler.mjs'
 import { createStore } from './store.mjs'
 import { runTask } from './worker.mjs'
-import { cleanupWorkspaces } from './workspace.mjs'
+import { cleanupWorkspaces, removeWorkspace } from './workspace.mjs'
 
 /**
  * jarvis-agents: goals, a coordinator and background workers, as its own
@@ -47,6 +47,7 @@ const scheduler = createScheduler({
   store,
   coordinator,
   onCancel: (taskId) => approvals.expire(taskId),
+  onArchive: (task) => removeWorkspace(task),
   runTask: (task, opts) =>
     runTask(task, { ...opts, store, approvals, contacts: () => contacts.get(), mcpServers: mcpFor(task) }),
 })
