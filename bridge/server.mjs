@@ -20,6 +20,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk'
 import { displayServer } from './panels.mjs'
 import { uiServer } from './ui.mjs'
 import { chromeAvailable, chromeServer } from './chrome.mjs'
+import { AGENTS_ENABLED, AGENTS_PROMPT, agentsApi, agentsServer, subscribeAgents } from './agents-client.mjs'
 import { visionServer } from './vision.mjs'
 import { memoryPrompt, memoryServer, MEMORY_FILE } from './memory.mjs'
 import { homedir, tmpdir } from 'node:os'
@@ -120,6 +121,9 @@ function originAllowed(origin) {
  * without it, and turn it on once you trust what you're demoing.
  */
 const ALLOW_WRITES = process.env.JARVIS_ALLOW_WRITES === '1'
+
+/** The agent service client, or null when JARVIS_AGENTS is not set. */
+const agents = AGENTS_ENABLED ? agentsApi() : null
 
 /**
  * The orchestrator model. Override with JARVIS_MODEL to trade quality for pace
@@ -307,6 +311,10 @@ function decideTool(name) {
     // cannot take a note is not one. It also has to be named, since `pa_task`
     // and friends read as writes to the verb rules below.
     if (server === 'jarvis_memory') return true
+
+    // Handing work to the agent service. Its own policy gates what agents do;
+    // creating a goal or answering an approval changes nothing by itself.
+    if (server === 'jarvis_agents') return true
 
     const tool = mcpToolOf(name)
     if (EFFECTFUL_VERB.test(tool) && !VETO_EXEMPT.has(`${server}__${tool}`)) {
@@ -531,7 +539,7 @@ const personaFor = (theme) => {
 }
 
 const systemPromptFor = (theme) =>
-  `${personaFor(theme)}\n\n${TOOLS_PROMPT}\n\n${memoryPrompt()}${sharedContext()}`
+  `${personaFor(theme)}\n\n${TOOLS_PROMPT}\n\n${AGENTS_ENABLED ? `${AGENTS_PROMPT}\n\n` : ''}${memoryPrompt()}${sharedContext()}`
 
 /**
  * ElevenLabs credentials, borrowed from the MCP server config.
@@ -1126,6 +1134,10 @@ console.log(
   `[jarvis] writes ${ALLOW_WRITES ? 'ENABLED' : 'disabled'}` +
     (ALLOW_WRITES ? '' : ' — set JARVIS_ALLOW_WRITES=1 to permit shell/file/device actions'),
 )
+console.log(
+  `[jarvis] agents ${AGENTS_ENABLED ? 'ENABLED' : 'disabled'}` +
+    (AGENTS_ENABLED && !process.env.JARVIS_AGENTS_TOKEN ? ' — JARVIS_AGENTS_TOKEN is missing, calls will be refused' : ''),
+)
 // Asynchronous, so it lands a beat after the rest of the banner. Worth printing
 // at all because an extension that is simply not running is indistinguishable
 // at the tool boundary from one that is broken, and this is the one place the
@@ -1195,6 +1207,30 @@ wss.on('connection', (socket, req) => {
 
   const send = (msg) => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(msg))
+  }
+
+  // The agent board and spoken updates. Every event is forwarded as it
+  // happens, and the board snapshot is refreshed shortly after, so a burst of
+  // events costs one fetch.
+  let agentFeed = null
+  if (agents) {
+    let boardTimer = null
+    const pushBoard = () => {
+      clearTimeout(boardTimer)
+      boardTimer = setTimeout(() => {
+        agents
+          .board()
+          .then((board) => send({ type: 'agents', board, online: true }))
+          .catch(() => send({ type: 'agents', board: null, online: false }))
+      }, 250)
+    }
+    agentFeed = subscribeAgents(agents, {
+      onEvent: (event) => {
+        send({ type: 'agent_event', event })
+        pushBoard()
+      },
+      onState: (online) => (online ? pushBoard() : send({ type: 'agents', board: null, online: false })),
+    })
   }
 
   /**
@@ -1330,6 +1366,7 @@ wss.on('connection', (socket, req) => {
     jarvis_eyes: visionServer(ask),
     jarvis_memory: memoryServer(MEMORY_FILE),
     jarvis_files: filesServer({ roots: FILE_ROOTS, allowWrites: ALLOW_WRITES }),
+    ...(agents ? { jarvis_agents: agentsServer(agents) } : {}),
   }
   brokerMcpServers = {
     jarvis: displayServer(
@@ -1341,6 +1378,7 @@ wss.on('connection', (socket, req) => {
     jarvis_eyes: visionServer(ask),
     jarvis_memory: memoryServer(MEMORY_FILE),
     jarvis_files: filesServer({ roots: FILE_ROOTS, allowWrites: ALLOW_WRITES }),
+    ...(agents ? { jarvis_agents: agentsServer(agents) } : {}),
   }
   toolBrokerPromise = createToolBroker({ external: MCP_SERVERS, local: brokerMcpServers })
 
@@ -1688,6 +1726,10 @@ wss.on('connection', (socket, req) => {
       }
     }
 
+    if (msg.type === 'agent_decide' && agents && typeof msg.id === 'string' && ['approve', 'deny'].includes(msg.decision)) {
+      agents.decide(msg.id, msg.decision).catch((err) => console.warn('[jarvis] agent decision failed:', err.message))
+    }
+
     if (msg.type === 'interrupt') {
       activeController?.abort()
       if (currentProvider !== 'claude') return
@@ -1705,6 +1747,7 @@ wss.on('connection', (socket, req) => {
   })
 
   socket.on('close', () => {
+    agentFeed?.close()
     console.log('[jarvis] client disconnected')
     closed = true
     activeController?.abort()
