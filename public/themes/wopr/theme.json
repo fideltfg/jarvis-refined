@@ -1,0 +1,67 @@
+{
+  "name": "WOPR",
+  "css": "theme.css",
+  "backgroundColor": "#090700",
+  "register": "machine",
+  "boot": "wopr",
+  "suggestion": "run a strategic weather simulation",
+  "copy": {
+    "title": "WOPR",
+    "brand": "WOPR",
+    "brandSub": "War Operation Plan Response",
+    "speaker": "JOSHUA",
+    "wakePhrase": "joshua",
+    "status": {
+      "offline": "LINK TERMINATED",
+      "boot": "LOGON SEQUENCE",
+      "dormant": "AWAITING INPUT — SAY “JOSHUA”",
+      "waking": "GREETINGS",
+      "listening": "INPUT ACTIVE",
+      "thinking": "SIMULATING",
+      "tooling": "QUERYING NETWORK",
+      "speaking": "OUTPUT"
+    },
+    "systemsTitle": "DEFCON NETWORK",
+    "signalTitle": "CARRIER",
+    "toolKicker": "running",
+    "ignitionWord": "LOGON",
+    "ignitionSub": "establish command link",
+    "voiceSetTail": "",
+    "audioTest": "Audio channel confirmed. Shall we continue?"
+  },
+  "phaseColors": {
+    "offline": "#402900",
+    "boot": "#ffb000",
+    "dormant": "#d18d00",
+    "waking": "#ffd166",
+    "listening": "#ffcb47",
+    "thinking": "#ff6b35",
+    "tooling": "#ff8c1a",
+    "speaking": "#ffe3a3"
+  },
+  "sceneTint": { "core": "#d68b00", "hot": "#fff0bd", "particles": "#ffb000" },
+  "wake": {
+    "pattern": "(?:joshua|josher|josh|wopr|whopper|warper|w[\\s./-]*o[\\s./-]*p[\\s./-]*r|war\\s+operation\\s+plan\\s+response)",
+    "phrases": ["Joshua", "WOPR", "W O P R", "War Operation Plan Response"],
+    "language": "en-GB"
+  },
+  "voice": {
+    "kokoro": "am_fenrir",
+    "character": "british-male",
+    "profile": {
+      "label": "Fenrir · command terminal",
+      "speed": 0.94,
+      "playbackRate": 1.01,
+      "highpassHz": 180,
+      "lowpassHz": 3600,
+      "presenceHz": 900,
+      "presenceDb": 4.5,
+      "compression": { "threshold": -28, "ratio": 5, "attack": 0.008, "release": 0.12 }
+    }
+  },
+  "sound": {
+    "bank": "wopr",
+    "music": false,
+    "ambient": { "tones": [60, 120], "noise": 0.035, "cutoff": 420, "level": 0.032 }
+  }
+}

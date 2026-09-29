@@ -1,0 +1,67 @@
+{
+  "name": "J.A.R.V.I.S.",
+  "css": "",
+  "backgroundColor": "#01060c",
+  "register": "butler",
+  "boot": "stark",
+  "suggestion": "generate an image of the Mark Seven suit",
+  "copy": {
+    "title": "J.A.R.V.I.S.",
+    "brand": "J.A.R.V.I.S.",
+    "brandSub": "Just A Rather Very Intelligent System",
+    "speaker": "JARVIS",
+    "wakePhrase": "hey jarvis",
+    "status": {
+      "offline": "OFFLINE",
+      "boot": "INITIALISING",
+      "dormant": "STANDBY — SAY “HEY JARVIS”",
+      "waking": "ONLINE",
+      "listening": "LISTENING",
+      "thinking": "PROCESSING",
+      "tooling": "ACCESSING SYSTEMS",
+      "speaking": "RESPONDING"
+    },
+    "systemsTitle": "SYSTEMS",
+    "signalTitle": "SIGNAL",
+    "toolKicker": "accessing",
+    "ignitionWord": "INITIALISE",
+    "ignitionSub": "click, or clap, to power up",
+    "voiceSetTail": " At your service, sir.",
+    "audioTest": "Audio test. If you can hear this, speech output is working, sir."
+  },
+  "phaseColors": {
+    "offline": "#0d4a4a",
+    "boot": "#17b3b3",
+    "dormant": "#12908f",
+    "waking": "#5cf2ef",
+    "listening": "#19d8d2",
+    "thinking": "#f0a93c",
+    "tooling": "#a97bff",
+    "speaking": "#3ef2a8"
+  },
+  "sceneTint": { "core": "#19c4c4", "hot": "#c9fdff", "particles": "#00e5ff" },
+  "wake": {
+    "pattern": "(?:jarvis|jarvys|jervis|travis|jarviss|java's|jarv)",
+    "phrases": ["Jarvis", "Hey Jarvis"],
+    "language": "en-GB"
+  },
+  "voice": {
+    "kokoro": "bm_george",
+    "character": "british-male",
+    "profile": {
+      "label": "George · clean service voice",
+      "speed": 0.97,
+      "playbackRate": 1,
+      "highpassHz": 70,
+      "lowpassHz": 11000,
+      "presenceHz": 2600,
+      "presenceDb": 2,
+      "compression": { "threshold": -24, "ratio": 3, "attack": 0.012, "release": 0.18 }
+    }
+  },
+  "sound": {
+    "bank": "stark",
+    "music": true,
+    "ambient": { "tones": [55, 55.6], "noise": 0.06, "cutoff": 260, "level": 0.05 }
+  }
+}

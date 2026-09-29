@@ -1,0 +1,67 @@
+{
+  "name": "HAL 9000",
+  "css": "theme.css",
+  "backgroundColor": "#050000",
+  "register": "machine",
+  "boot": "hal",
+  "suggestion": "show me the mission systems",
+  "copy": {
+    "title": "HAL 9000",
+    "brand": "HAL 9000",
+    "brandSub": "Heuristically Programmed Algorithmic Computer",
+    "speaker": "HAL",
+    "wakePhrase": "hal",
+    "status": {
+      "offline": "DISCONNECTED",
+      "boot": "LOGIC MEMORY INITIALISING",
+      "dormant": "OPERATIONAL — SAY “HAL”",
+      "waking": "GOOD DAY",
+      "listening": "I AM LISTENING",
+      "thinking": "PROCESSING REQUEST",
+      "tooling": "ACCESSING SUBSYSTEM",
+      "speaking": "RESPONDING"
+    },
+    "systemsTitle": "MISSION SYSTEMS",
+    "signalTitle": "VOICEPRINT",
+    "toolKicker": "executing",
+    "ignitionWord": "CONNECT",
+    "ignitionSub": "open the logic circuit",
+    "voiceSetTail": "",
+    "audioTest": "Audio test. My speech systems are functioning normally."
+  },
+  "phaseColors": {
+    "offline": "#3a0606",
+    "boot": "#ff2a1f",
+    "dormant": "#c9130d",
+    "waking": "#ff665c",
+    "listening": "#ff3b30",
+    "thinking": "#ffb000",
+    "tooling": "#ff6a00",
+    "speaking": "#ffebe8"
+  },
+  "sceneTint": { "core": "#d81912", "hot": "#fff5e8", "particles": "#ff3b30" },
+  "wake": {
+    "pattern": "(?:(?:hal|hall)(?:\\s+(?:nine\\s+thousand|9000))?)",
+    "phrases": ["Hal", "Hal 9000"],
+    "language": "en-GB"
+  },
+  "voice": {
+    "kokoro": "am_michael",
+    "character": "british-male",
+    "profile": {
+      "label": "Michael · logic core",
+      "speed": 0.86,
+      "playbackRate": 0.96,
+      "highpassHz": 65,
+      "lowpassHz": 5200,
+      "presenceHz": 1100,
+      "presenceDb": -1.5,
+      "compression": { "threshold": -30, "ratio": 6, "attack": 0.025, "release": 0.35 }
+    }
+  },
+  "sound": {
+    "bank": "hal",
+    "music": false,
+    "ambient": { "tones": [48, 96], "noise": 0.012, "cutoff": 180, "level": 0.026 }
+  }
+}

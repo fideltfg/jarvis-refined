@@ -2,7 +2,7 @@ import { BACKEND } from '../config'
 import * as direct from './anthropic'
 import * as bridge from './bridge'
 import type { AskHandlers, Msg } from './anthropic'
-import type { AgentBoardData, Blade, Panel, SessionAgent } from '../store'
+import type { Blade, Panel } from '../store'
 import type { AgentEvent } from './announce'
 
 export type { AskHandlers, Msg }
@@ -53,6 +53,14 @@ export function watchPanels(fn: (panel: Panel) => void): void {
   if (usingBridge) bridge.watchPanels(fn)
 }
 
+export function watchAgentEvents(fn: (event: AgentEvent) => void): void {
+  if (usingBridge) bridge.watchAgentEvents(fn)
+}
+
+export function decideApproval(id: string, decision: 'approve' | 'deny'): void {
+  if (usingBridge) bridge.decideApproval(id, decision)
+}
+
 /** Blades — the big surface — arrive the same way, from the `blade` tool. Like
  *  panels and the ui_* commands, this is a bridge capability: the direct path
  *  has no channel for a server to volunteer anything mid-turn. */
@@ -71,25 +79,6 @@ export function watchBlades(fn: (blade: Blade) => void): void {
  */
 export function watchUi(fn: (op: string, args: any) => void): void {
   if (usingBridge) bridge.watchUi(fn)
-}
-
-/** Agent board snapshots and events — a bridge capability, like panels. */
-export function watchAgents(fn: (board: AgentBoardData | null, online: boolean) => void): void {
-  if (usingBridge) bridge.watchAgents(fn)
-}
-
-export function watchAgentEvents(fn: (event: AgentEvent) => void): void {
-  if (usingBridge) bridge.watchAgentEvents(fn)
-}
-
-/** Subagents dispatched inside the voice session. Only the bridge has them: a
- *  direct provider has no subagents to report. */
-export function watchSessionAgents(fn: (agents: SessionAgent[]) => void): void {
-  if (usingBridge) bridge.watchSessionAgents(fn)
-}
-
-export function decideApproval(id: string, decision: 'approve' | 'deny'): void {
-  if (usingBridge) bridge.decideApproval(id, decision)
 }
 
 /**

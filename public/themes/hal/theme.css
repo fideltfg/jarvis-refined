@@ -1,0 +1,139 @@
+@import url('https://fonts.googleapis.com/css2?family=Michroma&display=swap');
+
+/* HAL 9000 — a severe red optical-computer console.
+
+   Every rule is scoped under [data-theme='hal'] or a boot class that only this
+   theme's boot animation renders, so the sheet is inert until it is the active
+   theme. index.css is the baseline underneath it. */
+
+[data-theme='hal'] {
+  --bg: #050000;
+  --interface: #e21b16;
+  font-family: 'Michroma', sans-serif;
+}
+
+[data-theme='hal'] body::after {
+  background:
+    radial-gradient(circle at 50% 48%, transparent 0 13%, rgba(5, 0, 0, 0.5) 35%, #050000 82%),
+    repeating-linear-gradient(0deg, rgba(255, 36, 28, 0.018) 0 1px, transparent 1px 4px);
+}
+
+[data-theme='hal'] .hud::before {
+  content: '';
+  position: absolute;
+  inset: 18px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  clip-path: polygon(0 0, 28% 0, 30% 5px, 70% 5px, 72% 0, 100% 0, 100% 100%, 72% 100%, 70% calc(100% - 5px), 30% calc(100% - 5px), 28% 100%, 0 100%);
+}
+
+[data-theme='hal'] .corner { width: 72px; height: 18px; border-width: 2px; }
+[data-theme='hal'] .brand-mark { font-size: 24px; letter-spacing: 0.22em; color: #f4ece6; }
+[data-theme='hal'] .brand-sub { color: #d84237; opacity: 0.75; letter-spacing: 0.08em; }
+[data-theme='hal'] .status {
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, #300);
+  background: rgba(31, 0, 0, 0.75);
+  letter-spacing: 0.08em;
+}
+[data-theme='hal'] .dot { border-radius: 0; transform: rotate(45deg); animation: halPulse 2.4s ease-in-out infinite; }
+@keyframes halPulse { 50% { background: #fff4e8; box-shadow: 0 0 24px #ff241b; } }
+[data-theme='hal'] .rail-item { padding: 5px 8px; border-left: 2px solid var(--accent); background: rgba(88, 3, 0, 0.22); }
+[data-theme='hal'] .tick { border-radius: 50%; transform: none; }
+[data-theme='hal'] .tool-badge { border-radius: 0; background: rgba(25, 0, 0, 0.9); }
+[data-theme='hal'] .tool-name,
+[data-theme='hal'] .log-jarvis .log-text { color: #fff2eb; }
+[data-theme='hal'] .ignition-ring { border-radius: 50%; border-width: 8px; box-shadow: inset 0 0 28px #000, 0 0 35px #a10d09; }
+
+@media (max-width: 700px) {
+  [data-theme='hal'] .brand-sub { display: none; }
+}
+
+/* ------------------------------------------------------------------ intro */
+
+.classic-boot {
+  z-index: 20;
+  color: var(--interface);
+  overflow: hidden;
+}
+
+/* A quiet diagnostic room resolving into one watchful optical assembly. */
+.hal-boot {
+  background:
+    radial-gradient(circle at 50% 50%, #210000 0, #080000 28%, #020000 66%),
+    #020000;
+}
+.hal-boot::before {
+  content: '';
+  position: absolute;
+  inset: 24px;
+  border: 1px solid #4f0a08;
+  box-shadow: inset 0 0 90px #000;
+}
+.hal-boot-model {
+  position: absolute;
+  top: 46px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #c7bdb5;
+  font-size: 10px;
+  letter-spacing: 0.32em;
+  white-space: nowrap;
+}
+.hal-boot-checks {
+  position: absolute;
+  top: 50%;
+  left: clamp(42px, 8vw, 120px);
+  width: min(300px, 28vw);
+  transform: translateY(-50%);
+}
+.hal-boot-check {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 10px 0;
+  border-bottom: 1px solid #35100e;
+  color: #5b322e;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  transition: color 500ms ease, border-color 500ms ease;
+}
+.hal-boot-check[data-on='1'] { color: #e4d8cf; border-color: #9f1b15; }
+.hal-boot-check[data-on='1'] span:last-child { color: #ff3027; }
+.hal-lens {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(34vw, 310px);
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  border-radius: 50%;
+  background: #050505;
+  box-shadow: 0 0 0 16px #161616, 0 0 0 19px #4b4b4b, 0 0 80px #000;
+}
+.hal-lens span { position: absolute; inset: 50%; transform: translate(-50%, -50%); border-radius: 50%; }
+.hal-lens-bezel { width: 76%; height: 76%; background: radial-gradient(circle, #111 45%, #030303 47%); border: 2px solid #393939; }
+.hal-lens-glass { width: 58%; height: 58%; background: radial-gradient(circle at 42% 35%, #fff5df 0 2%, #ff5b34 8%, #ab0905 30%, #230000 66%, #050000 72%); box-shadow: 0 0 42px #df110b, inset 0 0 28px #000; animation: halIris 2.8s ease-in-out infinite; }
+.hal-lens-core { width: 12%; height: 12%; background: #fff9e9; box-shadow: 0 0 18px #fff, 0 0 48px #ff271c; }
+@keyframes halIris { 50% { filter: brightness(1.25); transform: translate(-50%, -50%) scale(1.035); } }
+.hal-boot-scan { position: absolute; inset: 0; background: linear-gradient(90deg, transparent 35%, rgba(255, 34, 25, 0.05) 50%, transparent 65%); animation: halBootScan 3.4s ease-in-out infinite; }
+@keyframes halBootScan { from { transform: translateX(-60%); } to { transform: translateX(60%); } }
+.hal-boot-ready { position: absolute; left: 0; right: 0; bottom: 55px; text-align: center; color: #eee5de; font-size: 11px; letter-spacing: 0.42em; }
+
+/* --------------------------------------------------------- live movement */
+
+[data-theme='hal'] .hud-thinking .corner,
+[data-theme='hal'] .hud-tooling .corner { animation: halFrame 2.2s ease-in-out infinite; }
+@keyframes halFrame { 50% { opacity: .35; filter: drop-shadow(0 0 6px var(--accent)); } }
+[data-theme='hal'] .hud-listening .meter { box-shadow: 0 0 24px rgba(255, 36, 27, .4); }
+[data-theme='hal'] .hud-speaking .dot { background: #fff4e8; }
+
+@media (max-width: 720px) {
+  .hal-boot-checks { top: auto; left: 28px; right: 28px; bottom: 105px; width: auto; transform: none; }
+  .hal-boot-check { padding: 5px 0; }
+  .hal-lens { width: min(54vw, 250px); top: 40%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .classic-boot *,
+  [data-theme='hal'] .hud * { animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
+}

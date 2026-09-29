@@ -15,7 +15,8 @@
  * isn't waiting on it, and anything that goes wrong falls back to Daniel.
  */
 
-import { KOKORO_VOICE, THEME, type Theme } from '../config'
+import { KOKORO_VOICE } from '../config'
+import { activeTheme, type VoiceProfileShape } from './theme-runtime'
 import ortJsepModuleUrl from '../../node_modules/@huggingface/transformers/dist/ort-wasm-simd-threaded.jsep.mjs?url'
 import ortJsepWasmUrl from '../../node_modules/@huggingface/transformers/dist/ort-wasm-simd-threaded.jsep.wasm?url'
 
@@ -70,76 +71,14 @@ function resolveVoice(): string {
 
 const voice = resolveVoice()
 
-export type VoiceProfile = {
-  label: string
-  voice: string
-  speed: number
-  playbackRate: number
-  highpassHz: number
-  lowpassHz: number
-  presenceHz: number
-  presenceDb: number
-  compression: { threshold: number; ratio: number; attack: number; release: number }
-}
+/**
+ * How the voice is shaped after generation. The numbers live in the active
+ * theme's manifest, so a new character can sound like a phone line or a
+ * shipboard intercom without a code change.
+ */
+export type VoiceProfile = VoiceProfileShape & { voice: string }
 
-const PROFILES: Record<Theme, Omit<VoiceProfile, 'voice'>> = {
-  stark: {
-    label: 'George · clean service voice',
-    speed: 0.97,
-    playbackRate: 1,
-    highpassHz: 70,
-    lowpassHz: 11_000,
-    presenceHz: 2600,
-    presenceDb: 2,
-    compression: { threshold: -24, ratio: 3, attack: 0.012, release: 0.18 },
-  },
-  hal: {
-    label: 'Michael · logic core',
-    speed: 0.86,
-    playbackRate: 0.96,
-    highpassHz: 65,
-    lowpassHz: 5200,
-    presenceHz: 1100,
-    presenceDb: -1.5,
-    compression: { threshold: -30, ratio: 6, attack: 0.025, release: 0.35 },
-  },
-  wopr: {
-    label: 'Fenrir · command terminal',
-    speed: 0.94,
-    playbackRate: 1.01,
-    highpassHz: 180,
-    lowpassHz: 3600,
-    presenceHz: 900,
-    presenceDb: 4.5,
-    compression: { threshold: -28, ratio: 5, attack: 0.008, release: 0.12 },
-  },
-  mother: {
-    label: 'Nicole · ship mainframe',
-    speed: 0.88,
-    playbackRate: 0.95,
-    highpassHz: 85,
-    lowpassHz: 4600,
-    presenceHz: 700,
-    presenceDb: 2.5,
-    compression: { threshold: -32, ratio: 7, attack: 0.02, release: 0.4 },
-  },
-  lcars: {
-    // The starship computer: even, unhurried and exact. The band is wider
-    // than WOPR's radio, so it reads as a clean shipboard intercom rather
-    // than a phone line; the presence lift at 3 kHz gives the consonants
-    // their precise, slightly synthetic edge.
-    label: 'Nova · starship computer',
-    speed: 0.92,
-    playbackRate: 1.02,
-    highpassHz: 220,
-    lowpassHz: 7200,
-    presenceHz: 3000,
-    presenceDb: 3.5,
-    compression: { threshold: -26, ratio: 4, attack: 0.005, release: 0.15 },
-  },
-}
-
-export const profile: VoiceProfile = { ...PROFILES[THEME], voice }
+export const profile: VoiceProfile = { ...activeTheme().voice.profile, voice }
 
 /**
  * Generation failures latch after this many in a row. One is worth retrying —

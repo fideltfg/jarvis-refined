@@ -1,0 +1,111 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&display=swap');
+
+/* MU/TH/UR 6000 — a green industrial mainframe terminal.
+
+   Scoped under [data-theme='mother'] and this theme's own boot classes, so the
+   sheet is inert unless it is the active theme. */
+
+[data-theme='mother'] {
+  --bg: #071006;
+  --interface: #91bd60;
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+[data-theme='mother'] body::after {
+  background:
+    repeating-linear-gradient(0deg, rgba(160, 205, 100, 0.035) 0 1px, transparent 1px 4px),
+    radial-gradient(ellipse at center, rgba(29, 50, 20, 0.14), rgba(0, 0, 0, 0.78));
+}
+
+[data-theme='mother'] .hud::before,
+[data-theme='mother'] .hud::after {
+  position: absolute;
+  top: 22px;
+  bottom: 22px;
+  width: 12px;
+  content: '';
+  border-block: 18px solid #c7d8a5;
+  background: repeating-linear-gradient(0deg, #789450 0 24px, transparent 24px 34px);
+  opacity: 0.55;
+}
+[data-theme='mother'] .hud::before { left: 28px; }
+[data-theme='mother'] .hud::after { right: 28px; }
+[data-theme='mother'] .corner { display: none; }
+[data-theme='mother'] .brand-mark {
+  padding: 6px 10px;
+  border: 2px solid #a8c67b;
+  font-size: 22px;
+  letter-spacing: 0.08em;
+  color: #dce9bb;
+  text-shadow: none;
+}
+[data-theme='mother'] .brand-sub { margin-top: 11px; max-width: 430px; line-height: 1.5; color: #a9c77c; opacity: 0.7; }
+[data-theme='mother'] .status { padding: 7px 10px; border: 1px solid #7f9d59; background: rgba(12, 26, 9, 0.8); }
+[data-theme='mother'] .dot { border-radius: 0; box-shadow: 0 0 5px var(--accent); }
+[data-theme='mother'] .rail-title { color: #d0ddb0; opacity: 0.8; }
+[data-theme='mother'] .rail-item { border-bottom: 1px dotted color-mix(in srgb, var(--accent) 45%, transparent); padding: 4px 0; }
+[data-theme='mother'] .tick { width: 7px; height: 7px; border: 1px solid var(--accent); background: transparent; transform: none; }
+[data-theme='mother'] .tool-badge,
+[data-theme='mother'] .panel { border-radius: 0; background: rgba(8, 20, 7, 0.93); box-shadow: 8px 8px 0 rgba(91, 119, 59, 0.18); }
+[data-theme='mother'] .tool-name,
+[data-theme='mother'] .log-jarvis .log-text { color: #d9e8b7; text-shadow: none; }
+[data-theme='mother'] .log-who { border-left: 3px solid var(--accent); padding-left: 7px; }
+[data-theme='mother'] .ignition-ring { border-radius: 0; border: 2px solid var(--accent); box-shadow: inset 0 0 0 6px #071006, inset 0 0 0 8px #617e43; }
+[data-theme='mother'] .boot-name { font-size: 15px; }
+
+@media (max-width: 700px) {
+  [data-theme='mother'] .brand-sub { display: none; }
+  [data-theme='mother'] .hud::before,
+  [data-theme='mother'] .hud::after { opacity: 0.25; }
+}
+
+/* ------------------------------------------------------------------ intro */
+
+.classic-boot {
+  z-index: 20;
+  color: var(--interface);
+  overflow: hidden;
+}
+
+/* Physical shutters expose a dense monochrome ship terminal. */
+.mother-boot { background: #020601; font-family: 'IBM Plex Mono', monospace; }
+.mother-shutter { position: absolute; left: 0; right: 0; height: 20%; z-index: 2; background: repeating-linear-gradient(90deg, #161b12 0 8%, #242b1c 8% 9%, #0c1009 9% 17%); border-color: #4b5940; transition: transform 2.2s cubic-bezier(.7,0,.3,1); animation: motherOpen 2.2s 0.35s cubic-bezier(.7,0,.3,1) both; }
+.mother-shutter-top { top: 0; border-bottom: 4px solid; }
+.mother-shutter-bottom { bottom: 0; border-top: 4px solid; }
+@keyframes motherOpen { from { transform: scaleY(2.55); } to { transform: scaleY(1); } }
+.mother-terminal { position: absolute; inset: clamp(38px, 7vh, 78px) clamp(35px, 9vw, 140px); border: 2px solid #718951; padding: clamp(18px, 3vw, 38px); background: #071006; box-shadow: inset 0 0 80px #000, 0 0 0 8px #121a0e; }
+.mother-terminal header { display: flex; justify-content: space-between; color: #d7e6b8; font-size: clamp(12px, 1.5vw, 20px); letter-spacing: .08em; }
+.mother-rule { height: 10px; margin: 20px 0 26px; background: repeating-linear-gradient(90deg, #94b562 0 4%, transparent 4% 5%); }
+.mother-log > div { display: flex; justify-content: space-between; gap: 30px; padding: 8px 6px; border-bottom: 1px dotted #41562f; color: #aaca79; font-size: clamp(11px, 1.2vw, 16px); animation: motherPrint 250ms steps(3) both; }
+@keyframes motherPrint { from { opacity: 0; transform: translateY(-5px); filter: brightness(2); } }
+.mother-log > div span:last-child { color: #dbeabd; text-align: right; }
+.mother-priority { display: flex; justify-content: space-between; margin-top: 26px; padding: 12px; border: 1px solid #6c844d; color: #7b925b; }
+.mother-priority[data-on='1'] { color: #e1edc7; background: #314422; animation: motherStamp 500ms steps(3) both; }
+@keyframes motherStamp { from { transform: scaleX(1.08); filter: brightness(2); } }
+.mother-prompt { position: absolute; left: 38px; bottom: 28px; color: #d7e6b8; }
+.mother-prompt span { animation: motherCaret .9s steps(1) infinite; }
+@keyframes motherCaret { 50% { opacity: 0; } }
+
+/* --------------------------------------------------------- live movement */
+
+[data-theme='mother'] .hud-thinking .rail-item { animation: motherRead 1.6s steps(1) infinite; }
+[data-theme='mother'] .hud-thinking .rail-item:nth-child(even) { animation-delay: .8s; }
+@keyframes motherRead { 50% { color: #e4f2c7; background: rgba(127, 159, 80, .13); } }
+[data-theme='mother'] .hud-tooling::before { animation: motherRailLeft 1.2s steps(4) infinite; }
+[data-theme='mother'] .hud-tooling::after { animation: motherRailRight 1.2s steps(4) infinite reverse; }
+@keyframes motherRailLeft { 50% { transform: translateY(18px); opacity: .9; } }
+@keyframes motherRailRight { 50% { transform: translateY(-18px); opacity: .9; } }
+
+@media (max-width: 720px) {
+  .mother-terminal { inset: 42px 24px; padding: 20px 14px; }
+  .mother-terminal header span:last-child { display: none; }
+  .mother-rule { margin: 14px 0; }
+  .mother-log > div { padding: 7px 2px; font-size: 10px; }
+  .mother-priority { margin-top: 16px; font-size: 10px; }
+  .mother-prompt { left: 14px; bottom: 16px; font-size: 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .classic-boot *,
+  [data-theme='mother'] .hud * { animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
+}

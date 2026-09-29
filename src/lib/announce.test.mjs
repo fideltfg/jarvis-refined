@@ -15,17 +15,17 @@ test('only endings, blockers and approvals are spoken', () => {
 })
 
 test('single events use the theme register', () => {
-  assert.equal(phrase([ev('task_done', { title: 'CI pipeline' })], 'lcars'), 'Task complete: CI pipeline.')
-  assert.equal(phrase([ev('task_done', { title: 'CI pipeline' })], 'stark'), 'CI pipeline is finished.')
-  assert.equal(phrase([ev('approval_needed', { action: 'git force-push' })], 'stark'), 'An agent needs your approval to git force-push.')
-  assert.equal(phrase([ev('approval_needed', { action: 'git force-push' })], 'hal'), 'Authorisation required: git force-push.')
-  assert.equal(phrase([ev('goal_paused', { title: 'Release' })], 'wopr'), 'Goal suspended: Release. Input required.')
+  assert.equal(phrase([ev('task_done', { title: 'CI pipeline' })], 'machine'), 'Task complete: CI pipeline.')
+  assert.equal(phrase([ev('task_done', { title: 'CI pipeline' })], 'butler'), 'CI pipeline is finished.')
+  assert.equal(phrase([ev('approval_needed', { action: 'git force-push' })], 'butler'), 'An agent needs your approval to git force-push.')
+  assert.equal(phrase([ev('approval_needed', { action: 'git force-push' })], 'machine'), 'Authorisation required: git force-push.')
+  assert.equal(phrase([ev('goal_paused', { title: 'Release' })], 'machine'), 'Goal suspended: Release. Input required.')
 })
 
 test('bursts are merged by kind, and approvals are counted', () => {
   const batch = [ev('task_done', { title: 'A' }), ev('task_done', { title: 'B' }), ev('approval_needed', { action: 'x' }), ev('approval_needed', { action: 'y' })]
-  assert.equal(phrase(batch, 'lcars'), '2 tasks complete. 2 authorisations required.')
-  assert.equal(phrase(batch, 'stark'), '2 tasks are finished. 2 approvals are waiting for you.')
+  assert.equal(phrase(batch, 'machine'), '2 tasks complete. 2 authorisations required.')
+  assert.equal(phrase(batch, 'butler'), '2 tasks are finished. 2 approvals are waiting for you.')
 })
 
 test('the announcer merges a burst, waits for idle, and ignores silent events', async () => {
@@ -33,7 +33,7 @@ test('the announcer merges a burst, waits for idle, and ignores silent events', 
   const timers = []
   let idle = false
   const a = createAnnouncer({
-    theme: 'lcars',
+    register: 'machine',
     idle: () => idle,
     say: async (text) => { said.push(text) },
     schedule: (fn) => { timers.push(fn) },

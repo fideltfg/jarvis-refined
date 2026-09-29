@@ -1,0 +1,126 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Share+Tech+Mono&display=swap');
+
+/* WOPR — an amber command-room CRT and strategic grid.
+
+   Scoped under [data-theme='wopr'] and this theme's own boot classes, so the
+   sheet is inert unless it is the active theme. */
+
+[data-theme='wopr'] {
+  --bg: #090700;
+  --interface: #ffb000;
+  font-family: 'Share Tech Mono', monospace;
+}
+
+[data-theme='wopr'] body::after {
+  background:
+    linear-gradient(rgba(255, 176, 0, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 176, 0, 0.018) 1px, transparent 1px),
+    repeating-linear-gradient(0deg, rgba(255, 176, 0, 0.045) 0 1px, transparent 1px 5px),
+    radial-gradient(ellipse, transparent 35%, rgba(0, 0, 0, 0.72));
+  background-size: 56px 56px, 56px 56px, auto, auto;
+}
+
+[data-theme='wopr'] .hud {
+  letter-spacing: 0.08em;
+  text-shadow: 0 0 7px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+[data-theme='wopr'] .hud::before {
+  content: 'NORAD // PRIMARY COMMAND CHANNEL';
+  position: absolute;
+  left: 28px;
+  bottom: 25px;
+  padding-left: 12px;
+  border-left: 4px solid var(--accent);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+}
+[data-theme='wopr'] .corner { width: 90px; height: 58px; border-width: 2px; }
+[data-theme='wopr'] .brand-mark { font: 600 28px 'IBM Plex Mono', monospace; letter-spacing: 0.12em; }
+[data-theme='wopr'] .brand-sub { opacity: 0.72; }
+[data-theme='wopr'] .status { border-bottom: 2px solid var(--accent); padding: 5px 0; }
+[data-theme='wopr'] .dot { border-radius: 0; box-shadow: none; animation: woprBlink 1s steps(1) infinite; }
+@keyframes woprBlink { 50% { opacity: 0; } }
+[data-theme='wopr'] .rail { border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); padding: 12px; background: rgba(20, 14, 0, 0.5); }
+[data-theme='wopr'] .tick { width: 9px; height: 2px; transform: none; }
+[data-theme='wopr'] .tool-badge,
+[data-theme='wopr'] .panel { border-radius: 0; background: rgba(18, 12, 0, 0.9); }
+[data-theme='wopr'] .tool-name,
+[data-theme='wopr'] .log-jarvis .log-text { color: #ffe7a1; }
+[data-theme='wopr'] .ignition-ring { border-radius: 0; transform: rotate(45deg); }
+[data-theme='wopr'] .ignition-label { font-family: 'Share Tech Mono', monospace; }
+
+@media (max-width: 700px) {
+  [data-theme='wopr'] .hud::before { display: none; }
+}
+
+/* ------------------------------------------------------------------ intro */
+
+.classic-boot {
+  z-index: 20;
+  color: var(--interface);
+  overflow: hidden;
+}
+
+/* Block terminal output gives way to an active strategic display. */
+.wopr-boot {
+  background: #080600;
+  font-family: 'Share Tech Mono', monospace;
+  text-shadow: 0 0 8px rgba(255, 176, 0, 0.55);
+}
+.wopr-boot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(255, 176, 0, 0.06) 0 1px, transparent 1px 5px);
+}
+.wopr-terminal-head { position: absolute; top: 34px; left: 38px; right: 38px; padding-bottom: 8px; border-bottom: 2px solid #b77c00; letter-spacing: 0.15em; }
+.wopr-log { position: absolute; top: 90px; left: clamp(35px, 6vw, 90px); width: 42%; font-size: clamp(13px, 1.4vw, 20px); line-height: 1.85; }
+.wopr-log > div { animation: woprType 180ms steps(2) both; }
+@keyframes woprType { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0); } }
+.wopr-cursor, .wopr-question span { animation: woprBlink 0.65s steps(1) infinite; }
+.wopr-map {
+  position: absolute;
+  top: 105px;
+  right: 6vw;
+  bottom: 130px;
+  width: 42%;
+  border: 1px solid #6a4900;
+  opacity: 0;
+  transform: perspective(800px) rotateX(5deg) scale(0.96);
+  transition: opacity 700ms steps(5), transform 700ms steps(5);
+}
+.wopr-map[data-on='1'] { opacity: 1; transform: perspective(800px) rotateX(5deg) scale(1); }
+.wopr-map-grid { position: absolute; inset: 0; background: linear-gradient(rgba(255,176,0,.13) 1px, transparent 1px), linear-gradient(90deg, rgba(255,176,0,.13) 1px, transparent 1px); background-size: 12.5% 16.66%; }
+.wopr-map-grid::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255, 193, 49, .24), transparent); animation: woprSweep 2.1s linear infinite; }
+@keyframes woprSweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+.wopr-node { position: absolute; width: 7px; height: 7px; border: 1px solid #ffc547; transform: translate(-50%, -50%); animation: woprNode 1.1s steps(2) infinite; }
+@keyframes woprNode { 50% { background: #ffb000; box-shadow: 0 0 10px #ffb000; } }
+.wopr-trajectory { position: absolute; left: 18%; height: 1px; background: #ffb000; transform-origin: left; opacity: .65; }
+.wopr-trajectory-a { top: 67%; width: 67%; transform: rotate(-30deg); }
+.wopr-trajectory-b { top: 28%; width: 60%; transform: rotate(24deg); }
+.wopr-defcon { position: absolute; right: 6vw; bottom: 72px; width: 42%; display: flex; justify-content: space-between; gap: 4px; }
+.wopr-defcon span { flex: 1; padding: 6px 3px; border: 1px solid #805700; text-align: center; font-size: 10px; }
+.wopr-defcon span:nth-child(3) { color: #ffdda0; background: #713b00; }
+.wopr-question { position: absolute; left: clamp(35px, 6vw, 90px); bottom: 74px; color: #ffe0a1; font-size: clamp(16px, 2vw, 28px); letter-spacing: 0.08em; }
+
+/* --------------------------------------------------------- live movement */
+
+[data-theme='wopr'] .hud::after { content: ''; position: absolute; inset: 110px 25% 110px 25%; pointer-events: none; opacity: 0; background: linear-gradient(180deg, transparent, rgba(255,176,0,.12), transparent); }
+[data-theme='wopr'] .hud-thinking::after,
+[data-theme='wopr'] .hud-tooling::after { opacity: 1; animation: woprLiveScan 1.4s steps(8) infinite; }
+@keyframes woprLiveScan { from { transform: translateY(-35%); } to { transform: translateY(35%); } }
+[data-theme='wopr'] .hud-tooling .rail-item { animation: woprData .8s steps(2) infinite alternate; }
+@keyframes woprData { to { color: #fff0bd; border-color: #ffb000; } }
+
+@media (max-width: 720px) {
+  .wopr-log { top: 82px; left: 26px; width: calc(100% - 52px); font-size: 12px; line-height: 1.55; }
+  .wopr-map { top: 260px; left: 26px; right: 26px; bottom: 135px; width: auto; }
+  .wopr-defcon { left: 26px; right: 26px; bottom: 84px; width: auto; }
+  .wopr-question { left: 26px; bottom: 42px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .classic-boot *,
+  [data-theme='wopr'] .hud * { animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
+}

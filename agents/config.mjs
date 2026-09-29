@@ -22,10 +22,10 @@ export const MODELS = {
 }
 
 export const BUDGETS = {
-  code: { maxTurns: 60, maxMinutes: 45 },
-  research: { maxTurns: 30, maxMinutes: 20 },
-  ops: { maxTurns: 40, maxMinutes: 30 },
-  admin: { maxTurns: 30, maxMinutes: 20 },
+  code: { maxTurns: 60, maxMinutes: 45, maxUsd: 5 },
+  research: { maxTurns: 30, maxMinutes: 20, maxUsd: 3 },
+  ops: { maxTurns: 40, maxMinutes: 30, maxUsd: 3 },
+  admin: { maxTurns: 30, maxMinutes: 20, maxUsd: 3 },
 }
 
 export const KINDS = Object.keys(BUDGETS)

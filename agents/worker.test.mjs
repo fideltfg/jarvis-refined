@@ -46,6 +46,7 @@ test('a run that reports done returns the result and records the session', async
   assert.equal(seen.prompt, 'Write release notes.')
   assert.equal(seen.options.model, 'claude-sonnet-5')
   assert.equal(seen.options.maxTurns, 60)
+  assert.equal(seen.options.maxBudgetUsd, 5)
   assert.deepEqual(seen.options.settingSources, [])
   assert.deepEqual(seen.options.disallowedTools, DISALLOWED.code)
   assert.equal(seen.options.cwd, task.workspace.path)
@@ -89,6 +90,34 @@ test('blocked, no report and max turns map to their outcomes', async () => {
   )
   assert.equal((await run(async function* () { yield { type: 'result', subtype: 'success' } })).failure.reason, 'error')
   assert.equal((await run(async function* () { yield { type: 'result', subtype: 'error_max_turns' } })).failure.reason, 'budget')
+})
+
+test('a spending limit overrides a done report and records cache usage', async () => {
+  const { store, task } = setup()
+  const out = await runTask({ ...task, budget: { ...task.budget, maxUsd: 1 } }, deps(store, {
+    queryFn: fake(async function* ({ options }) {
+      assert.equal(options.maxBudgetUsd, 1)
+      options.mcpServers.agent.onReport({ status: 'done', summary: 'premature' })
+      yield {
+        type: 'result', subtype: 'error_max_budget_usd', total_cost_usd: 1.12,
+        modelUsage: { sonnet: { inputTokens: 2, outputTokens: 3, cacheReadInputTokens: 900, cacheCreationInputTokens: 400 } },
+      }
+    }),
+  }))
+  assert.deepEqual(out, { status: 'failed', failure: { reason: 'budget', detail: 'Reached the $1 run limit.' } })
+  assert.deepEqual(store.readEvents().find((e) => e.type === 'task_usage').data, {
+    costUsd: 1.12, inputTokens: 2, outputTokens: 3, cacheReadInputTokens: 900, cacheCreationInputTokens: 400,
+  })
+})
+
+test('tasks created before dollar budgets still use the default limit', async () => {
+  const { store, task } = setup()
+  await runTask({ ...task, budget: { maxTurns: 60, maxMinutes: 45 } }, deps(store, {
+    queryFn: fake(async function* ({ options }) {
+      assert.equal(options.maxBudgetUsd, 5)
+      yield { type: 'result', subtype: 'success' }
+    }),
+  }))
 })
 
 test('running past the time budget fails with reason budget', async () => {
@@ -142,10 +171,28 @@ test('other errors propagate for the scheduler to classify', async () => {
 
 test('research and admin tasks lose the shell', () => {
   assert.ok(DISALLOWED.research.includes('Bash'))
+  assert.ok(DISALLOWED.research.includes('Skill'))
   assert.ok(DISALLOWED.admin.includes('Bash'))
   assert.ok(DISALLOWED.ops.includes('Bash'))
   assert.ok(!DISALLOWED.code.includes('Bash'))
   for (const kind of Object.keys(DISALLOWED)) assert.ok(DISALLOWED[kind].includes('Task'))
+})
+
+test('research workers only allow explicitly named skills', async () => {
+  const { store, task } = setup()
+  const research = { ...task, kind: 'research', allowedSkills: ['small-skill'] }
+  await runTask(research, deps(store, {
+    queryFn: fake(async function* ({ options }) {
+      assert.ok(!options.disallowedTools.includes('Skill'))
+      const gate = options.hooks.PreToolUse[0].hooks[0]
+      const permitted = await gate({ tool_name: 'Skill', tool_input: { skill: 'small-skill' } })
+      const refused = await gate({ tool_name: 'Skill', tool_input: { skill: 'claude-api' } })
+      assert.equal(permitted.hookSpecificOutput.permissionDecision, 'allow')
+      assert.equal(refused.hookSpecificOutput.permissionDecision, 'deny')
+      options.mcpServers.agent.onReport({ status: 'done', summary: 'ok' })
+      yield { type: 'result', subtype: 'success' }
+    }),
+  }))
 })
 
 test('the worker prompt states the goal, the folder and the injection rule', () => {

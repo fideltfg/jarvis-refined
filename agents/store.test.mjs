@@ -44,7 +44,7 @@ test('a task takes its budget from its kind and a code task gets a branch', () =
   const { store } = fresh()
   const g = store.newGoal({ title: 'G', outcome: 'O' })
   const t = store.newTask({ goalId: g.id, title: 'Fix the CI', brief: 'b', kind: 'code', repo: '/repo' })
-  assert.deepEqual(t.budget, { maxTurns: 60, maxMinutes: 45 })
+  assert.deepEqual(t.budget, { maxTurns: 60, maxMinutes: 45, maxUsd: 5 })
   assert.equal(t.workspace.path, `/work/${t.id}`)
   assert.equal(t.workspace.repo, '/repo')
   assert.match(t.workspace.branch, /^jarvis\/fix-the-ci-[0-9a-f]{4}$/)
@@ -54,6 +54,9 @@ test('a task takes its budget from its kind and a code task gets a branch', () =
   const r = store.newTask({ goalId: g.id, title: 'Read up', brief: 'b' })
   assert.deepEqual(r.workspace, { path: `/work/${r.id}` })
   assert.equal(r.kind, 'research')
+  assert.deepEqual(r.allowedSkills, [])
+  const skilled = store.newTask({ goalId: g.id, title: 'Special research', brief: 'b', allowedSkills: ['small-skill'] })
+  assert.deepEqual(store.getTask(skilled.id).allowedSkills, ['small-skill'])
 })
 
 test('an unknown kind is refused', () => {

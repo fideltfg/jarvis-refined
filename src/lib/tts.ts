@@ -9,6 +9,7 @@ import {
 import * as kokoro from './kokoro'
 import { createHeard } from './echo'
 import { caps } from './capabilities'
+import { activeTheme } from './theme-runtime'
 
 /**
  * Speech output.
@@ -173,7 +174,7 @@ const MAX_UNSPOKEN = 220
  * male. They get their own scoring and their own stored preference, so a
  * butler picked for JARVIS does not follow the user onto the starship.
  */
-const IS_COMPUTER = THEME === 'lcars' || THEME === 'mother'
+const IS_COMPUTER = activeTheme().voice.character === 'computer'
 
 // Per theme, so a British butler picked for JARVIS does not follow the user
 // onto the starship and vice versa.

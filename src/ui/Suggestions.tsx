@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useStore } from '../store'
-import { THEME } from '../config'
+import { activeTheme } from '../lib/theme-runtime'
 import { copy } from '../theme'
 
 /**
@@ -12,18 +12,11 @@ import { copy } from '../theme'
  * never competes with the answer.
  *
  * Each line is phrased the way you'd actually say it, not as a feature name.
+ * The second is the theme's own, so the list speaks in its idiom.
  */
 const EXAMPLES = [
   'what happened in AI this week',
-  THEME === 'hal'
-      ? 'show me the mission systems'
-      : THEME === 'wopr'
-        ? 'run a strategic weather simulation'
-        : THEME === 'mother'
-          ? 'display the ship status'
-          : THEME === 'lcars'
-            ? 'run a level one diagnostic'
-            : 'generate an image of the Mark Seven suit',
+  activeTheme().suggestion,
   'take a screenshot of my phone',
   "what's on my calendar tomorrow",
   'search for the best coffee near me',

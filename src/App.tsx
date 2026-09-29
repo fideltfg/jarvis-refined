@@ -8,14 +8,14 @@ import { Enrol } from './ui/Enrol'
 import { useStore } from './store'
 import { startVoice, type Voice, type VoiceMode } from './lib/voice'
 import { createSpeaker, cycleVoice, currentVoiceName } from './lib/tts'
-import { createAnnouncer } from './lib/announce'
 import * as sfx from './lib/sfx'
 import * as music from './lib/music'
 import * as hands from './lib/hands'
 import { listenForClap } from './lib/clap'
 import * as camera from './lib/camera'
 import * as kokoro from './lib/kokoro'
-import { THEME, TTS_ENGINE } from './config'
+import { TTS_ENGINE } from './config'
+import { activeTheme } from './lib/theme-runtime'
 import { copy, NAME_PATTERN } from './theme'
 import { forTool, attention } from './lib/fillers'
 import {
@@ -24,12 +24,10 @@ import {
   interrupt,
   watchServers,
   watchPanels,
+  watchAgentEvents,
   watchBlades,
   watchCapture,
   watchUi,
-  watchAgents,
-  watchAgentEvents,
-  watchSessionAgents,
   watchConnection,
   connectedLabels,
   usingBridge,
@@ -38,7 +36,6 @@ import {
 import { startAnalyser, micLevel } from './lib/audio'
 import { probeCapabilities } from './lib/capabilities'
 import { env } from './config'
-import { loadPtt, savePtt, bindingLabel, isReservedKey, type PttBinding } from './lib/ptt'
 
 /**
  * The conversation.
@@ -57,9 +54,10 @@ import { loadPtt, savePtt, bindingLabel, isReservedKey, type PttBinding } from '
  *  people say his name and *then* think about what they wanted. */
 const AWAIT_SPEECH_MS = 14000
 
-/** After an answer, keep command listening open through a natural pause so a
- *  follow-up does not require repeating the wake word. */
-const FOLLOW_UP_MS = 30000
+/** After an answer, how long the mic stays open for a follow-up before he
+ *  drops back to standby. Long enough that you don't have to say the name
+ *  again to continue a thought. */
+const FOLLOW_UP_MS = 11000
 
 /** crypto.randomUUID needs a secure context, which a LAN address over plain
  *  http is not. Not worth failing a whole turn over an id. */
@@ -91,7 +89,6 @@ export default function App() {
   const booting = useRef(false)
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const voicePoll = useRef<ReturnType<typeof setInterval> | null>(null)
-  const ptt = useRef(loadPtt())
 
   // -- helpers --------------------------------------------------------------
 
@@ -143,6 +140,7 @@ export default function App() {
     s.setCaption('')
     s.pushTurn({ id: newId(), role: 'user', text: said })
     s.setPhase('thinking')
+    sfx.play('ack')
 
     const spk = createSpeaker()
     speaker.current = spk
@@ -289,6 +287,7 @@ export default function App() {
 
     silence()
     if (wasBusy) {
+      sfx.play('interrupt')
       // Abandon the answer in flight. The turn counter moves in respond()'s
       // replacement; bumping it here covers the case where nothing replaces it.
       turn.current++
@@ -347,58 +346,7 @@ export default function App() {
 
   const onVoiceError = (message: string) => {
     store.getState().setError(message)
-  }
-
-  // -- push to talk ---------------------------------------------------------
-
-  /** Key or button went down. False when it is not ours to handle yet. */
-  const pttDown = (): boolean => {
-    const s = store.getState()
-    if (s.phase === 'offline' || s.phase === 'boot' || s.enrolling) return false
-    if (s.ptt.held) return true
-    s.setError(null)
-    if (s.phase === 'dormant') {
-      s.setCaption('')
-      s.setPhase('listening')
-      sfx.play('listen')
-    }
-    // Cuts him off if he is talking, and holds the phase at 'listening'.
-    onSpeechStart()
-    s.setPtt({ held: true })
-    voice.current?.hold(true)
-    return true
-  }
-
-  const pttUp = () => {
-    const s = store.getState()
-    if (!s.ptt.held) return
-    s.setPtt({ held: false })
-    voice.current?.hold(false)
-    // Stand down if nothing intelligible comes back from the release.
-    clearIdle()
-    idleTimer.current = setTimeout(goDormant, AWAIT_SPEECH_MS)
-  }
-
-  const setPttEnabled = (on: boolean) => {
-    pttUp()
-    ptt.current = { ...ptt.current, enabled: on }
-    savePtt(ptt.current)
-    voice.current?.setPushToTalk(on)
-    store.getState().setPtt({ enabled: on, binding: false })
-  }
-
-  const setPttBinding = (binding: PttBinding) => {
-    ptt.current = { enabled: true, binding }
-    savePtt(ptt.current)
-    voice.current?.setPushToTalk(true)
-    store.getState().setPtt({ enabled: true, binding: false, label: bindingLabel(binding) })
-  }
-
-  const pttMatches = (e: KeyboardEvent | MouseEvent): boolean => {
-    const b = ptt.current.binding
-    if (!ptt.current.enabled) return false
-    if (e instanceof KeyboardEvent) return b.kind === 'key' && e.code === b.code
-    return b.kind === 'mouse' && e.button === b.button
+    sfx.play('warning')
   }
 
   // -- power on -------------------------------------------------------------
@@ -439,52 +387,43 @@ export default function App() {
     await sfx.unlockAudio()
     sfx.play('boot')
     // The score. Must be started from inside this click handler for the same
-    // reason as the rest of the audio. The starship gets no score: the bed is
-    // the low engine hum from sfx.ts, which is what a bridge actually sounds
-    // like, and with music never enabled every later music.* call is inert.
-    if (THEME !== 'stark') {
-      sfx.startAmbient()
-    } else {
+    // reason as the rest of the audio. A theme that declares no music gets the
+    // low synthesised hum from sfx.ts instead — which is what a mainframe or a
+    // starship bridge actually sounds like — and with music never enabled every
+    // later music.* call is inert.
+    if (activeTheme().sound.music) {
       music.enable()
       music.playBoot()
       music.startAmbient()
+    } else {
+      sfx.startAmbient()
     }
 
     s.setPhase('boot')
 
     watchServers((servers) => store.getState().setConnected(servers))
-    watchPanels((panel) => store.getState().pushPanel(panel))
-
-    // Agent work: the board mirrors the service, and endings, blockers and
-    // approvals are spoken once JARVIS is idle. An approval is announced once,
-    // whether it arrives live or is found waiting in the first board after a
-    // reconnect.
-    const announcedApprovals = new Set<string>()
-    const announcer = createAnnouncer({
-      theme: THEME,
-      idle: () => store.getState().phase === 'dormant',
-      say: async (text) => {
-        const t = createSpeaker()
-        speaker.current = t
-        t.say(text)
-        await t.end()
-      },
+    watchPanels((panel) => {
+      store.getState().pushPanel(panel)
+      sfx.play('panelOpen')
+    })
+    watchBlades((blade) => {
+      store.getState().pushBlade(blade)
+      sfx.play('panelOpen')
     })
     watchAgentEvents((event) => {
-      const id = event.data?.approvalId
-      if (typeof id === 'string') announcedApprovals.add(id)
-      announcer.push(event)
-    })
-    watchAgents((board, online) => {
-      store.getState().setAgents(board, online)
-      for (const a of board?.approvals ?? []) {
-        if (announcedApprovals.has(a.id)) continue
-        announcedApprovals.add(a.id)
-        announcer.push({ at: new Date().toISOString(), type: 'approval_needed', taskId: a.taskId, text: a.action, data: { approvalId: a.id, action: a.action } })
+      switch (event.type) {
+        case 'task_started': sfx.play('taskStart'); break
+        case 'task_done': sfx.play('taskDone'); break
+        case 'task_failed': sfx.play('error'); break
+        case 'task_blocked':
+        case 'task_cancelled':
+        case 'goal_paused': sfx.play('taskPause'); break
+        case 'goal_changed':
+          if (event.data?.action === 'paused') sfx.play('taskPause')
+          break
+        case 'approval_needed': sfx.play('warning'); break
       }
     })
-    watchSessionAgents((agents) => store.getState().setSessionAgents(agents))
-    watchBlades((blade) => store.getState().pushBlade(blade))
 
     /**
      * JARVIS asking to see something.
@@ -575,6 +514,7 @@ export default function App() {
     // on screen still shows it. Better to say so than to let him quietly forget.
     watchConnection((state) => {
       if (state === 'lost') {
+        sfx.play('warning')
         store.getState().setError('Bridge connection lost — reconnecting.')
       } else if (state === 'reconnected') {
         store
@@ -634,19 +574,16 @@ export default function App() {
     await probeCapabilities()
 
     // One voice loop, started once, running until the page closes.
-    voice.current = await startVoice(
-      {
-        mode,
-        onWake,
-        onSpeechStart,
-        onSpeechMaybe,
-        onSpeechResume,
-        onPartial,
-        onUtterance,
-        onError: onVoiceError,
-      },
-      { pushToTalk: ptt.current.enabled },
-    )
+    voice.current = await startVoice({
+      mode,
+      onWake,
+      onSpeechStart,
+      onSpeechMaybe,
+      onSpeechResume,
+      onPartial,
+      onUtterance,
+      onError: onVoiceError,
+    })
 
     store.getState().setPhase('dormant')
   }
@@ -658,6 +595,12 @@ export default function App() {
   useEffect(() => {
     if (usingBridge) void warm().catch(() => {})
   }, [])
+
+  useEffect(() => useStore.subscribe((state, previous) => {
+    if (state.panels.length < previous.panels.length || state.blades.length < previous.blades.length) {
+      sfx.play('panelClose')
+    }
+  }), [])
 
   /**
    * A clap brings him up, as an alternative to the button.
@@ -692,10 +635,6 @@ export default function App() {
 
   useEffect(() => {
     let raf = 0
-    store.getState().setPtt({
-      enabled: ptt.current.enabled,
-      label: bindingLabel(ptt.current.binding),
-    })
 
     const pump = () => {
       const st = store.getState()
@@ -713,37 +652,6 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
-
-      // Waiting for the user to choose a push-to-talk key.
-      if (store.getState().ptt.binding) {
-        e.preventDefault()
-        if (e.repeat) return
-        if (e.code === 'Escape') {
-          store.getState().setPtt({ binding: false })
-          return
-        }
-        if (isReservedKey(e.code)) {
-          store.getState().setError(`${bindingLabel({ kind: 'key', code: e.code })} is already in use — pick another key.`)
-          return
-        }
-        store.getState().setError(null)
-        setPttBinding({ kind: 'key', code: e.code })
-        return
-      }
-
-      // K toggles push-to-talk; Shift+K chooses the key or mouse button.
-      if (e.code === 'KeyK' && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        e.preventDefault()
-        pttUp()
-        if (e.shiftKey) store.getState().setPtt({ binding: true })
-        else setPttEnabled(!ptt.current.enabled)
-        return
-      }
-
-      if (pttMatches(e)) {
-        e.preventDefault()
-        if (e.repeat || pttDown()) return
-      }
 
       // V auditions the next British voice installed on this machine. Which
       // ones exist varies per Mac, so hearing them beats trusting a ranking.
@@ -769,12 +677,6 @@ export default function App() {
       // G puts the camera on and starts tracking hands. Off by default and
       // never implicit: a webcam that turns itself on because an interface
       // thought it might be useful is not a trade anyone agreed to.
-      // A toggles the agent board.
-      if (e.key === 'a' && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        e.preventDefault()
-        store.getState().toggleBoard()
-        return
-      }
       if (e.key === 'g' && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault()
         const on = store.getState().gestures
@@ -868,55 +770,9 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey)
 
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (!pttMatches(e)) return
-      // Also stops a bare Alt release from focusing the browser menu.
-      e.preventDefault()
-      pttUp()
-    }
-
-    const onMouseDown = (e: MouseEvent) => {
-      // The primary button stays free for clicking the interface.
-      if (e.button === 0) return
-      if (store.getState().ptt.binding) {
-        e.preventDefault()
-        store.getState().setError(null)
-        setPttBinding({ kind: 'mouse', button: e.button })
-        return
-      }
-      if (!pttMatches(e)) return
-      e.preventDefault()
-      pttDown()
-    }
-
-    const onMouseUp = (e: MouseEvent) => {
-      if (!pttMatches(e)) return
-      // Stops back/forward mouse buttons navigating away.
-      e.preventDefault()
-      pttUp()
-    }
-
-    const onContextMenu = (e: MouseEvent) => {
-      if (pttMatches(e) || store.getState().ptt.binding) e.preventDefault()
-    }
-
-    // A key released while the window is unfocused never reports its keyup.
-    const onBlur = () => pttUp()
-
-    window.addEventListener('keyup', onKeyUp)
-    window.addEventListener('mousedown', onMouseDown)
-    window.addEventListener('mouseup', onMouseUp)
-    window.addEventListener('contextmenu', onContextMenu)
-    window.addEventListener('blur', onBlur)
-
     return () => {
       cancelAnimationFrame(raf)
       window.removeEventListener('keydown', onKey)
-      window.removeEventListener('keyup', onKeyUp)
-      window.removeEventListener('mousedown', onMouseDown)
-      window.removeEventListener('mouseup', onMouseUp)
-      window.removeEventListener('contextmenu', onContextMenu)
-      window.removeEventListener('blur', onBlur)
       clearIdle()
       if (voicePoll.current) clearInterval(voicePoll.current)
       voice.current?.stop()

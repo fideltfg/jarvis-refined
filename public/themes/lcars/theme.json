@@ -1,0 +1,67 @@
+{
+  "name": "LCARS · Voyager",
+  "css": "theme.css",
+  "backgroundColor": "#000000",
+  "register": "machine",
+  "boot": "lcars",
+  "suggestion": "run a level one diagnostic",
+  "copy": {
+    "title": "LCARS · Voyager",
+    "brand": "VOYAGER",
+    "brandSub": "LCARS · NCC-74656",
+    "speaker": "COMPUTER",
+    "wakePhrase": "computer",
+    "status": {
+      "offline": "OFFLINE",
+      "boot": "SYSTEMS INITIALISING",
+      "dormant": "STANDING BY — SAY “COMPUTER”",
+      "waking": "READY",
+      "listening": "AWAITING INSTRUCTION",
+      "thinking": "WORKING",
+      "tooling": "ACCESSING DATABANKS",
+      "speaking": "RESPONDING"
+    },
+    "systemsTitle": "SHIP SYSTEMS",
+    "signalTitle": "COMM CHANNEL",
+    "toolKicker": "accessing",
+    "ignitionWord": "ENGAGE",
+    "ignitionSub": "bring the main computer online",
+    "voiceSetTail": "",
+    "audioTest": "Audio systems are functioning within normal parameters."
+  },
+  "phaseColors": {
+    "offline": "#232c48",
+    "boot": "#7a8cff",
+    "dormant": "#6677e6",
+    "waking": "#99ccff",
+    "listening": "#99ccff",
+    "thinking": "#ffaa00",
+    "tooling": "#ffaa88",
+    "speaking": "#d4e6ff"
+  },
+  "sceneTint": { "core": "#6677e6", "hot": "#e6efff", "particles": "#99ccff" },
+  "wake": {
+    "pattern": "(?:computer|computa|compute her)",
+    "phrases": ["Computer"],
+    "language": "en-GB"
+  },
+  "voice": {
+    "kokoro": "af_nova",
+    "character": "computer",
+    "profile": {
+      "label": "Nova · starship computer",
+      "speed": 0.92,
+      "playbackRate": 1.02,
+      "highpassHz": 220,
+      "lowpassHz": 7200,
+      "presenceHz": 3000,
+      "presenceDb": 3.5,
+      "compression": { "threshold": -26, "ratio": 4, "attack": 0.005, "release": 0.15 }
+    }
+  },
+  "sound": {
+    "bank": "lcars",
+    "music": false,
+    "ambient": { "tones": [46, 46.4], "noise": 0.07, "cutoff": 230, "level": 0.04 }
+  }
+}

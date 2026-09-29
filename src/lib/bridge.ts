@@ -1,5 +1,5 @@
 import type { AskHandlers } from './anthropic'
-import type { AgentBoardData, Blade, Panel, SessionAgent } from '../store'
+import type { Blade, Panel } from '../store'
 import type { AgentEvent } from './announce'
 import { BRIDGE_WS_URL, THEME } from '../config'
 
@@ -37,6 +37,7 @@ type Frame = {
   message?: string
   panel?: Panel
   blade?: Blade
+  event?: AgentEvent
   op?: string
   args?: unknown
   id?: string
@@ -48,10 +49,6 @@ type Frame = {
   servers?: Array<string | { name?: string }>
   available?: string[]
   selected?: string
-  board?: AgentBoardData | null
-  online?: boolean
-  event?: AgentEvent
-  agents?: SessionAgent[]
 }
 
 /** Every question gets an id so its answer can be told from anyone else's. */
@@ -97,6 +94,17 @@ export function watchPanels(fn: (panel: Panel) => void) {
   onPanel = fn
 }
 
+let onAgentEvent: ((event: AgentEvent) => void) | null = null
+export function watchAgentEvents(fn: (event: AgentEvent) => void) {
+  onAgentEvent = fn
+}
+
+export function decideApproval(id: string, decision: 'approve' | 'deny') {
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: 'agent_decide', id, decision }))
+  }
+}
+
 /**
  * The one request the bridge makes of us rather than the other way round.
  *
@@ -134,41 +142,6 @@ export function watchBlades(fn: (blade: Blade) => void) {
 let onUi: ((op: string, args: any) => void) | null = null
 export function watchUi(fn: (op: string, args: any) => void) {
   onUi = fn
-}
-
-/**
- * The latest board, kept because it usually arrives before anyone is
- * listening: the socket opens on page load, the bridge sends a snapshot a
- * moment later, and the app only subscribes once it is powered on. Without
- * this the snapshot was dropped and the board stayed empty until the next
- * agent event happened to arrive.
- */
-let lastAgents: { board: AgentBoardData | null; online: boolean } | null = null
-let onAgents: ((board: AgentBoardData | null, online: boolean) => void) | null = null
-export function watchAgents(fn: (board: AgentBoardData | null, online: boolean) => void) {
-  onAgents = fn
-  if (lastAgents) fn(lastAgents.board, lastAgents.online)
-}
-
-let onAgentEvent: ((event: AgentEvent) => void) | null = null
-export function watchAgentEvents(fn: (event: AgentEvent) => void) {
-  onAgentEvent = fn
-}
-
-/** The session's subagents, kept for the same reason as the board above: a turn
- *  can dispatch one before the app has subscribed. */
-let lastSessionAgents: SessionAgent[] | null = null
-let onSessionAgents: ((agents: SessionAgent[]) => void) | null = null
-export function watchSessionAgents(fn: (agents: SessionAgent[]) => void) {
-  onSessionAgents = fn
-  if (lastSessionAgents) fn(lastSessionAgents)
-}
-
-/** The board's Approve / Deny buttons. The bridge forwards it to the agent service. */
-export function decideApproval(id: string, decision: 'approve' | 'deny'): void {
-  if (socket?.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: 'agent_decide', id, decision }))
-  }
 }
 
 /**
@@ -258,6 +231,8 @@ function dispatch(ws: WebSocket) {
       onProviders?.(availableProviders, selectedProvider)
     } else if (msg.type === 'panel' && msg.panel) {
       onPanel?.(msg.panel)
+    } else if (msg.type === 'agent_event' && msg.event) {
+      onAgentEvent?.(msg.event)
     } else if (msg.type === 'blade' && msg.blade) {
       onBlade?.(msg.blade)
     } else if (msg.type === 'capture' && msg.id) {
@@ -286,14 +261,6 @@ function dispatch(ws: WebSocket) {
       // A `ui` frame with no args is normal — reset and clear take none — so an
       // absent args object is an empty one, not a reason to drop the command.
       onUi?.(msg.op, (msg.args ?? {}) as Record<string, unknown>)
-    } else if (msg.type === 'agents') {
-      lastAgents = { board: msg.board ?? null, online: msg.online !== false }
-      onAgents?.(lastAgents.board, lastAgents.online)
-    } else if (msg.type === 'agent_event' && msg.event) {
-      onAgentEvent?.(msg.event)
-    } else if (msg.type === 'session_agents') {
-      lastSessionAgents = msg.agents ?? []
-      onSessionAgents?.(lastSessionAgents)
     }
   })
 }

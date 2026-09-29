@@ -1,28 +1,33 @@
-import { createRoot } from 'react-dom/client'
 import './index.css'
-import App from './App.tsx'
-import { THEME } from './config'
-import { copy } from './theme'
+import { bootstrapTheme } from './lib/theme-runtime'
 
-// The theme is fixed for the life of the page, so it is stamped once here:
-document.documentElement.dataset.theme = THEME
-document.title = copy.title
-if (THEME !== 'stark') {
-  // LCARS carries its own stylesheet; the other classics share one.
-  void (THEME === 'lcars' ? import('./lcars.css') : import('./cult-classics.css'))
-  const themeColors = {
-    stark: '#01060c',
-    hal: '#050000',
-    wopr: '#090700',
-    mother: '#071006',
-    lcars: '#000000',
-  }
-  document
-    .querySelector('meta[name="theme-color"]')
-    ?.setAttribute('content', themeColors[THEME])
-}
+/**
+ * Resolve the theme, then start.
+ *
+ * The order is the whole design. Themes are folders under public/themes/ that
+ * are discovered over the network, so the manifest cannot be known until a
+ * fetch has landed — but the rest of the app reads its words, colours, wake
+ * word and voice as module-level constants. Importing App before the manifest
+ * exists would freeze the defaults in place.
+ *
+ * So nothing that touches a theme is imported statically here. The dynamic
+ * import below is the barrier: every module behind it evaluates after the
+ * manifest is in hand, which is what lets the rest of the codebase stay free of
+ * theme plumbing.
+ *
+ * Deliberately no StrictMode inside: its double-invoked effects would open the
+ * microphone and arm the wake-word engine twice, and the second subscription
+ * steals the audio stream from the first.
+ */
+bootstrapTheme()
+  .then(() => import('./boot.tsx'))
+  .catch((error: unknown) => {
+    console.error('[jarvis] theme failed to load', error)
+    const root = document.getElementById('root')
+    if (root) {
+      root.textContent =
+        'No theme could be loaded. Check that public/themes contains at least one folder with a theme.json, then restart.'
+      root.setAttribute('style', 'padding:2rem;font:14px system-ui;color:#9fb')
+    }
+  })
 
-// Deliberately no StrictMode: its double-invoked effects would open the
-// microphone and arm the wake-word engine twice, and the second subscription
-// steals the audio stream from the first.
-createRoot(document.getElementById('root')!).render(<App />)

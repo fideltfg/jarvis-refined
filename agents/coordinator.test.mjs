@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createStore } from './store.mjs'
-import { createActions, createCoordinator, snapshot } from './coordinator.mjs'
+import { createActions, createCoordinator, sdkModel, snapshot } from './coordinator.mjs'
 
 function setup(goalExtra = {}) {
   const store = createStore(mkdtempSync(join(tmpdir(), 'agents-coord-')), { workDir: '/work' })
@@ -131,6 +131,25 @@ test('a model failure is recorded as an event and rethrown', async () => {
   const coordinator = createCoordinator({ store, runModel: async () => { throw new Error('overloaded') } })
   await assert.rejects(coordinator.plan(goal.id), /overloaded/)
   assert.equal(store.readEvents().at(-1).type, 'coordinator_error')
+})
+
+test('coordinator caps each pass and records cache usage even when the cap is hit', async () => {
+  const { store, goal } = setup()
+  const runModel = sdkModel({
+    queryFn: ({ options }) => {
+      assert.equal(options.maxBudgetUsd, 1)
+      return (async function* () {
+        yield {
+          type: 'result', subtype: 'error_max_budget_usd', total_cost_usd: 1.1,
+          modelUsage: { opus: { inputTokens: 4, outputTokens: 5, cacheReadInputTokens: 700, cacheCreationInputTokens: 600 } },
+        }
+      })()
+    },
+  })
+  await assert.rejects(createCoordinator({ store, runModel }).plan(goal.id), /error_max_budget_usd/)
+  assert.deepEqual(store.readEvents().find((e) => e.type === 'coordinator_usage').data, {
+    costUsd: 1.1, inputTokens: 4, outputTokens: 5, cacheReadInputTokens: 700, cacheCreationInputTokens: 600,
+  })
 })
 
 test('F11: archived tasks do not count against the cap or appear in the snapshot', () => {

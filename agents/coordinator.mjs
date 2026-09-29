@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
 import { z } from 'zod'
 import { KINDS, MAX_ATTEMPTS, MODELS } from './config.mjs'
-import { agentEnv } from './worker.mjs'
+import { agentEnv, usageData } from './worker.mjs'
 
 /**
  * The coordinator is how a goal gets thought about: a short Opus pass that
@@ -183,7 +183,7 @@ function checkRunaway(store, goalId, created) {
   store.saveGoal({ ...goal, lastPlan: { sig, done } })
 }
 
-export function sdkModel({ queryFn = query, model = MODELS.opus } = {}) {
+export function sdkModel({ queryFn = query, model = MODELS.opus, maxBudgetUsd = 1 } = {}) {
   return async ({ prompt, actions }) => {
     const text = (s) => ({ content: [{ type: 'text', text: s }] })
     const server = createSdkMcpServer({
@@ -224,6 +224,7 @@ export function sdkModel({ queryFn = query, model = MODELS.opus } = {}) {
       options: {
         model,
         maxTurns: 8,
+        maxBudgetUsd,
         systemPrompt: COORDINATOR_PROMPT,
         settingSources: [],
         permissionMode: 'default',
@@ -233,11 +234,18 @@ export function sdkModel({ queryFn = query, model = MODELS.opus } = {}) {
         env: agentEnv(),
       },
     })
+    let usage = null
     for await (const msg of stream) {
-      if (msg.type === 'result' && msg.subtype !== 'success' && msg.subtype !== 'error_max_turns') {
-        throw new Error(`the coordinator run ended with ${msg.subtype}`)
+      if (msg.type === 'result') {
+        usage = usageData(msg)
+        if (msg.subtype !== 'success' && msg.subtype !== 'error_max_turns') {
+          const error = new Error(`the coordinator run ended with ${msg.subtype}`)
+          error.usage = usage
+          throw error
+        }
       }
     }
+    return usage
   }
 }
 
@@ -255,8 +263,10 @@ export function createCoordinator({ store, runModel = sdkModel(), mirror = {} })
     const created = []
     const actions = createActions(store, goalId, { mirror, created })
     try {
-      await runModel({ prompt: snapshot(store, goalId, trigger), actions })
+      const usage = await runModel({ prompt: snapshot(store, goalId, trigger), actions })
+      if (usage) store.appendEvent({ type: 'coordinator_usage', goalId, text: 'Coordinator usage', data: usage })
     } catch (err) {
+      if (err.usage) store.appendEvent({ type: 'coordinator_usage', goalId, text: 'Coordinator usage', data: err.usage })
       store.appendEvent({ type: 'coordinator_error', goalId, text: `The coordinator failed on ${goal.title}: ${err.message}` })
       throw err
     }

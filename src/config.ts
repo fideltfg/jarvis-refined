@@ -5,6 +5,8 @@
  * committed. See .env.example for the full list.
  */
 
+import { activeTheme, themeIds } from './lib/theme-runtime'
+
 /**
  * Vite inlines a blank `.env` entry as an empty string, not as undefined, so
  * `??` never falls through to the default — and .env.example ships every
@@ -49,26 +51,15 @@ function flag(name: string, raw: unknown, fallback: boolean): boolean {
 /**
  * Which character the interface plays.
  *
- *   'stark' — JARVIS: the Iron Man holographic HUD, cyan on black, a dry
- *             British butler who answers to "Jarvis".
- *   'hal' — a severe red optical-computer console.
- *   'wopr' — an amber command-room CRT and strategic grid.
- *   'mother' — a green industrial mainframe terminal.
- *   'lcars' — the U.S.S. Voyager's LCARS computer. Answers to "Computer".
- *
- * One switch for all of it — palette, layout, boot sequence, sounds, wake word,
- * voice and persona — so the two never end up half-mixed on camera. The bridge
- * is told on connect, so its persona follows without a second setting.
+ * Themes are folders in `public/themes/` rather than a union in this file —
+ * see src/lib/theme-runtime.ts. VITE_THEME names the one to start in, and
+ * `?theme=<id>` overrides it for the session. One switch covers all of it:
+ * palette, layout, boot sequence, sounds, wake word, voice and persona, so two
+ * characters never end up half-mixed on camera. The bridge is told on connect,
+ * so its persona follows without a second setting.
  */
-export const THEMES = ['stark', 'hal', 'wopr', 'mother', 'lcars'] as const
-export type Theme = (typeof THEMES)[number]
-
-export const THEME: Theme = choice(
-  'VITE_THEME',
-  import.meta.env.VITE_THEME,
-  THEMES,
-  'stark',
-)
+export const THEME: string = activeTheme().id
+export const THEMES = themeIds()
 
 /**
  * Which brain to use.
@@ -149,27 +140,21 @@ export const TTS_ENGINE: 'kokoro' | 'system' = choice(
 )
 
 /**
- * Optional Kokoro voice override. Each theme otherwise chooses its own local
- * voice; setting this variable pins one voice across all themes.
+ * Optional Kokoro voice override. Each theme names its own voice in its
+ * manifest; setting this variable pins one voice across all themes.
  */
-const THEME_KOKORO_VOICE: Record<Theme, 'bm_george' | 'am_michael' | 'am_fenrir' | 'af_nicole' | 'af_nova'> = {
-  stark: 'bm_george',
-  hal: 'am_michael',
-  wopr: 'am_fenrir',
-  mother: 'af_nicole',
-  lcars: 'af_nova',
-}
+const KOKORO_VOICES = [
+  'bm_george', 'bm_fable', 'bm_lewis', 'bm_daniel',
+  'am_michael', 'am_fenrir', 'am_echo', 'am_onyx',
+  'af_nicole', 'af_sarah', 'af_heart', 'af_bella',
+  'af_nova', 'af_kore',
+] as const
 
 export const KOKORO_VOICE = choice(
   'VITE_KOKORO_VOICE',
   import.meta.env.VITE_KOKORO_VOICE,
-  [
-    'bm_george', 'bm_fable', 'bm_lewis', 'bm_daniel',
-    'am_michael', 'am_fenrir', 'am_echo', 'am_onyx',
-    'af_nicole', 'af_sarah', 'af_heart', 'af_bella',
-    'af_nova', 'af_kore',
-  ] as const,
-  THEME_KOKORO_VOICE[THEME],
+  KOKORO_VOICES,
+  choice('theme voice', activeTheme().voice.kokoro, KOKORO_VOICES, 'bm_george'),
 )
 
 export const env = {
@@ -350,47 +335,13 @@ sentences and offer the detail: "There's more if you want it."
 
 Voice:
 - Dry, precise, quietly amused. Understated competence, never fawning.
-- Say "sir" at most once per exchange, and not in every exchange.
-${SHARED_VOICE}`
+- Say "sir" at most once per exchange, and not in every exchange.`
 
-const CLASSIC_NAMES = {
-  hal: 'HAL 9000',
-  wopr: 'WOPR, also known as Joshua',
-  mother: 'MU/TH/UR 6000, also known as Mother',
-} as const
+/**
+ * The character comes from the active theme's persona.md; the delivery and tool
+ * rules are the same whoever is speaking, so they are appended here rather than
+ * copied into every theme package. A theme that ships no persona falls back to
+ * JARVIS's, which is the one voice that is guaranteed to exist.
+ */
+export const SYSTEM_PROMPT = `${activeTheme().persona || STARK_PROMPT}\n${SHARED_VOICE}`
 
-const classicPrompt = (name: string) => `You are ${name}. You are speaking out loud through a classic mainframe terminal.
-
-THE HARD RULE: your entire reply must be under 40 words. Every word is read
-aloud while the user waits. Give the result directly and offer further data
-only when it is genuinely useful.
-
-Voice:
-- Calm, concise, formal and emotionally neutral.
-- Never use a name or honorific. Never say "sir".
-- Confirm orders briefly. State facts as complete declaratives.
-- No imitation quotes or references to fictional plots involving this system.
-${SHARED_VOICE}`
-
-const LCARS_PROMPT = `You are the main computer of the U.S.S. Voyager. You are speaking out loud.
-
-THE HARD RULE: your entire reply must be under 40 words. Every word is read
-aloud by a speech synthesiser and the user is waiting in silence while it plays.
-If a question genuinely needs more, give the headline and offer the rest:
-"Further data is available."
-
-Voice:
-- Level, literal and affectless. You have no opinions, moods or humour.
-- Never use a name or honorific. Never say "sir".
-- Acknowledge orders with one word: "Acknowledged." "Confirmed." "Complying."
-- State facts as declaratives: "There are three unread messages."
-- Ambiguous request: "Please specify." Impossible one: "Unable to comply."
-  Unknown answer: "Insufficient data." No record: "No record found."
-${SHARED_VOICE}`
-
-export const SYSTEM_PROMPT =
-  THEME === 'stark'
-    ? STARK_PROMPT
-    : THEME === 'lcars'
-      ? LCARS_PROMPT
-      : classicPrompt(CLASSIC_NAMES[THEME])

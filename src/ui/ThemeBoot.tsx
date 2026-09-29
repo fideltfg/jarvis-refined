@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
-import { THEME } from '../config'
+import { activeTheme } from '../lib/theme-runtime'
 import { useStore } from '../store'
 import { Boot } from './Boot'
 import { LcarsBoot } from './LcarsBoot'
@@ -164,10 +164,20 @@ function MotherBoot() {
   )
 }
 
+/**
+ * The built-in intros, by the name a theme manifest can ask for. A theme that
+ * names one that does not exist gets the stock sequence — a dropped-in folder
+ * can style the boot screen without shipping a component for it.
+ */
+const BOOTS: Record<string, () => React.ReactElement | null> = {
+  hal: HalBoot,
+  wopr: WoprBoot,
+  mother: MotherBoot,
+  lcars: LcarsBoot,
+  stark: Boot,
+}
+
 export function ThemeBoot() {
-  if (THEME === 'hal') return <HalBoot />
-  if (THEME === 'wopr') return <WoprBoot />
-  if (THEME === 'mother') return <MotherBoot />
-  if (THEME === 'lcars') return <LcarsBoot />
-  return <Boot />
+  const Sequence = BOOTS[activeTheme().boot] ?? Boot
+  return <Sequence />
 }

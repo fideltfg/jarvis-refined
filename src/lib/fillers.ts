@@ -17,7 +17,7 @@
  *     so it goes at the end, and only sometimes.
  */
 
-import { IS_STARK } from '../theme'
+import { IS_BUTLER } from '../theme'
 
 /** Said as soon as the first tool fires, before any answer exists. */
 const WORKING = [
@@ -68,9 +68,9 @@ const MACHINE_WORKING = ['Working.', 'Processing.', 'Accessing.', 'Stand by.', '
 const MACHINE_ACKNOWLEDGE = ['Acknowledged.', 'Confirmed.', 'Complying.', 'Affirmative.']
 const MACHINE_ATTENTION = ['']
 
-export const working = makePicker(IS_STARK ? WORKING : MACHINE_WORKING)
-export const acknowledge = makePicker(IS_STARK ? ACKNOWLEDGE : MACHINE_ACKNOWLEDGE)
-export const attention = makePicker(IS_STARK ? ATTENTION : MACHINE_ATTENTION)
+export const working = makePicker(IS_BUTLER ? WORKING : MACHINE_WORKING)
+export const acknowledge = makePicker(IS_BUTLER ? ACKNOWLEDGE : MACHINE_ACKNOWLEDGE)
+export const attention = makePicker(IS_BUTLER ? ATTENTION : MACHINE_ATTENTION)
 
 /**
  * Naming the task is warmer than a generic acknowledgement and shows the
@@ -193,7 +193,7 @@ function split(toolName: string): { server: string; tool: string } {
 
 /** A phrase suited to the tool that just fired. */
 export function forTool(toolName: string): string {
-  if (!IS_STARK) return working()
+  if (!IS_BUTLER) return working()
   const { server, tool } = split(toolName)
   for (const r of pickers) {
     const hit =

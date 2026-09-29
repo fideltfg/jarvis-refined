@@ -103,7 +103,7 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
       })
     },
 
-    newTask({ goalId, title, brief, kind = 'research', dependsOn = [], model = 'sonnet', repo = null }) {
+    newTask({ goalId, title, brief, kind = 'research', dependsOn = [], model = 'sonnet', repo = null, allowedSkills = [] }) {
       if (!KINDS.includes(kind)) throw new Error(`Unknown task kind "${kind}".`)
       const id = newId('t')
       const path = join(workDir, id)
@@ -121,6 +121,7 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
         dependsOn: [...dependsOn],
         workspace,
         model: model === 'opus' ? 'opus' : 'sonnet',
+        allowedSkills: kind === 'research' ? [...allowedSkills] : [],
         budget: { ...BUDGETS[kind] },
         attempts: 0,
         result: null,

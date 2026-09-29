@@ -6,9 +6,6 @@ import { BladeSweep, Blades } from './Blades'
 import { Effects } from './Effects'
 import { Pointer } from './Pointer'
 import { GestureGuide } from './GestureGuide'
-import { LcarsFrame } from './LcarsFrame'
-import { AgentBoard } from './AgentBoard'
-import { THEME } from '../config'
 import { copy } from '../theme'
 import { providerState, watchProviders, selectProvider, usingBridge } from '../lib/brain'
 
@@ -156,11 +153,9 @@ export function Hud() {
   const error = useStore((s) => s.error)
   const level = useStore((s) => s.level)
   const voice = useStore((s) => s.voice)
-  const agentsSeen = useStore((s) => s.agentsSeen)
   const bootNote = useStore((s) => s.bootNote)
   const gestures = useStore((s) => s.gestures)
   const looking = useStore((s) => s.looking)
-  const ptt = useStore((s) => s.ptt)
   const ui = useStore((s) => s.ui)
 
   // accentFor folds JARVIS's overrides in over the phase colour, so one
@@ -185,16 +180,10 @@ export function Hud() {
           behind the transcript and the panels without a z-index war. */}
       <BladeSweep />
 
-      {THEME === 'lcars' ? (
-        <LcarsFrame phase={phase} />
-      ) : (
-        <>
-          <Corner at="tl" />
-          <Corner at="tr" />
-          <Corner at="bl" />
-          <Corner at="br" />
-        </>
-      )}
+      <Corner at="tl" />
+      <Corner at="tr" />
+      <Corner at="bl" />
+      <Corner at="br" />
 
       <header className="hud-top">
         {ui.chrome.brand && (
@@ -332,7 +321,6 @@ export function Hud() {
           here now; Panels.tsx is unmounted rather than deleted so the design
           system it documents stays findable. */}
       <Blades />
-      <AgentBoard />
 
       {ui.chrome.suggestions && <Suggestions />}
 
@@ -340,27 +328,7 @@ export function Hud() {
 
       <footer className="hud-bottom">
         <span className="hint">
-          {ptt.binding ? (
-            <>
-              press the key or mouse button to hold for talking · <kbd>Esc</kbd> cancels
-            </>
-          ) : ptt.enabled ? (
-            <>
-              hold <kbd>{ptt.label}</kbd> to talk · <kbd>K</kbd> hands-free ·{' '}
-              <kbd>⇧K</kbd> change key · <kbd>G</kbd> hands
-            </>
-          ) : (
-            <>
-              say <b>“{copy.wakePhrase}”</b> · <kbd>Space</kbd> to talk · <kbd>K</kbd>{' '}
-              push-to-talk · <kbd>G</kbd> hands
-            </>
-          )}
-          {agentsSeen && (
-            <>
-              {' · '}
-              <kbd>A</kbd> agents
-            </>
-          )}
+          say <b>“{copy.wakePhrase}”</b> · <kbd>Space</kbd> to talk · <kbd>G</kbd> hands
           {voice && (
             <>
               {' · '}

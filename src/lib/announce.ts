@@ -62,8 +62,13 @@ const MANY_TERSE: Record<string, (n: number) => string> = {
   approval_needed: (n) => `${n} authorisations required.`,
 }
 
-export function phrase(events: AgentEvent[], theme: string): string {
-  const stark = theme === 'stark'
+/**
+ * `register` is the theme's own, from its manifest: 'butler' gets the warmer
+ * phrasing, anything else the terse machine one. Passed in rather than imported
+ * so this module stays free of the app's module graph.
+ */
+export function phrase(events: AgentEvent[], register: string): string {
+  const stark = register === 'butler'
   const one = stark ? ONE_STARK : ONE_TERSE
   const many = stark ? MANY_STARK : MANY_TERSE
   const groups = new Map<string, AgentEvent[]>()
@@ -81,7 +86,7 @@ export function phrase(events: AgentEvent[], theme: string): string {
 export function createAnnouncer(opts: {
   say: (text: string) => Promise<void>
   idle: () => boolean
-  theme: string
+  register: string
   mergeMs?: number
   retryMs?: number
   schedule?: (fn: () => void, ms: number) => unknown
@@ -110,7 +115,7 @@ export function createAnnouncer(opts: {
     buffer = []
     speaking = true
     try {
-      await opts.say(phrase(batch, opts.theme))
+      await opts.say(phrase(batch, opts.register))
     } finally {
       speaking = false
       if (buffer.length) arm(mergeMs)

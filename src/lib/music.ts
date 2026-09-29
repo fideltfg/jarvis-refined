@@ -1,7 +1,8 @@
 /**
  * Score.
  *
- * Three cues, all local files under public/audio/:
+ * Three cues, looked for in the active theme's own `audio/` folder first and
+ * in the shared `public/audio/` second:
  *   boot-music — the JARVIS start-up sound, once, as the reactor comes up
  *   ambient    — the opening music, once, alongside it
  *   work       — an industrial cue that loops while a tool is running
@@ -18,8 +19,11 @@
  * Everything degrades quietly: if a file is missing the cue simply doesn't
  * play, and the synthesised bed in sfx.ts covers the ambient case.
  */
-
+import { activeTheme } from './theme-runtime'
 type Cue = 'boot-music' | 'ambient' | 'work'
+
+/** Nearest first: a theme's own score, then the one every theme shares. */
+const SOURCES = [`${activeTheme().dir}/audio`, '/audio']
 
 type Track = {
   el: HTMLAudioElement
@@ -83,22 +87,25 @@ function track(cue: Cue): Track | null {
   if (!enabled || missing.has(cue)) return null
   let t = tracks.get(cue)
   if (!t) {
-    const el = new Audio(`/audio/${cue}.mp3`)
+    let source = 0
+    const el = new Audio(`${SOURCES[source]}/${cue}.mp3`)
     el.preload = 'auto'
     // Only the work cue repeats. It has to, because it covers an operation of
     // unknown length; the two power-up cues are events with an end.
     el.loop = cue === 'work'
     el.volume = 0
-    // A missing file is not an error worth surfacing — the interface just
-    // runs without that layer.
-    el.addEventListener(
-      'error',
-      () => {
-        tracks.delete(cue)
-        missing.add(cue)
-      },
-      { once: true },
-    )
+    // A theme that ships no score of its own falls through to the shared one;
+    // a cue missing from both is not an error worth surfacing — the interface
+    // just runs without that layer.
+    el.addEventListener('error', () => {
+      if (++source < SOURCES.length) {
+        el.src = `${SOURCES[source]}/${cue}.mp3`
+        el.load()
+        return
+      }
+      tracks.delete(cue)
+      missing.add(cue)
+    })
     // A cue that has played out is over. Zeroing `want` as well as recording it
     // means every later level calculation agrees, rather than leaving a stale
     // target for something to act on.

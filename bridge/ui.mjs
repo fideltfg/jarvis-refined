@@ -135,67 +135,43 @@ const themeSchema = {
 
 const THEME_DESCRIPTION = `Retint the whole interface.
 
-The HUD is drawn in one colour identity that normally follows your state: cyan
-while listening, amber while thinking, violet while a tool runs, green while you
-speak. An accent overrides that everywhere, at once.
+The HUD normally follows your state (cyan listening, amber thinking, violet
+tooling, green speaking); an accent overrides that everywhere at once.
 
-Use it when the colour MEANS something. Red because a check came back bad.
-Amber because you are waiting on something out of your control. A colour pulled
-out of an image you just generated, so the room matches the picture. Deep blue
-because it is three in the morning and they are still working.
-
-Do not redecorate for the sake of it, and do not leave a strange colour up after
-the moment that earned it has passed — call \`ui_reset\` when it is over.
-
-Never announce that you have done it. The user is looking at the screen.`
+Use it only when the colour means something — red for a bad result, amber for
+waiting. Call \`ui_reset\` when the moment passes. Never announce it.`
 
 const reactorSchema = {
   color: colour(
     'The reactor core on its own, without touching the rest of the interface. ' +
       'Any CSS colour. Pass null or "auto" to follow the accent and phase again.',
   ),
-  scale: looseNumber(
-    'Size multiplier, 0.2 to 3, default 1. Below 1 the reactor recedes and the ' +
-      'panels dominate; above 1.5 it owns the frame and everything else reads ' +
-      'as trim.',
-  ),
+  scale: looseNumber('Size multiplier, 0.2 to 3, default 1. Above 1.5 it owns the frame.'),
   intensity: looseNumber(
-    'Glow and brightness, 0 to 3, default 1. 0.3 reads as a system on ' +
-      'standby, 2 or more as strain — a hard computation, a warning, a surge.',
+    'Glow, 0 to 3, default 1. 0.3 reads as standby, 2 or more as strain.',
   ),
   spin: looseNumber(
-    'Rotation-rate multiplier, 0 to 5, default 1. 0 stops it dead, which reads ' +
-      'as powered down or frozen and is worth exactly one dramatic moment. 3 ' +
-      'and up reads as effort.',
+    'Rotation rate, 0 to 5, default 1. 0 reads as powered down, 3 and up as effort.',
   ),
   style: z
     .enum(['ring', 'sphere', 'wire'])
     .optional()
     .catch(undefined)
     .describe(
-      'ring = the stock arc-reactor halo. sphere = a solid core, heavier and ' +
-        'more present, good when you are the subject of the conversation. ' +
-        'wire = a skeletal lattice, good for diagnostics, degraded states, and ' +
-        'anything that should look like it is being taken apart.',
+      'ring = stock halo. sphere = solid core, heavier. wire = skeletal ' +
+        'lattice, for diagnostics and degraded states.',
     ),
   visible: looseBool(
-    'false removes the reactor entirely. Only when something else has earned ' +
-      'the centre of the screen — a full-frame image the user is studying. ' +
-      'Put it back the moment that is over.',
+    'false removes the reactor entirely, for a full-frame image. Put it back after.',
   ),
 }
 
 const REACTOR_DESCRIPTION = `Reshape the reactor at the centre of the display.
 
-The reactor is you. It is the one element the user watches while they wait, so
-its size, brightness and speed are read as your state whether you intend them to
-be or not. Slowing it and dimming it says the system is idling; brightening and
-speeding it says you are working hard on this.
+The reactor is you: its size, brightness and speed read as your state. Dim and
+slow is idling; bright and fast is working hard.
 
-Change one property at a time and mean it. A reactor that is huge, scarlet,
-motionless and wireframed all at once is not a state, it is a mess.
-
-Everything omitted stays as it is.`
+Change one property at a time. Everything omitted stays as it is.`
 
 const orbitSchema = {
   action: z
@@ -211,62 +187,43 @@ const orbitSchema = {
     .optional()
     .catch(undefined)
     .describe(
-      'A short name you choose, e.g. "suit", "mars", "shot-1". Required to ' +
-        'remove. On add it lets you move an object later instead of stacking a ' +
-        'second copy on top of it.',
+      'A short name you choose, e.g. "suit", "shot-1". Required to remove; on ' +
+        'add it replaces rather than stacks.',
     ),
   src: z
     .string()
     .optional()
     .catch(undefined)
     .describe(
-      'The image. Give an absolute disk path or a file:/// URL — a render you ' +
-        'generated, a screenshot you took, a file on this machine. http:// and ' +
-        'https:// are blocked by the page and will be refused, so never orbit ' +
-        'a picture found on the web.',
+      'Absolute disk path or file:/// URL. http(s) is blocked by the page, so ' +
+        'never orbit a picture from the web.',
     ),
   radius: looseNumber(
-    'Orbit radius as a fraction of the smaller screen axis, 0.1 to 1.2, ' +
-      'default 0.55. 0.3 hugs the reactor, 0.8 sweeps out past the panels.',
+    'Fraction of the smaller screen axis, 0.1 to 1.2, default 0.55. 0.3 hugs ' +
+      'the reactor, 0.8 sweeps past the panels.',
   ),
   speed: looseNumber(
-    'Revolutions per minute, -30 to 30, default 4. Two to six is stately and ' +
-      'nothing above ten is watchable for long. Negative goes the other way — ' +
-      'a second object counter-rotating reads as machinery rather than decoration.',
+    'RPM, -30 to 30, default 4. Two to six is stately. Negative counter-rotates.',
   ),
   size: looseNumber('Rendered size in pixels, 16 to 400, default 96.'),
   tilt: looseNumber(
-    'Tilt of the orbital plane in degrees, -80 to 80, default 24. 0 is a flat ' +
-      'circle facing the user; tipping it flattens the path into an ellipse, ' +
-      'which is what sells the depth. 20 to 50 is the sweet spot.',
+    'Orbital-plane tilt in degrees, -80 to 80, default 24. 20 to 50 sells the depth.',
   ),
-  opacity: looseNumber(
-    '0 to 1, default 0.9. Drop to 0.4 when the object is atmosphere rather ' +
-      'than the point.',
-  ),
+  opacity: looseNumber('0 to 1, default 0.9. Drop to 0.4 for atmosphere.'),
   phase: looseNumber(
-    'Starting angle in degrees. Omit it and objects are spaced apart ' +
-      'automatically; set it only when you want two things deliberately ' +
-      'opposed, e.g. 0 and 180.',
+    'Starting angle in degrees. Omitted, objects are spaced automatically.',
   ),
 }
 
 const ORBIT_DESCRIPTION = `Hang an image in orbit around the reactor.
 
-This is the interface showing what you have been doing. A render you just
-generated, a photograph you were asked about, the screenshot off the phone —
-put it in orbit and it lives in the room instead of sitting in a card.
+For a render you generated or a screenshot you captured — it lives in the room
+rather than in a card.
 
-Rules that matter:
-  - Only images YOU produced or captured. Absolute path or file:/// URL.
-    Anything from the web is refused outright.
-  - Three or four objects is a system. Eight is a mess and the frame stops
-    reading as anything at all.
-  - An orbit persists until you take it down. Clear it when the subject
-    changes — a suit render still circling during a conversation about mail is
-    just litter.
-  - This is not a substitute for \`display\`. Orbit it when the user should
-    feel it; put it in a panel when they need to look at it.`
+  - Only images you produced. Absolute path or file:/// URL; web URLs refused.
+  - Three or four objects at most.
+  - Persists until you clear it. Clear it when the subject changes.
+  - Orbit it to be felt; use \`display\` when it must be looked at.`
 
 const chromeSchema = {
   systems: looseBool('The SYSTEMS rail down the left — connected servers and status.'),
@@ -278,14 +235,9 @@ const chromeSchema = {
 
 const CHROME_DESCRIPTION = `Show or hide the furniture around the display.
 
-Everything is up by default and that is the right default — the rails are how
-the user knows what you are connected to and what you just did.
-
-Hide it only when the absence helps. A photograph they are studying, a single
-number they need to hold in their head, a moment you want to land. Strip the
-chrome, let the screen be quiet, and put it back when the moment is over. The
-user cannot restore it themselves, so leaving it off is taking something from
-them.
+Everything is up by default. Hide it only when the absence helps — one image
+being studied, one number to hold — and put it back afterwards, since the user
+cannot restore it themselves.
 
 Pass true to show, false to hide. Anything omitted stays as it is.`
 
@@ -297,9 +249,8 @@ const EFFECT_DESCRIPTION = `Fire a one-off effect across the interface.
   shake  = impact, or a hard stop. The strongest thing here; use it once.
   flash  = a sudden alert. Reserve it for something the user must notice now.
 
-At most one per turn, and only when something actually happened. An effect on
-every answer is punctuation, and punctuation stops meaning anything by the third
-sentence. Silence on the screen is the default, exactly as it is in your speech.`
+At most one per turn, and only when something actually happened. Silence on the
+screen is the default.`
 
 const SCREEN_DESCRIPTION = `Clear the display.
 
@@ -307,17 +258,15 @@ const SCREEN_DESCRIPTION = `Clear the display.
   transcript = wipe the conversation log.
   all        = both.
 
-Use it when the user says clear the screen, or when a topic is finished and the
-leftovers from the last one would confuse what comes next. It does not touch the
-theme, the reactor or the orbits — \`ui_reset\` does that.`
+Use it when the user says clear the screen, or when leftovers from a finished
+topic would confuse the next one. Does not touch theme, reactor or orbits —
+\`ui_reset\` does that.`
 
 const RESET_DESCRIPTION = `Put the entire interface back to stock.
 
-Colours, reactor, orbits, chrome — everything returns to the way it looks on a
-fresh page. Panels and the transcript are left alone.
-
-Call it when the user asks for normal, and call it yourself when whatever
-justified a change is over. It is never the wrong thing to do.`
+Colours, reactor, orbits, chrome all return to stock. Panels and the transcript
+are left alone. Call it when the user asks for normal, or when whatever
+justified a change is over.`
 
 /**
  * Ids arrive in bursts and `Date.now()` alone collides, so a counter carries

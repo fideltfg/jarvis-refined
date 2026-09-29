@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { themePhaseColor } from './theme'
+import type { AgentBoardData, SessionAgent } from './lib/board'
 
 export type Phase =
   | 'offline'   // waiting for the click that unlocks audio
@@ -53,37 +54,21 @@ export type Blade = {
   hold: 'turn' | 'sticky'
 }
 
-/** The agent service's board, as the bridge relays it. */
-export type AgentTask = {
-  id: string
-  title: string
-  kind: string
-  status: 'queued' | 'running' | 'blocked' | 'awaiting_approval' | 'done' | 'failed' | 'cancelled'
-  attempts: number
-  summary: string | null
-}
-export type AgentGoal = { id: string; title: string; outcome: string; status: string; priority: number; tasks: AgentTask[] }
-export type AgentApproval = { id: string; taskId: string; category: string; action: string; detail: string }
-export type AgentBoardData = { goals: AgentGoal[]; approvals: AgentApproval[]; running: string[] }
-
 /**
- * A Claude Code subagent spawned inside the voice session itself.
- *
- * Separate from AgentTask because it is a different thing with a different
- * lifecycle — it lives and dies inside one turn, has no goal above it and no
- * approvals below it — but it belongs on the same board, because from the
- * user's side "what are your agents doing" is one question, not two.
+ * Agent shapes live in lib/board, next to the merge that unifies them, so the
+ * board has one place to look. Re-exported here because the store is where the
+ * rest of the interface expects to find its types.
  */
-export type SessionAgent = {
-  id: string
-  title: string
-  /** The subagent type, e.g. 'Explore' or 'general-purpose'. */
-  kind: string
-  status: 'running' | 'done' | 'failed'
-  startedAt: string
-  finishedAt?: string
-  summary: string | null
-}
+export type {
+  AgentApproval,
+  AgentBoardData,
+  AgentGoal,
+  AgentTask,
+  BoardAgent,
+  BoardAgentKind,
+  BoardAgentStatus,
+  SessionAgent,
+} from './lib/board'
 
 export type Turn = {
   id: string

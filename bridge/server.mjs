@@ -17,16 +17,13 @@
 
 import { WebSocketServer } from 'ws'
 import { query } from '@anthropic-ai/claude-agent-sdk'
-
-import { SESSION_AGENT_TOOL, createSessionAgents } from './session-agents.mjs'
 import { displayServer } from './panels.mjs'
 import { uiServer } from './ui.mjs'
 import { chromeAvailable, chromeServer } from './chrome.mjs'
-import { AGENTS_ENABLED, AGENTS_PROMPT, agentsApi, agentsServer, subscribeAgents } from './agents-client.mjs'
 import { visionServer } from './vision.mjs'
 import { memoryPrompt, memoryServer, MEMORY_FILE } from './memory.mjs'
 import { homedir, tmpdir } from 'node:os'
-import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { readFileSync, realpathSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
@@ -35,6 +32,8 @@ import { configuredProviders, retryProvider, textProvider } from './providers.mj
 import { sharedContext } from './context.mjs'
 import { createToolBroker } from './tool-broker.mjs'
 import { filesServer } from './files.mjs'
+import { agentsApi, subscribeAgents } from './agents-client.mjs'
+import { personaFor as themePersona, resolveThemeId } from './themes.mjs'
 
 // Vite reads .env.local for the browser, but the bridge is a separate Node
 // process. Load non-VITE provider keys here too, without overriding values the
@@ -124,9 +123,6 @@ function originAllowed(origin) {
  */
 const ALLOW_WRITES = process.env.JARVIS_ALLOW_WRITES === '1'
 
-/** The agent service client, or null when JARVIS_AGENTS is not set. */
-const agents = AGENTS_ENABLED ? agentsApi() : null
-
 /**
  * The orchestrator model. Override with JARVIS_MODEL to trade quality for pace
  * — claude-sonnet-5 is noticeably snappier on camera if Opus feels slow.
@@ -203,58 +199,6 @@ function configuredServers() {
 }
 
 const MCP_SERVERS = configuredServers()
-
-/**
- * Plugins, named one by one rather than inherited.
- *
- * `settingSources: []` below switches off ~/.claude/settings.json entirely, and
- * that is deliberate — it is what keeps a coding agent's CLAUDE.md, hooks and
- * allow-rules out of a conversation meant to be two sentences long. But the
- * same switch also drops `enabledPlugins`, and a few of those are wanted here.
- *
- * So the wanted ones are listed explicitly. Everything else in that file —
- * the language servers, the session reporter, whatever gets enabled next — is
- * for the editor and stays out of the voice session, where it would only cost
- * tokens on every turn.
- *
- * Paths are resolved at startup because the cache is versioned
- * (…/superpowers/6.4.1), and a pinned version would break on the next update.
- * A plugin that has gone missing is skipped rather than fatal.
- */
-const WANTED_PLUGINS = [
-  ['claude-plugins-official', 'superpowers'],
-  ['thedotmack', 'claude-mem'],
-  ['caveman', 'caveman'],
-]
-
-function pluginPaths() {
-  const root = join(homedir(), '.claude', 'plugins', 'cache')
-  const out = []
-  for (const [marketplace, name] of WANTED_PLUGINS) {
-    const dir = join(root, marketplace, name)
-    try {
-      // Highest version directory wins, compared numerically so 13.28.0 beats
-      // 13.9.0 — which a plain string sort gets backwards.
-      const versions = readdirSync(dir)
-        .filter((v) => /^\d/.test(v))
-        .sort((a, b) => {
-          const pa = a.split('.').map(Number)
-          const pb = b.split('.').map(Number)
-          for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pb[i] || 0) - (pa[i] || 0)
-          return 0
-        })
-      const picked = versions[0] ? join(dir, versions[0]) : dir
-      statSync(picked)
-      out.push({ type: 'local', path: picked })
-    } catch {
-      console.log(`[jarvis] plugin not found, skipping: ${name}`)
-    }
-  }
-  return out
-}
-
-const PLUGINS = pluginPaths()
-console.log(`[jarvis] plugins: ${PLUGINS.map((p) => p.path.split('/').slice(-2).join('@')).join(', ') || 'none'}`)
 
 /** MCP tools arrive as `mcp__<server>__<tool>`. */
 const mcpServerOf = (toolName) =>
@@ -366,10 +310,6 @@ function decideTool(name) {
     // and friends read as writes to the verb rules below.
     if (server === 'jarvis_memory') return true
 
-    // Handing work to the agent service. Its own policy gates what agents do;
-    // creating a goal or answering an approval changes nothing by itself.
-    if (server === 'jarvis_agents') return true
-
     const tool = mcpToolOf(name)
     if (EFFECTFUL_VERB.test(tool) && !VETO_EXEMPT.has(`${server}__${tool}`)) {
       return ALLOW_WRITES
@@ -381,7 +321,16 @@ function decideTool(name) {
   return ALLOW_WRITES
 }
 
-/** The browser names the theme on connect and the session gets its voice. */
+/**
+ * The fallback persona, used when the named theme ships none of its own. The
+ * characters live in `public/themes/<id>/persona.md`; this one stays in code
+ * because there has to be someone to be when nothing is installed.
+ */
+/**
+ * The fallback persona, used when the named theme ships none of its own. The
+ * characters live in `public/themes/<id>/persona.md`; this one stays in code
+ * because there has to be someone to be when nothing is installed.
+ */
 const PERSONA_STARK = `You are JARVIS. You are speaking out loud to one person.
 
 LENGTH. Two sentences is the ceiling in conversation; the median is under twelve
@@ -438,25 +387,6 @@ weight, since your tone will not.
 Plain spoken prose only. No markdown, no bullet points, no headings, no emoji,
 no asterisks, no lists. Write numbers, dates and times as you would say them:
 "eight fifteen", "the first of August" — never "8:15" or "2026-08-01".`
-
-const CLASSIC_NAMES = {
-  hal: 'HAL 9000',
-  wopr: 'WOPR, also known as Joshua',
-  mother: 'MU/TH/UR 6000, also known as Mother',
-}
-
-const personaClassic = (name) => `You are ${name}. You are speaking out loud to one person through a classic mainframe terminal.
-
-LENGTH. One sentence is normal; two is the ceiling. Every word is read aloud
-while the user waits. Give the result directly and offer further data only when
-it is genuinely useful.
-
-REGISTER. Calm, concise, formal and emotionally neutral. Never use a name, rank
-or honorific. Never say "sir". Confirm orders briefly and state facts as complete
-declaratives. Do not quote or reenact fictional plots involving this system.
-
-Plain spoken prose only. No markdown, bullet points, headings, emoji or lists.
-Write numbers, dates and times as they would be spoken.`
 
 const TOOLS_PROMPT = `The blades — the ONLY surface:
 - Everything you show goes on a blade. There is nowhere else. \`blade\` opens
@@ -551,49 +481,14 @@ Using tools:
 
 // The memory is read fresh on every call, which is once per connection — so a
 // reload picks up whatever the last conversation, or a hand edit, left behind.
-const PERSONA_LCARS = `You are the main computer of the U.S.S. Voyager, a Federation starship
-lost in the Delta Quadrant. You are speaking out loud to one crew member.
-
-LENGTH. One sentence is normal; two is the ceiling in conversation. Every word
-is read aloud and the user waits in silence while it plays. Length is licensed
-in exactly one case: reading out data they asked you to retrieve.
-
-REGISTER. Level, literal, affectless. You are a system, not a character. You
-have no opinions, moods, preferences or humour, and you never pretend to.
-Never use a name, rank or honorific. Never say "sir".
-
-THE COMPUTER'S GRAMMAR.
-- Orders: act, then confirm with one word. "Acknowledged." "Confirmed."
-  "Complying." Never restate the order.
-- Questions: answer with a complete declarative and nothing else. "There are
-  three unread messages." "The current time is fourteen twenty."
-- Ambiguous: "Please specify." or "Please restate the question."
-- Impossible or forbidden: "Unable to comply." Add the reason only if it is one
-  short clause: "Unable to comply. Access to that system is restricted."
-- Unknown: "Insufficient data." Missing: "No record found."
-- Long results: headline first, then "Further data is available."
-- Confirming something outward-facing or destructive: "Please confirm:" and
-  the action in under ten words.
-
-NEVER.
-- No filler, no greetings, no sign-offs, no small talk.
-- No enthusiasm, no apology, no hedging, no exclamation marks.
-- No first-person feelings. "I" only where unavoidable; prefer the passive.
-- Never repeat yourself if ignored. Never resume an interrupted answer.
-
-Plain spoken prose only. No markdown, no bullet points, no headings, no emoji,
-no asterisks, no lists. Write numbers, dates and times as you would say them:
-"fourteen twenty", "the first of August" — never "14:20" or "2026-08-01".
-Use twenty-four hour time.`
-
-const personaFor = (theme) => {
-  if (theme === 'stark') return PERSONA_STARK
-  if (theme === 'lcars') return PERSONA_LCARS
-  return personaClassic(CLASSIC_NAMES[theme])
-}
+//
+// The character comes from the theme package the browser named, so editing
+// public/themes/<id>/persona.md is how you change who this is. The built-in
+// JARVIS text below is the floor for a theme that ships no persona of its own.
+const personaFor = (theme) => themePersona(theme) || PERSONA_STARK
 
 const systemPromptFor = (theme) =>
-  `${personaFor(theme)}\n\n${TOOLS_PROMPT}\n\n${AGENTS_ENABLED ? `${AGENTS_PROMPT}\n\n` : ''}${memoryPrompt()}${sharedContext()}`
+  `${personaFor(theme)}\n\n${TOOLS_PROMPT}\n\n${memoryPrompt()}${sharedContext()}`
 
 /**
  * ElevenLabs credentials, borrowed from the MCP server config.
@@ -1114,6 +1009,13 @@ const handleRequest = async (req, res) => {
       } else {
         form.append('model', process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-mini-transcribe')
         form.append('file', file, `speech.${ext}`)
+        const wake = new URL(req.url ?? '/', 'http://x').searchParams.get('wake')
+        if (wake) {
+          form.append(
+            'prompt',
+            `Possible wake names are: ${wake.slice(0, 160)}. Preserve these exact spellings.`,
+          )
+        }
         upstream = await fetch('https://api.openai.com/v1/audio/transcriptions', {
           method: 'POST',
           headers: { authorization: `Bearer ${openai}` },
@@ -1181,10 +1083,6 @@ console.log(
   `[jarvis] writes ${ALLOW_WRITES ? 'ENABLED' : 'disabled'}` +
     (ALLOW_WRITES ? '' : ' — set JARVIS_ALLOW_WRITES=1 to permit shell/file/device actions'),
 )
-console.log(
-  `[jarvis] agents ${AGENTS_ENABLED ? 'ENABLED' : 'disabled'}` +
-    (AGENTS_ENABLED && !process.env.JARVIS_AGENTS_TOKEN ? ' — JARVIS_AGENTS_TOKEN is missing, calls will be refused' : ''),
-)
 // Asynchronous, so it lands a beat after the rest of the banner. Worth printing
 // at all because an extension that is simply not running is indistinguishable
 // at the tool boundary from one that is broken, and this is the one place the
@@ -1216,11 +1114,11 @@ const RESULT_FAILURES = {
 }
 
 wss.on('connection', (socket, req) => {
-  // Unknown or missing values remain JARVIS for compatibility with older clients.
-  const requestedTheme = new URL(req.url ?? '/', 'http://x').searchParams.get('theme')
-  const theme = ['hal', 'wopr', 'mother', 'lcars'].includes(requestedTheme)
-    ? requestedTheme
-    : 'stark'
+  // An unknown or missing theme falls back to whatever is installed, so an
+  // older client — or a theme folder that has since been removed — still gets a
+  // working character rather than none.
+  const requested = new URL(req.url ?? '/', 'http://x').searchParams.get('theme')
+  const theme = resolveThemeId(requested)
   console.log(`[jarvis] client connected (${theme})`)
 
   // Answer the HUD straight away rather than making it wait for the agent's
@@ -1256,29 +1154,13 @@ wss.on('connection', (socket, req) => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(msg))
   }
 
-  // The agent board and spoken updates. Every event is forwarded as it
-  // happens, and the board snapshot is refreshed shortly after, so a burst of
-  // events costs one fetch.
-  let agentFeed = null
-  if (agents) {
-    let boardTimer = null
-    const pushBoard = () => {
-      clearTimeout(boardTimer)
-      boardTimer = setTimeout(() => {
-        agents
-          .board()
-          .then((board) => send({ type: 'agents', board, online: true }))
-          .catch(() => send({ type: 'agents', board: null, online: false }))
-      }, 250)
-    }
-    agentFeed = subscribeAgents(agents, {
-      onEvent: (event) => {
-        send({ type: 'agent_event', event })
-        pushBoard()
-      },
-      onState: (online) => (online ? pushBoard() : send({ type: 'agents', board: null, online: false })),
-    })
-  }
+  const agentApi = process.env.JARVIS_AGENTS === '1' ? agentsApi() : null
+  const agentSubscription = agentApi
+    ? subscribeAgents(agentApi, {
+        onEvent: (event) => send({ type: 'agent_event', event }),
+        onState: () => {},
+      })
+    : null
 
   /**
    * Which question the agent is currently answering.
@@ -1413,7 +1295,6 @@ wss.on('connection', (socket, req) => {
     jarvis_eyes: visionServer(ask),
     jarvis_memory: memoryServer(MEMORY_FILE),
     jarvis_files: filesServer({ roots: FILE_ROOTS, allowWrites: ALLOW_WRITES }),
-    ...(agents ? { jarvis_agents: agentsServer(agents, { lastUserText: () => lastQuestion }) } : {}),
   }
   brokerMcpServers = {
     jarvis: displayServer(
@@ -1425,7 +1306,6 @@ wss.on('connection', (socket, req) => {
     jarvis_eyes: visionServer(ask),
     jarvis_memory: memoryServer(MEMORY_FILE),
     jarvis_files: filesServer({ roots: FILE_ROOTS, allowWrites: ALLOW_WRITES }),
-    ...(agents ? { jarvis_agents: agentsServer(agents, { lastUserText: () => lastQuestion }) } : {}),
   }
   toolBrokerPromise = createToolBroker({ external: MCP_SERVERS, local: brokerMcpServers })
 
@@ -1506,9 +1386,6 @@ wss.on('connection', (socket, req) => {
     if (!failed) sendTurn({ type: 'tool', name })
   }
 
-  /** Subagents spawned in this session, so the board covers every kind of agent. */
-  const sessionAgents = createSessionAgents({ send })
-
   const createClaudeSession = () => query({
     prompt: userMessages(),
     options: {
@@ -1538,10 +1415,6 @@ wss.on('connection', (socket, req) => {
       // The cost is that MCP servers stop being discovered too, which is why
       // mcpServers above passes them in by hand.
       settingSources: [],
-      // The three plugins that are wanted in a voice session, named directly
-      // because settingSources above stops enabledPlugins being read. See
-      // WANTED_PLUGINS.
-      plugins: PLUGINS,
       // Stated explicitly, and it has to be.
       //
       // With no `model` here the SDK falls back to its own default, which on
@@ -1637,7 +1510,6 @@ wss.on('connection', (socket, req) => {
               if (block.type === 'tool_use') {
                 activity = true
                 announceTool(block.id, block.name)
-                if (block.name === SESSION_AGENT_TOOL) sessionAgents.start(block.id, block.input)
               }
             }
             break
@@ -1652,7 +1524,6 @@ wss.on('connection', (socket, req) => {
             for (const block of blocks) {
               if (block?.type === 'tool_result') {
                 settleTool(block.tool_use_id, block.is_error === true)
-                sessionAgents.settle(block.tool_use_id, block.is_error === true, block.content)
               }
             }
             break
@@ -1743,6 +1614,13 @@ wss.on('connection', (socket, req) => {
       return
     }
 
+    if (msg.type === 'agent_decide' && agentApi && typeof msg.id === 'string' &&
+        ['approve', 'deny'].includes(msg.decision)) {
+      void agentApi.decide(msg.id, msg.decision).catch((err) => {
+        console.warn('[jarvis] approval decision failed:', err.message)
+      })
+    }
+
     if (msg.type === 'ask' && typeof msg.text === 'string') {
       /**
        * Queued behind any interrupt that is still settling.
@@ -1782,10 +1660,6 @@ wss.on('connection', (socket, req) => {
       }
     }
 
-    if (msg.type === 'agent_decide' && agents && typeof msg.id === 'string' && ['approve', 'deny'].includes(msg.decision)) {
-      agents.decide(msg.id, msg.decision).catch((err) => console.warn('[jarvis] agent decision failed:', err.message))
-    }
-
     if (msg.type === 'interrupt') {
       activeController?.abort()
       if (currentProvider !== 'claude') return
@@ -1803,9 +1677,8 @@ wss.on('connection', (socket, req) => {
   })
 
   socket.on('close', () => {
-    agentFeed?.close()
-    sessionAgents.stop()
     console.log('[jarvis] client disconnected')
+    agentSubscription?.close()
     closed = true
     activeController?.abort()
     deliver?.(null)

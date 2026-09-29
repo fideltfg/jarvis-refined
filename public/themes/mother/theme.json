@@ -1,0 +1,67 @@
+{
+  "name": "MU/TH/UR 6000",
+  "css": "theme.css",
+  "backgroundColor": "#071006",
+  "register": "machine",
+  "boot": "mother",
+  "suggestion": "display the ship status",
+  "copy": {
+    "title": "MU/TH/UR 6000",
+    "brand": "MU/TH/UR 6000",
+    "brandSub": "Mainframe / Unified / Tactical / Heuristic / Utility / Repository",
+    "speaker": "MOTHER",
+    "wakePhrase": "mother",
+    "status": {
+      "offline": "TERMINAL INACTIVE",
+      "boot": "INTERFACE 2037 READYING",
+      "dormant": "AWAITING QUERY — SAY “MOTHER”",
+      "waking": "INTERFACE READY",
+      "listening": "RECEIVING QUERY",
+      "thinking": "PRIORITY PROCESSING",
+      "tooling": "CONSULTING MAINFRAME",
+      "speaking": "TRANSMITTING"
+    },
+    "systemsTitle": "SHIP SYSTEMS",
+    "signalTitle": "UPLINK",
+    "toolKicker": "priority",
+    "ignitionWord": "INTERFACE",
+    "ignitionSub": "authorised terminal access",
+    "voiceSetTail": "",
+    "audioTest": "Terminal audio link is operational."
+  },
+  "phaseColors": {
+    "offline": "#18351c",
+    "boot": "#8bbf5a",
+    "dormant": "#6f9f46",
+    "waking": "#b7db7a",
+    "listening": "#9bcf67",
+    "thinking": "#e0b84f",
+    "tooling": "#d8863b",
+    "speaking": "#d8efae"
+  },
+  "sceneTint": { "core": "#77a94c", "hot": "#e4f4bc", "particles": "#a7cf69" },
+  "wake": {
+    "pattern": "(?:(?:mother|mutter|m[\\s./-]*u[\\s./-]*t[\\s./-]*h[\\s./-]*u[\\s./-]*r)(?:\\s+(?:six\\s+thousand|6000))?)",
+    "phrases": ["Mother", "MU TH UR", "MU TH UR 6000"],
+    "language": "en-GB"
+  },
+  "voice": {
+    "kokoro": "af_nicole",
+    "character": "computer",
+    "profile": {
+      "label": "Nicole · ship mainframe",
+      "speed": 0.88,
+      "playbackRate": 0.95,
+      "highpassHz": 85,
+      "lowpassHz": 4600,
+      "presenceHz": 700,
+      "presenceDb": 2.5,
+      "compression": { "threshold": -32, "ratio": 7, "attack": 0.02, "release": 0.4 }
+    }
+  },
+  "sound": {
+    "bank": "mother",
+    "music": false,
+    "ambient": { "tones": [42, 43.2], "noise": 0.16, "cutoff": 190, "level": 0.06 }
+  }
+}

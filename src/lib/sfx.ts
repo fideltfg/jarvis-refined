@@ -5,24 +5,39 @@
  * app makes the right noises the moment you clone it — nothing to download, no
  * licence to worry about, a few hundred bytes instead of a few megabytes.
  *
- * To use real recordings instead, drop matching files into `public/audio/`
- * (boot.mp3, wake.mp3, listen.mp3, tool.mp3, done.mp3, error.mp3) and they take
- * over automatically. Pixabay's sci-fi UI and HUD packs are the usual source —
+ * To use real recordings instead, drop matching files into a theme's own
+ * `audio/` folder (`public/themes/<id>/audio/`) or the shared `public/audio/`.
+ * Numbered variants such as wake-1.mp3 and
+ * wake-2.mp3 rotate randomly without an immediate repeat. They take over
+ * automatically. Pixabay's sci-fi UI and HUD packs are the usual source —
  * CC0, no attribution, safe on a monetised channel. `ambient.mp3` is not one of
  * these: the looping bed is music.ts's, and the oscillator pair at the bottom of
  * this file is only the fallback for when that file isn't there.
  */
 
-import { THEME, type Theme } from '../config'
+import { activeTheme } from './theme-runtime'
+import { chooseVariant, fileStem } from './sfx-variants'
 
-type Cue = 'boot' | 'wake' | 'listen' | 'tool' | 'done' | 'error'
+type BaseCue = 'boot' | 'wake' | 'listen' | 'tool' | 'done' | 'error'
+type ExtraCue = 'interrupt' | 'ack' | 'warning' | 'panelOpen' | 'panelClose' | 'taskStart' | 'taskPause' | 'taskDone'
+type Cue = BaseCue | ExtraCue
 
-/** Each theme looks for its own recordings, so overrides never cross themes. */
-const OVERRIDE_DIR = THEME === 'stark' ? '/audio' : `/audio/${THEME}`
+const CUES: Cue[] = [
+  'boot', 'wake', 'listen', 'tool', 'done', 'error', 'interrupt', 'ack', 'warning',
+  'panelOpen', 'panelClose', 'taskStart', 'taskPause', 'taskDone',
+]
+
+/**
+ * Where recordings are looked for, nearest first: the theme's own folder, then
+ * the shared one. A theme package is self-contained, but a set of cues shared
+ * by every character does not have to be copied into all of them.
+ */
+const OVERRIDE_DIRS = [`${activeTheme().dir}/audio`, '/audio']
 
 let ctx: AudioContext | null = null
 let master: GainNode | null = null
-const samples = new Map<Cue, AudioBuffer>()
+const samples = new Map<Cue, AudioBuffer[]>()
+const previous = new Map<Cue, number>()
 let ambient: { source: AudioBufferSourceNode; gain: GainNode } | null = null
 
 /** Where the master sits when JARVIS isn't speaking. */
@@ -85,19 +100,31 @@ export async function unlockAudio(): Promise<void> {
   ])
 }
 
-/** Pick up any real audio files the user has dropped into public/audio/. */
+/** Pick up any real audio files the user has dropped into a theme's audio/. */
 async function loadOverrides() {
-  const cues: Cue[] = ['boot', 'wake', 'listen', 'tool', 'done', 'error']
   await Promise.all(
-    cues.map(async (cue) => {
+    CUES.map(async (cue) => {
       if (samples.has(cue)) return
-      try {
-        const res = await fetch(`${OVERRIDE_DIR}/${cue}.mp3`)
-        if (!res.ok) return
-        const buf = await audio().decodeAudioData(await res.arrayBuffer())
-        samples.set(cue, buf)
-      } catch {
-        /* no override — the synthesised cue is used */
+      const stem = fileStem(cue)
+      for (const dir of OVERRIDE_DIRS) {
+        const variants: AudioBuffer[] = []
+        for (let index = 0; index <= 16; index++) {
+          const name = index ? `${stem}-${index}` : stem
+          try {
+            const res = await fetch(`${dir}/${name}.mp3`)
+            if (!res.ok) {
+              if (index) break
+              continue
+            }
+            variants.push(await audio().decodeAudioData(await res.arrayBuffer()))
+          } catch {
+            if (index) break
+          }
+        }
+        if (variants.length) {
+          samples.set(cue, variants)
+          return
+        }
       }
     }),
   )
@@ -171,7 +198,7 @@ function noise({ at = 0, dur = 0.4, gain = 0.12, from = 400, to = 6000 } = {}) {
 
 // ---------------------------------------------------------------------------
 
-const synth: Record<Cue, () => void> = {
+const synth: Record<BaseCue, () => void> = {
   /** Reactor spin-up: a rising sweep under stacked fifths. */
   boot: () => {
     noise({ dur: 2.2, gain: 0.1, from: 120, to: 5200 })
@@ -211,7 +238,7 @@ const synth: Record<Cue, () => void> = {
 }
 
 /** Sparse, rounded tones: a large machine speaking through one perfect lens. */
-const hal: Record<Cue, () => void> = {
+const hal: Record<BaseCue, () => void> = {
   boot: () => {
     blip(48, { dur: 6.4, type: 'sine', gain: 0.16, sweepTo: 72 })
     blip(96, { at: 0.4, dur: 5.8, type: 'sine', gain: 0.05, sweepTo: 144 })
@@ -232,7 +259,7 @@ const hal: Record<Cue, () => void> = {
 }
 
 /** Hard-edged command-terminal tones, with boot chatter that reads as a modem. */
-const wopr: Record<Cue, () => void> = {
+const wopr: Record<BaseCue, () => void> = {
   boot: () => {
     noise({ dur: 1.4, gain: 0.08, from: 5000, to: 350 })
     const data = [440, 880, 587, 1174, 392, 784, 659, 1318, 523, 1046, 330, 660]
@@ -261,7 +288,7 @@ const wopr: Record<Cue, () => void> = {
 }
 
 /** Relays, ventilation and blunt terminal acknowledgements for an old ship core. */
-const mother: Record<Cue, () => void> = {
+const mother: Record<BaseCue, () => void> = {
   boot: () => {
     noise({ dur: 6.6, gain: 0.075, from: 90, to: 900 })
     blip(42, { dur: 6.8, type: 'sawtooth', gain: 0.08, sweepTo: 63 })
@@ -294,7 +321,7 @@ const mother: Record<Cue, () => void> = {
  * computer is ready for you, a falling pair when it is done, and a flat low
  * double for "unable to comply".
  */
-const lcars: Record<Cue, () => void> = {
+const lcars: Record<BaseCue, () => void> = {
   /** Power-up: the engine hum rising under a run of panel chatter, then the
    *  ready chirp. */
   boot: () => {
@@ -336,7 +363,11 @@ const lcars: Record<Cue, () => void> = {
   },
 }
 
-const CUE_BANKS: Record<Theme, Record<Cue, () => void>> = {
+/**
+ * The synthesised banks, by the name a manifest can ask for. A theme naming
+ * one that does not exist gets the stock bank rather than silence.
+ */
+const CUE_BANKS: Record<string, Record<BaseCue, () => void>> = {
   stark: synth,
   hal,
   wopr,
@@ -344,31 +375,44 @@ const CUE_BANKS: Record<Theme, Record<Cue, () => void>> = {
   lcars,
 }
 
+const BANK = CUE_BANKS[activeTheme().sound.bank] ?? synth
+
+const EXTRA_CUES: Record<ExtraCue, () => void> = {
+  interrupt: () => blip(440, { dur: 0.12, type: 'triangle', gain: 0.12 }),
+  ack: () => blip(1046, { dur: 0.08, type: 'triangle', gain: 0.1 }),
+  warning: () => {
+    blip(660, { dur: 0.12, type: 'triangle', gain: 0.12 })
+    blip(554, { at: 0.14, dur: 0.15, type: 'triangle', gain: 0.1 })
+  },
+  panelOpen: () => blip(1175, { dur: 0.09, type: 'triangle', gain: 0.08 }),
+  panelClose: () => blip(784, { dur: 0.09, type: 'triangle', gain: 0.08 }),
+  taskStart: () => blip(880, { dur: 0.13, type: 'triangle', gain: 0.1 }),
+  taskPause: () => blip(587, { dur: 0.16, type: 'triangle', gain: 0.1 }),
+  taskDone: () => blip(1318, { dur: 0.18, type: 'triangle', gain: 0.1 }),
+}
+
 export function play(cue: Cue) {
   if (!ctx || ctx.state !== 'running') return
 
-  const sample = samples.get(cue)
-  if (sample) {
+  const variants = samples.get(cue)
+  if (variants?.length) {
+    const index = chooseVariant(variants.length, previous.get(cue) ?? -1)
+    previous.set(cue, index)
     const src = ctx.createBufferSource()
-    src.buffer = sample
+    src.buffer = variants[index]
     src.connect(master!)
     src.start()
     return
   }
-  CUE_BANKS[THEME][cue]()
+  if (cue in EXTRA_CUES) EXTRA_CUES[cue as ExtraCue]()
+  else BANK[cue as BaseCue]()
 }
 
 // ---------------------------------------------------------------------------
 // Ambient bed
 // ---------------------------------------------------------------------------
 
-const AMBIENT: Record<Theme, { tones: [number, number]; noise: number; cutoff: number; level: number }> = {
-  stark: { tones: [55, 55.6], noise: 0.06, cutoff: 260, level: 0.05 },
-  hal: { tones: [48, 96], noise: 0.012, cutoff: 180, level: 0.026 },
-  wopr: { tones: [60, 120], noise: 0.035, cutoff: 420, level: 0.032 },
-  mother: { tones: [42, 43.2], noise: 0.16, cutoff: 190, level: 0.06 },
-  lcars: { tones: [46, 46.4], noise: 0.07, cutoff: 230, level: 0.04 },
-}
+const AMBIENT = activeTheme().sound.ambient
 
 /**
  * A quiet room tone under everything. Two detuned low oscillators through a
@@ -389,7 +433,7 @@ export function startAmbient() {
   const frames = c.sampleRate * 4
   const buf = c.createBuffer(1, frames, c.sampleRate)
   const data = buf.getChannelData(0)
-  const profile = AMBIENT[THEME]
+  const profile = AMBIENT
   for (let i = 0; i < frames; i++) {
     const t = i / c.sampleRate
     data[i] =

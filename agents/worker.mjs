@@ -1,6 +1,6 @@
 import { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
-import { MODELS } from './config.mjs'
+import { BUDGETS, MODELS } from './config.mjs'
 import { judge, looksLikeCheckoutPage, looksLikeCheckoutUrl, redact } from './policy.mjs'
 import { prepareWorkspace } from './workspace.mjs'
 
@@ -35,6 +35,15 @@ export function agentEnv(env = process.env) {
   return out
 }
 
+export function usageData(result) {
+  if (!result.modelUsage) return null
+  const totals = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }
+  for (const usage of Object.values(result.modelUsage)) {
+    for (const key of Object.keys(totals)) totals[key] += usage[key] ?? 0
+  }
+  return { costUsd: result.total_cost_usd ?? null, ...totals }
+}
+
 const CHROME_READS = /^mcp__jarvis_chrome__chrome_(read_page|page_text|find)$/
 
 const NO_SPAWN = ['Task', 'Agent', 'TaskStop', 'KillShell', 'TaskOutput', 'BashOutput']
@@ -43,7 +52,7 @@ const NO_EDIT = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']
 
 export const DISALLOWED = {
   code: [...NO_SPAWN],
-  research: [...NO_SPAWN, ...NO_SHELL, 'NotebookEdit'],
+  research: [...NO_SPAWN, ...NO_SHELL, 'NotebookEdit', 'Skill'],
   ops: [...NO_SPAWN, ...NO_SHELL, 'NotebookEdit'],
   admin: [...NO_SPAWN, ...NO_SHELL, ...NO_EDIT],
 }
@@ -111,6 +120,7 @@ export async function runTask(task, deps) {
   } = deps
   const goal = store.getGoal(task.goalId)
   const cwd = prepare(task)
+  const maxUsd = task.budget.maxUsd ?? BUDGETS[task.kind].maxUsd
   let outcome = null
 
   const onReport = (r) => {
@@ -154,7 +164,10 @@ export async function runTask(task, deps) {
     if (input.tool_name === 'mcp__jarvis_chrome__chrome_navigate' && /^https?:/i.test(String(toolInput.url ?? ''))) {
       commerce = looksLikeCheckoutUrl(toolInput.url)
     }
-    const verdict = judge(input.tool_name, toolInput, { workspace: cwd, kind: task.kind, contacts: contacts(), commerce })
+    const verdict = task.kind === 'research' && input.tool_name === 'Skill' &&
+      !task.allowedSkills?.includes(toolInput.skill)
+      ? { decision: 'deny', category: 'skill', reason: 'This research task has not been approved to use that skill.' }
+      : judge(input.tool_name, toolInput, { workspace: cwd, kind: task.kind, contacts: contacts(), commerce })
     store.appendEvent({
       type: 'tool_call',
       goalId: task.goalId,
@@ -202,10 +215,13 @@ export async function runTask(task, deps) {
         cwd,
         model: MODELS[task.model] ?? MODELS.sonnet,
         maxTurns: task.budget.maxTurns,
+        maxBudgetUsd: maxUsd,
         systemPrompt: workerPrompt(task, goal),
         settingSources: [],
         permissionMode: 'default',
-        disallowedTools: DISALLOWED[task.kind],
+        disallowedTools: task.kind === 'research' && task.allowedSkills?.length
+          ? DISALLOWED.research.filter((name) => name !== 'Skill')
+          : DISALLOWED[task.kind],
         mcpServers: { ...mcpServers, agent: makeReportServer(onReport) },
         hooks: {
           PreToolUse: [{ hooks: [gate], timeout: 7 * 24 * 3600 }],
@@ -223,7 +239,11 @@ export async function runTask(task, deps) {
         sessionId = msg.session_id
         onSession?.(sessionId)
       }
-      if (msg.type === 'result') resultSubtype = msg.subtype
+      if (msg.type === 'result') {
+        resultSubtype = msg.subtype
+        const data = usageData(msg)
+        if (data) store.appendEvent({ type: 'task_usage', goalId: task.goalId, taskId: task.id, text: 'Worker usage', data })
+      }
     }
   } catch (err) {
     if (signal?.aborted) return cancelled
@@ -242,6 +262,9 @@ export async function runTask(task, deps) {
 
   if (signal?.aborted) return cancelled
   if (timedOut) return overTime
+  if (resultSubtype === 'error_max_budget_usd') {
+    return { status: 'failed', failure: { reason: 'budget', detail: `Reached the $${maxUsd} run limit.` } }
+  }
   if (outcome?.status === 'done') {
     return { status: 'done', result: { summary: outcome.summary, artifacts: outcome.artifacts ?? [] } }
   }

@@ -25,6 +25,10 @@ export function boardOf(store, running = new Set()) {
             status: t.status,
             attempts: t.attempts,
             summary: t.result?.summary ?? t.failure?.detail ?? null,
+            // The board sorts every kind of agent on one timeline, so a task
+            // has to carry the same stamps a subagent does.
+            created: t.created,
+            updated: t.updated,
           })),
       })),
     approvals: store.listApprovals('pending'),
