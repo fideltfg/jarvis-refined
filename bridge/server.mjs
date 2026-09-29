@@ -24,7 +24,7 @@ import { AGENTS_ENABLED, AGENTS_PROMPT, agentsApi, agentsServer, subscribeAgents
 import { visionServer } from './vision.mjs'
 import { memoryPrompt, memoryServer, MEMORY_FILE } from './memory.mjs'
 import { homedir, tmpdir } from 'node:os'
-import { readFileSync, realpathSync } from 'node:fs'
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
@@ -201,6 +201,58 @@ function configuredServers() {
 }
 
 const MCP_SERVERS = configuredServers()
+
+/**
+ * Plugins, named one by one rather than inherited.
+ *
+ * `settingSources: []` below switches off ~/.claude/settings.json entirely, and
+ * that is deliberate — it is what keeps a coding agent's CLAUDE.md, hooks and
+ * allow-rules out of a conversation meant to be two sentences long. But the
+ * same switch also drops `enabledPlugins`, and a few of those are wanted here.
+ *
+ * So the wanted ones are listed explicitly. Everything else in that file —
+ * the language servers, the session reporter, whatever gets enabled next — is
+ * for the editor and stays out of the voice session, where it would only cost
+ * tokens on every turn.
+ *
+ * Paths are resolved at startup because the cache is versioned
+ * (…/superpowers/6.4.1), and a pinned version would break on the next update.
+ * A plugin that has gone missing is skipped rather than fatal.
+ */
+const WANTED_PLUGINS = [
+  ['claude-plugins-official', 'superpowers'],
+  ['thedotmack', 'claude-mem'],
+  ['caveman', 'caveman'],
+]
+
+function pluginPaths() {
+  const root = join(homedir(), '.claude', 'plugins', 'cache')
+  const out = []
+  for (const [marketplace, name] of WANTED_PLUGINS) {
+    const dir = join(root, marketplace, name)
+    try {
+      // Highest version directory wins, compared numerically so 13.28.0 beats
+      // 13.9.0 — which a plain string sort gets backwards.
+      const versions = readdirSync(dir)
+        .filter((v) => /^\d/.test(v))
+        .sort((a, b) => {
+          const pa = a.split('.').map(Number)
+          const pb = b.split('.').map(Number)
+          for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pb[i] || 0) - (pa[i] || 0)
+          return 0
+        })
+      const picked = versions[0] ? join(dir, versions[0]) : dir
+      statSync(picked)
+      out.push({ type: 'local', path: picked })
+    } catch {
+      console.log(`[jarvis] plugin not found, skipping: ${name}`)
+    }
+  }
+  return out
+}
+
+const PLUGINS = pluginPaths()
+console.log(`[jarvis] plugins: ${PLUGINS.map((p) => p.path.split('/').slice(-2).join('@')).join(', ') || 'none'}`)
 
 /** MCP tools arrive as `mcp__<server>__<tool>`. */
 const mcpServerOf = (toolName) =>
@@ -1060,13 +1112,6 @@ const handleRequest = async (req, res) => {
       } else {
         form.append('model', process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-mini-transcribe')
         form.append('file', file, `speech.${ext}`)
-        const wake = new URL(req.url ?? '/', 'http://x').searchParams.get('wake')
-        if (wake) {
-          form.append(
-            'prompt',
-            `Possible wake names are: ${wake.slice(0, 160)}. Preserve these exact spellings.`,
-          )
-        }
         upstream = await fetch('https://api.openai.com/v1/audio/transcriptions', {
           method: 'POST',
           headers: { authorization: `Bearer ${openai}` },
@@ -1488,6 +1533,10 @@ wss.on('connection', (socket, req) => {
       // The cost is that MCP servers stop being discovered too, which is why
       // mcpServers above passes them in by hand.
       settingSources: [],
+      // The three plugins that are wanted in a voice session, named directly
+      // because settingSources above stops enabledPlugins being read. See
+      // WANTED_PLUGINS.
+      plugins: PLUGINS,
       // Stated explicitly, and it has to be.
       //
       // With no `model` here the SDK falls back to its own default, which on
