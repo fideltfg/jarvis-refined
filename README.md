@@ -164,6 +164,34 @@ So it works with no speech-service keys. Capability detection lives in
 
 ---
 
+
+## Background agents
+
+JARVIS can hand longer work to background agents: "get stealthDash ready for
+release", "research paid code bounties and write it up", "check the network
+every six hours". He creates a **goal**; a coordinator plans it into tasks; up to
+three agents work in parallel in their own git worktrees or folders; the
+coordinator reviews each result and decides what happens next.
+
+Agents act on their own, with four hard stops that always wait for you:
+spending money, deleting data outside their workspace (or force-pushing /
+rewriting history), sending credentials, and messaging someone new. JARVIS reads
+approvals out; you can also answer on the agent board (press **A**).
+
+The agents run in their own service so restarting JARVIS never interrupts them:
+
+```bash
+npm run agents:token                                    # once: shared secret
+cp deploy/jarvis-agents.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now jarvis-agents
+# then run the bridge with JARVIS_AGENTS=1
+```
+
+State lives in `~/.config/jarvis/agents/` (goals, tasks, approvals and an
+`events.jsonl` audit log of every agent action); workspaces in `~/.jarvis-work/`.
+"Clean up the agent workspaces" removes those of finished goals.
+
 ## What JARVIS can do
 
 Beyond answering, JARVIS reaches every MCP server in your Claude Code
