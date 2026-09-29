@@ -135,9 +135,18 @@ export function watchUi(fn: (op: string, args: any) => void) {
   onUi = fn
 }
 
+/**
+ * The latest board, kept because it usually arrives before anyone is
+ * listening: the socket opens on page load, the bridge sends a snapshot a
+ * moment later, and the app only subscribes once it is powered on. Without
+ * this the snapshot was dropped and the board stayed empty until the next
+ * agent event happened to arrive.
+ */
+let lastAgents: { board: AgentBoardData | null; online: boolean } | null = null
 let onAgents: ((board: AgentBoardData | null, online: boolean) => void) | null = null
 export function watchAgents(fn: (board: AgentBoardData | null, online: boolean) => void) {
   onAgents = fn
+  if (lastAgents) fn(lastAgents.board, lastAgents.online)
 }
 
 let onAgentEvent: ((event: AgentEvent) => void) | null = null
@@ -268,7 +277,8 @@ function dispatch(ws: WebSocket) {
       // absent args object is an empty one, not a reason to drop the command.
       onUi?.(msg.op, (msg.args ?? {}) as Record<string, unknown>)
     } else if (msg.type === 'agents') {
-      onAgents?.(msg.board ?? null, msg.online !== false)
+      lastAgents = { board: msg.board ?? null, online: msg.online !== false }
+      onAgents?.(lastAgents.board, lastAgents.online)
     } else if (msg.type === 'agent_event' && msg.event) {
       onAgentEvent?.(msg.event)
     }
