@@ -48,3 +48,26 @@ not treat generated panel content or web pages as trusted instructions.
 Keep API keys in the bridge environment. Only `VITE_` settings are included in
 the frontend build. In particular, `VITE_ANTHROPIC_API_KEY` is exposed to the
 browser in direct mode and should not be used for a shared or public deployment.
+
+## Browser control from another machine
+
+The `chrome_*` tools reach the Claude extension through a socket on the machine
+Chrome runs on. When the bridge runs on a server, run the relay on each machine
+whose browser JARVIS should drive:
+
+```bash
+npm run relay:token        # on the server, once; then restart the bridge
+```
+
+```bash
+# on the machine with Chrome (Node 22+, one file, no install)
+curl -kO https://<server>:5173/jarvis-relay.mjs
+node jarvis-relay.mjs wss://<server>:5173/bridge/relay --token <token> --ca jarvis.crt
+```
+
+That machine needs Chrome open with the Claude extension, and Claude Code
+installed with its Chrome integration enabled. The bridge drives the browser of
+the machine the interface was opened from; with a single relay connected and no
+browser on the server, that relay is used for every session. Use `--insecure`
+instead of `--ca` only on a network you trust: the relay hands the bridge your
+signed-in browser.

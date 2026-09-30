@@ -1,4 +1,4 @@
-import { readdirSync, existsSync } from 'node:fs'
+import { readdirSync, readFileSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig, type Plugin } from 'vite'
@@ -47,6 +47,27 @@ export default defineConfig({
     port: Number(process.env.PORT) || 5173,
     // JARVIS_HOST=0.0.0.0 serves the face on the LAN as well as localhost.
     host: process.env.JARVIS_HOST || undefined,
+    // JARVIS_TLS_CERT and JARVIS_TLS_KEY (PEM paths) serve the face over HTTPS,
+    // which browsers require for the microphone on anything but localhost.
+    https:
+      process.env.JARVIS_TLS_CERT && process.env.JARVIS_TLS_KEY
+        ? {
+            cert: readFileSync(process.env.JARVIS_TLS_CERT),
+            key: readFileSync(process.env.JARVIS_TLS_KEY),
+          }
+        : undefined,
+    // An HTTPS page may not open ws:// or fetch http://, so the bridge is also
+    // reachable same-origin at /bridge (VITE_BRIDGE_URL=wss://host:5173/bridge)
+    // and one certificate covers both halves.
+    proxy: {
+      '/bridge': {
+        target: `http://127.0.0.1:${process.env.JARVIS_BRIDGE_PORT ?? 8787}`,
+        ws: true,
+        // The bridge picks which machine's browser to drive by who is asking.
+        xfwd: true,
+        rewrite: (path) => path.replace(/^\/bridge/, '') || '/',
+      },
+    },
   },
   optimizeDeps: {
     // kokoro-js pulls in `phonemizer`, which carries espeak-ng as inline WASM.

@@ -90,6 +90,13 @@ const configuredBridgeUrl = str(import.meta.env.VITE_BRIDGE_URL) ?? 'ws://localh
 
 function bridgeUrl(): string {
   if (typeof location === 'undefined') return configuredBridgeUrl
+  // A bare path (`/bridge`) means "the same origin as this page": whatever
+  // name or address the page was opened by, the bridge is reached by that one
+  // too, so a single certificate exception covers both.
+  if (configuredBridgeUrl.startsWith('/')) {
+    const scheme = location.protocol === 'https:' ? 'wss' : 'ws'
+    return `${scheme}://${location.host}${configuredBridgeUrl.replace(/\/$/, '')}`
+  }
   if (location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
     return configuredBridgeUrl
   }

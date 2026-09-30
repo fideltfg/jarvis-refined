@@ -22,6 +22,7 @@ commit real credentials.
 | `JARVIS_ALLOW_WRITES` | off | Set to `1` to allow effectful bridge tools. |
 | `JARVIS_ALLOWED_ORIGINS` | local dev origins | Additional allowed browser origins, comma-separated. |
 | `JARVIS_ALLOW_NO_ORIGIN` | off | Set to `1` to accept WebSocket clients with no Origin header. |
+| `JARVIS_RELAY_TOKEN` | unset | Shared secret that lets a browser relay on another machine register. Generate with `npm run relay:token`. |
 | `JARVIS_FILE_ROOTS` | unset | Additional permitted filesystem roots, comma-separated. |
 | `ELEVENLABS_API_KEY` | unset | Enables ElevenLabs voice and transcription. |
 | `JARVIS_VOICE_ID` | built-in default | ElevenLabs voice ID. |

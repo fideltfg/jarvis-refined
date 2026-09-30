@@ -19,6 +19,7 @@
     "bridge:writes": "JARVIS_ALLOW_WRITES=1 node bridge/server.mjs",
     "agents": "node agents/service.mjs",
     "agents:token": "node scripts/agents-token.mjs",
+    "relay:token": "node scripts/relay-token.mjs",
     "setup": "node scripts/setup.mjs",
     "test": "node --test bridge/*.test.mjs agents/*.test.mjs src/lib/*.test.mjs"
   },

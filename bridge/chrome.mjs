@@ -39,6 +39,10 @@ import { join } from 'node:path'
  * changes — the extension does not know or care who is on the other end of its
  * native host.
  *
+ * When the bridge runs on a server and the browser is elsewhere, the same
+ * bytes travel through a relay on the browser's machine instead: see
+ * relay.mjs and chromeTarget below.
+ *
  * The cost of going under a private interface is that it can move. Everything
  * that could break is therefore soft: the socket is re-discovered on every
  * reconnect rather than pinned, an unreachable extension is reported to the
@@ -104,6 +108,34 @@ async function findSocket() {
   return candidates[0].path
 }
 
+/** Dial the native host on this machine. Resolves with a connected socket. */
+async function dialLocal() {
+  const path = await findSocket()
+  if (!path) {
+    throw new Error(
+      'No browser is linked. Open Chrome with the Claude extension on the ' +
+        'machine JARVIS runs on, or start the JARVIS browser relay on the ' +
+        'machine you are using, then try again.',
+    )
+  }
+  return new Promise((resolve, reject) => {
+    const socket = createConnection(path)
+    const timer = setTimeout(() => {
+      socket.destroy()
+      reject(new Error('the browser extension did not accept a connection'))
+    }, CONNECT_TIMEOUT_MS)
+    socket.once('connect', () => {
+      clearTimeout(timer)
+      socket.removeAllListeners('error')
+      resolve(socket)
+    })
+    socket.once('error', (err) => {
+      clearTimeout(timer)
+      reject(err)
+    })
+  })
+}
+
 /**
  * One connection, one request in flight.
  *
@@ -113,10 +145,30 @@ async function findSocket() {
  * the browser is a single visible window doing one thing at a time, and the
  * model is watching each result before deciding the next action anyway.
  */
-class ChromeLink {
-  constructor() {
+export class ChromeLink {
+  /**
+   * @param {() => Promise<object>} dial   opens a connected stream to a native host
+   * @param {() => Promise<boolean>} available   whether dialling could work at all
+   */
+  constructor(dial = dialLocal, available = async () => (await findSocket()) !== null) {
+    this.dial = dial
+    this.available = available
     this.socket = null
-    this.path = null
+    /**
+     * The tab JARVIS is working in, in this browser.
+     *
+     * Remembered here rather than threaded through the model, because making
+     * the model carry it is both unreliable and pointless. Unreliable: it is a
+     * ten-digit integer that has to survive being read out of one tool result
+     * and written into the next, and the failure mode when it does not is the
+     * useless "No tab available". Pointless: there is one visible browser
+     * window and the user is looking at it — "the tab" is not ambiguous to
+     * anybody except the protocol.
+     *
+     * Cleared whenever the extension says the tab is gone, so a tab the user
+     * closed by hand costs one retry rather than an unusable browser.
+     */
+    this.activeTab = null
     /** Tail of the current request chain, so calls queue rather than collide. */
     this.chain = Promise.resolve()
     /** Bytes received but not yet forming a whole frame. */
@@ -135,7 +187,6 @@ class ChromeLink {
       this.socket.destroy()
       this.socket = null
     }
-    this.path = null
     if (pending) pending.reject(err ?? new Error('browser connection closed'))
   }
 
@@ -167,37 +218,14 @@ class ChromeLink {
 
   async ensureConnected() {
     if (this.socket && !this.socket.destroyed) return
-    const path = await findSocket()
-    if (!path) {
-      throw new Error(
-        'The Claude browser extension is not running on this machine. ' +
-          'Open Chrome with the Claude extension enabled, then try again.',
-      )
-    }
-    await new Promise((resolve, reject) => {
-      const socket = createConnection(path)
-      const timer = setTimeout(() => {
-        socket.destroy()
-        reject(new Error('the browser extension did not accept a connection'))
-      }, CONNECT_TIMEOUT_MS)
-
-      socket.once('connect', () => {
-        clearTimeout(timer)
-        this.socket = socket
-        this.path = path
-        socket.on('data', (chunk) => this.onData(chunk))
-        // Both of these mean the same thing to us: whatever we were waiting for
-        // is not coming, and the next call must dial again from scratch. The
-        // native host dies with Chrome, so this fires on every browser restart.
-        socket.on('error', (err) => this.reset(err))
-        socket.on('close', () => this.reset(new Error('the browser disconnected')))
-        resolve()
-      })
-      socket.once('error', (err) => {
-        clearTimeout(timer)
-        reject(err)
-      })
-    })
+    const socket = await this.dial()
+    this.socket = socket
+    socket.on('data', (chunk) => this.onData(chunk))
+    // Both of these mean the same thing to us: whatever we were waiting for
+    // is not coming, and the next call must dial again from scratch. The
+    // native host dies with Chrome, so this fires on every browser restart.
+    socket.on('error', (err) => this.reset(err))
+    socket.on('close', () => this.reset(new Error('the browser disconnected')))
   }
 
   /** Send one framed message and wait for exactly one framed reply. */
@@ -263,7 +291,50 @@ class ChromeLink {
   }
 }
 
-const link = new ChromeLink()
+/** The browser on the machine the bridge runs on. */
+const localLink = new ChromeLink()
+
+/** Browsers on other machines, one link per relay address. */
+const relayLinks = new Map()
+
+function relayLink(hub, ip) {
+  let link = relayLinks.get(ip)
+  if (!link) {
+    link = new ChromeLink(
+      () => {
+        const relay = hub.for(ip)
+        if (!relay) throw new Error('the browser relay on that machine has disconnected')
+        return relay.open()
+      },
+      async () => hub.for(ip) !== null,
+    )
+    relayLinks.set(ip, link)
+  }
+  return link
+}
+
+/**
+ * Which browser a conversation drives.
+ *
+ * JARVIS may live on a server while the person talking to it sits somewhere
+ * else, and "my browser" means the one in front of them. So the choice is made
+ * per conversation and per call, by where the face connected from: that
+ * machine's relay if it runs one, else the bridge's own browser, else — when
+ * exactly one relay exists — that one, which covers a face reached through an
+ * SSH tunnel whose address is the server's own.
+ *
+ * @param {{ hub?: ReturnType<typeof import('./relay.mjs').createRelayHub>, clientIp?: string }} where
+ * @returns {() => Promise<ChromeLink>}
+ */
+export function chromeTarget({ hub, clientIp } = {}) {
+  return async () => {
+    if (!hub) return localLink
+    if (hub.for(clientIp)) return relayLink(hub, clientIp)
+    if (await localLink.available()) return localLink
+    const sole = hub.sole()
+    return sole ? relayLink(hub, sole.ip) : localLink
+  }
+}
 
 /**
  * Turn a native-host reply into an MCP result.
@@ -352,22 +423,6 @@ function clean(content) {
   return stripped.length ? stripped : [{ type: 'text', text: 'Done.' }]
 }
 
-/**
- * The tab JARVIS is working in.
- *
- * Remembered here rather than threaded through the model, because making the
- * model carry it is both unreliable and pointless. Unreliable: it is a
- * ten-digit integer that has to survive being read out of one tool result and
- * written into the next, and the failure mode when it does not is the useless
- * "No tab available". Pointless: there is one visible browser window and the
- * user is looking at it — "the tab" is not ambiguous to anybody except the
- * protocol.
- *
- * Cleared whenever the extension says the tab is gone, so a tab the user closed
- * by hand costs one retry rather than an unusable browser.
- */
-let activeTab = null
-
 /** Pull a usable tabId out of a tabs_context reply. */
 function readTab(reply) {
   const blocks = reply?.result?.content
@@ -420,7 +475,7 @@ function samePage(a, b) {
   }
 }
 
-async function settle(tab, target) {
+async function settle(link, tab, target) {
   for (let i = 0; i < SETTLE_TRIES; i++) {
     let reply
     try {
@@ -439,15 +494,15 @@ async function settle(tab, target) {
 }
 
 /** The tab to act on: the one named, the one we remember, or a fresh one. */
-async function resolveTab(given) {
+async function resolveTab(link, given) {
   if (given !== undefined && given !== null && `${given}`.trim() !== '') {
     const asked = Number(given)
     if (Number.isFinite(asked)) return asked
   }
-  if (activeTab !== null) return activeTab
+  if (link.activeTab !== null) return link.activeTab
   const reply = await link.call('tabs_context_mcp', { createIfEmpty: true })
-  activeTab = readTab(reply)
-  return activeTab
+  link.activeTab = readTab(reply)
+  return link.activeTab
 }
 
 /**
@@ -457,12 +512,13 @@ async function resolveTab(given) {
  * a page — listing tabs, opening one — which are also the ones that would
  * deadlock if resolving a tab called them.
  */
-function forward(name, { needsTab = true } = {}) {
+function forwardTo(pick, name, { needsTab = true } = {}) {
   return async (args) => {
     try {
+      const link = await pick()
       let sent = args ?? {}
       if (needsTab) {
-        const tab = await resolveTab(sent.tabId)
+        const tab = await resolveTab(link, sent.tabId)
         sent = tab === null ? sent : { ...sent, tabId: tab }
       }
       let reply = await link.call(name, sent)
@@ -470,8 +526,8 @@ function forward(name, { needsTab = true } = {}) {
       // restarted under us. Forget it and try once with a fresh one before
       // reporting a browser that is actually working fine.
       if (needsTab && reply?.error && /no tab available/i.test(JSON.stringify(reply.error))) {
-        activeTab = null
-        const tab = await resolveTab(undefined)
+        link.activeTab = null
+        const tab = await resolveTab(link, undefined)
         if (tab !== null) reply = await link.call(name, { ...(args ?? {}), tabId: tab })
       }
       return toResult(reply)
@@ -548,9 +604,11 @@ Prefer this over a screenshot when you want to know what a page says or what can
 be clicked. Use chrome_page_text instead when you only want the prose.`
 
 /**
- * @param {{ allowWrites: boolean }} options
+ * @param {{ allowWrites: boolean, pick?: () => Promise<ChromeLink> }} options
+ *   `pick` chooses the browser for each call; see chromeTarget.
  */
-export function chromeServer({ allowWrites }) {
+export function chromeServer({ allowWrites, pick = chromeTarget() }) {
+  const forward = (name, options) => forwardTo(pick, name, options)
   const tools = [
     tool(
       'chrome_status',
@@ -559,15 +617,15 @@ export function chromeServer({ allowWrites }) {
         'the user whether the problem is the browser or the page.',
       {},
       async () => {
-        const path = await findSocket()
-        if (!path) {
+        if (!(await (await pick()).available())) {
           return {
             content: [
               {
                 type: 'text',
                 text:
-                  'The browser extension is not running. Chrome may be closed, ' +
-                  'or the Claude extension may be disabled.',
+                  'No browser is linked. Chrome may be closed, the Claude ' +
+                  'extension may be disabled, or the JARVIS browser relay is ' +
+                  'not running on the machine the user is at.',
               },
             ],
           }
@@ -607,7 +665,8 @@ export function chromeServer({ allowWrites }) {
         // wrong if it runs against the document this one replaced.
         const url = String(args.url ?? '')
         if (/^https?:\/\//i.test(url)) {
-          await settle(await resolveTab(args.tabId), url)
+          const link = await pick()
+          await settle(link, await resolveTab(link, args.tabId), url)
         } else {
           // back / forward: no target to compare against, so just let it breathe.
           await new Promise((r) => setTimeout(r, 700))
@@ -776,7 +835,7 @@ export function chromeServer({ allowWrites }) {
         async (args) => {
           const out = await forward('tabs_create_mcp', { needsTab: false })(args)
           // Whatever was just opened is what the next action should land in.
-          activeTab = null
+          ;(await pick()).activeTab = null
           return out
         },
       ),
@@ -791,7 +850,8 @@ export function chromeServer({ allowWrites }) {
         },
         async (args) => {
           const out = await forward('tabs_close_mcp', { needsTab: false })(args)
-          if (Number(args.tabId) === activeTab) activeTab = null
+          const link = await pick()
+          if (Number(args.tabId) === link.activeTab) link.activeTab = null
           return out
         },
       ),

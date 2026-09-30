@@ -19,7 +19,8 @@ import { WebSocketServer } from 'ws'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import { displayServer } from './panels.mjs'
 import { uiServer } from './ui.mjs'
-import { chromeAvailable, chromeServer } from './chrome.mjs'
+import { chromeAvailable, chromeServer, chromeTarget } from './chrome.mjs'
+import { clientAddress, createRelayHub } from './relay.mjs'
 import { visionServer } from './vision.mjs'
 import { memoryPrompt, memoryServer, MEMORY_FILE } from './memory.mjs'
 import { homedir, tmpdir } from 'node:os'
@@ -1058,6 +1059,12 @@ const server = http.createServer((req, res) => {
   })
 })
 
+/**
+ * Browsers on other machines reach the extension through a relay they run
+ * themselves (see relay.mjs). Off unless JARVIS_RELAY_TOKEN is set.
+ */
+const relayHub = createRelayHub({ token: process.env.JARVIS_RELAY_TOKEN })
+
 const wss = new WebSocketServer({
   server,
   // The handshake is the only place a page can be turned away, so it happens
@@ -1066,6 +1073,9 @@ const wss = new WebSocketServer({
   // 403 would look like the bridge simply isn't running.
   verifyClient: ({ origin, req }, done) => {
     const path = (req.url ?? '/').split('?')[0]
+    // A relay is a program, not a page, so it has no Origin to check. What
+    // admits it is the token in its first message.
+    if (path === '/relay') return done(relayHub.enabled, 403, 'Forbidden')
     if (path !== '/' && path !== '/ws') {
       console.warn(`[jarvis] rejected websocket on path ${path}`)
       return done(false, 403, 'Forbidden')
@@ -1099,7 +1109,9 @@ void chromeAvailable().then((ok) => {
   console.log(
     ok
       ? `[jarvis] browser control ready${ALLOW_WRITES ? '' : ' (reading only — clicking and typing need JARVIS_ALLOW_WRITES=1)'}`
-      : '[jarvis] browser control unavailable — open Chrome with the Claude extension enabled',
+      : relayHub.enabled
+        ? '[jarvis] browser control waiting for a relay — run jarvis-relay.mjs on the machine with Chrome'
+        : '[jarvis] browser control unavailable — open Chrome with the Claude extension enabled',
   )
 })
 
@@ -1125,6 +1137,9 @@ const RESULT_FAILURES = {
 }
 
 wss.on('connection', (socket, req) => {
+  const clientIp = clientAddress(req)
+  if ((req.url ?? '/').split('?')[0] === '/relay') return relayHub.attach(socket, clientIp)
+
   // An unknown or missing theme falls back to whatever is installed, so an
   // older client — or a theme folder that has since been removed — still gets a
   // working character rather than none.
@@ -1296,13 +1311,14 @@ wss.on('connection', (socket, req) => {
       send({ type: kind, id, ...args })
     })
 
+  const pickBrowser = chromeTarget({ hub: relayHub, clientIp })
   localMcpServers = {
     jarvis: displayServer(
       (panel) => send({ type: 'panel', panel }),
       (blade) => send({ type: 'blade', blade }),
     ),
     jarvis_ui: uiServer((op, args) => send({ type: 'ui', op, args })),
-    jarvis_chrome: chromeServer({ allowWrites: ALLOW_WRITES }),
+    jarvis_chrome: chromeServer({ allowWrites: ALLOW_WRITES, pick: pickBrowser }),
     jarvis_eyes: visionServer(ask),
     jarvis_memory: memoryServer(MEMORY_FILE),
     jarvis_files: filesServer({ roots: FILE_ROOTS, allowWrites: ALLOW_WRITES }),
@@ -1313,7 +1329,7 @@ wss.on('connection', (socket, req) => {
       (blade) => send({ type: 'blade', blade }),
     ),
     jarvis_ui: uiServer((op, args) => send({ type: 'ui', op, args })),
-    jarvis_chrome: chromeServer({ allowWrites: ALLOW_WRITES }),
+    jarvis_chrome: chromeServer({ allowWrites: ALLOW_WRITES, pick: pickBrowser }),
     jarvis_eyes: visionServer(ask),
     jarvis_memory: memoryServer(MEMORY_FILE),
     jarvis_files: filesServer({ roots: FILE_ROOTS, allowWrites: ALLOW_WRITES }),
