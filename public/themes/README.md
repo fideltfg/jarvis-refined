@@ -74,7 +74,8 @@ it and reloading the page is the whole edit-test loop.
 
 Cue recordings replace the synthesised ones. Name them after the cue: `boot`,
 `wake`, `listen`, `tool`, `done`, `error`, `interrupt`, `ack`, `warning`,
-`panel-open`, `panel-close`, `task-start`, `task-pause`, `task-done`. Numbered
+`panel-open`, `panel-close`, `task-start`, `task-pause`, `task-done`,
+`mic-open`, `mic-close`. Numbered
 variants — `wake-1.mp3`, `wake-2.mp3` — rotate at random without an immediate
 repeat, and must start at 1 with no gaps.
 

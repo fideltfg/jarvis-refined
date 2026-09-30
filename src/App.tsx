@@ -25,7 +25,9 @@ import {
   interrupt,
   watchServers,
   watchPanels,
+  watchAgents,
   watchAgentEvents,
+  watchSessionAgents,
   watchBlades,
   watchCapture,
   watchUi,
@@ -37,6 +39,7 @@ import {
 import { startAnalyser, micLevel } from './lib/audio'
 import { probeCapabilities } from './lib/capabilities'
 import { env } from './config'
+import { loadPtt, savePtt, bindingLabel, isReservedKey, type PttBinding } from './lib/ptt'
 
 /**
  * The conversation.
@@ -90,6 +93,7 @@ export default function App() {
   const booting = useRef(false)
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const voicePoll = useRef<ReturnType<typeof setInterval> | null>(null)
+  const ptt = useRef(loadPtt())
 
   // -- helpers --------------------------------------------------------------
 
@@ -350,6 +354,61 @@ export default function App() {
     sfx.play('warning')
   }
 
+  // -- push to talk ---------------------------------------------------------
+
+  /** Key or button went down. False when it is not ours to handle yet. */
+  const pttDown = (): boolean => {
+    const s = store.getState()
+    if (s.phase === 'offline' || s.phase === 'boot' || s.enrolling) return false
+    if (s.ptt.held) return true
+    s.setError(null)
+    if (s.phase === 'dormant') {
+      s.setCaption('')
+      s.setPhase('listening')
+    }
+    // One cue for the press, whatever phase it came from — the dormant 'listen'
+    // pip would only double up with it.
+    sfx.play('micOpen')
+    // Cuts him off if he is talking, and holds the phase at 'listening'.
+    onSpeechStart()
+    s.setPtt({ held: true })
+    voice.current?.hold(true)
+    return true
+  }
+
+  const pttUp = () => {
+    const s = store.getState()
+    if (!s.ptt.held) return
+    s.setPtt({ held: false })
+    voice.current?.hold(false)
+    sfx.play('micClose')
+    // Stand down if nothing intelligible comes back from the release.
+    clearIdle()
+    idleTimer.current = setTimeout(goDormant, AWAIT_SPEECH_MS)
+  }
+
+  const setPttEnabled = (on: boolean) => {
+    pttUp()
+    ptt.current = { ...ptt.current, enabled: on }
+    savePtt(ptt.current)
+    voice.current?.setPushToTalk(on)
+    store.getState().setPtt({ enabled: on, binding: false })
+  }
+
+  const setPttBinding = (binding: PttBinding) => {
+    ptt.current = { enabled: true, binding }
+    savePtt(ptt.current)
+    voice.current?.setPushToTalk(true)
+    store.getState().setPtt({ enabled: true, binding: false, label: bindingLabel(binding) })
+  }
+
+  const pttMatches = (e: KeyboardEvent | MouseEvent): boolean => {
+    const b = ptt.current.binding
+    if (!ptt.current.enabled) return false
+    if (e instanceof KeyboardEvent) return b.kind === 'key' && e.code === b.code
+    return b.kind === 'mouse' && e.button === b.button
+  }
+
   // -- power on -------------------------------------------------------------
 
   const powerOn = async () => {
@@ -425,6 +484,11 @@ export default function App() {
         case 'approval_needed': sfx.play('warning'); break
       }
     })
+
+    // The board mirrors the agent service: snapshots after every event, plus
+    // whatever was already waiting when this socket opened.
+    watchAgents((board, online) => store.getState().setAgents(board, online))
+    watchSessionAgents((agents) => store.getState().setSessionAgents(agents))
 
     /**
      * JARVIS asking to see something.
@@ -575,16 +639,19 @@ export default function App() {
     await probeCapabilities()
 
     // One voice loop, started once, running until the page closes.
-    voice.current = await startVoice({
-      mode,
-      onWake,
-      onSpeechStart,
-      onSpeechMaybe,
-      onSpeechResume,
-      onPartial,
-      onUtterance,
-      onError: onVoiceError,
-    })
+    voice.current = await startVoice(
+      {
+        mode,
+        onWake,
+        onSpeechStart,
+        onSpeechMaybe,
+        onSpeechResume,
+        onPartial,
+        onUtterance,
+        onError: onVoiceError,
+      },
+      { pushToTalk: ptt.current.enabled },
+    )
 
     store.getState().setPhase('dormant')
   }
@@ -636,6 +703,10 @@ export default function App() {
 
   useEffect(() => {
     let raf = 0
+    store.getState().setPtt({
+      enabled: ptt.current.enabled,
+      label: bindingLabel(ptt.current.binding),
+    })
 
     const pump = () => {
       const st = store.getState()
@@ -653,6 +724,48 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
+
+      // Waiting for the user to choose a push-to-talk key.
+      if (store.getState().ptt.binding) {
+        e.preventDefault()
+        if (e.repeat) return
+        if (e.code === 'Escape') {
+          store.getState().setPtt({ binding: false })
+          return
+        }
+        if (isReservedKey(e.code)) {
+          store
+            .getState()
+            .setError(
+              `${bindingLabel({ kind: 'key', code: e.code })} is already in use — pick another key.`,
+            )
+          return
+        }
+        store.getState().setError(null)
+        setPttBinding({ kind: 'key', code: e.code })
+        return
+      }
+
+      // K toggles push-to-talk; Shift+K chooses the key or mouse button.
+      if (e.code === 'KeyK' && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault()
+        pttUp()
+        if (e.shiftKey) store.getState().setPtt({ binding: true })
+        else setPttEnabled(!ptt.current.enabled)
+        return
+      }
+
+      if (pttMatches(e)) {
+        e.preventDefault()
+        if (e.repeat || pttDown()) return
+      }
+
+      // A toggles the agent board.
+      if (e.key === 'a' && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault()
+        store.getState().toggleBoard()
+        return
+      }
 
       // V auditions the next British voice installed on this machine. Which
       // ones exist varies per Mac, so hearing them beats trusting a ranking.
@@ -788,7 +901,47 @@ export default function App() {
       if (phase !== 'offline' && phase !== 'boot') goDormant()
     }
 
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (!pttMatches(e)) return
+      // Also stops a bare Alt release from focusing the browser menu.
+      e.preventDefault()
+      pttUp()
+    }
+
+    const onMouseDown = (e: MouseEvent) => {
+      // The primary button stays free for clicking the interface.
+      if (e.button === 0) return
+      if (store.getState().ptt.binding) {
+        e.preventDefault()
+        store.getState().setError(null)
+        setPttBinding({ kind: 'mouse', button: e.button })
+        return
+      }
+      if (!pttMatches(e)) return
+      e.preventDefault()
+      pttDown()
+    }
+
+    const onMouseUp = (e: MouseEvent) => {
+      if (!pttMatches(e)) return
+      // Stops back/forward mouse buttons navigating away.
+      e.preventDefault()
+      pttUp()
+    }
+
+    const onContextMenu = (e: MouseEvent) => {
+      if (pttMatches(e) || store.getState().ptt.binding) e.preventDefault()
+    }
+
+    // A key released while the window is unfocused never reports its keyup.
+    const onBlur = () => pttUp()
+
     window.addEventListener('keydown', onKey)
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('mousedown', onMouseDown)
+    window.addEventListener('mouseup', onMouseUp)
+    window.addEventListener('contextmenu', onContextMenu)
+    window.addEventListener('blur', onBlur)
     window.addEventListener('jarvis:command', onOrinCommand)
     window.addEventListener('jarvis:listen', onOrinListen)
     window.addEventListener('jarvis:standby', onOrinStandby)
@@ -796,6 +949,11 @@ export default function App() {
     return () => {
       cancelAnimationFrame(raf)
       window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('mousedown', onMouseDown)
+      window.removeEventListener('mouseup', onMouseUp)
+      window.removeEventListener('contextmenu', onContextMenu)
+      window.removeEventListener('blur', onBlur)
       window.removeEventListener('jarvis:command', onOrinCommand)
       window.removeEventListener('jarvis:listen', onOrinListen)
       window.removeEventListener('jarvis:standby', onOrinStandby)

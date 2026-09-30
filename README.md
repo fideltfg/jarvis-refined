@@ -9,7 +9,10 @@ by your MCP setup.
 
 The app includes multiple character themes, provider selection and failover,
 locally generated Kokoro speech, an optional persistent background-agent
-service, and a remote browser relay for driving Chrome on another machine.
+service, and a remote browser relay for driving Chrome on another machine. The
+agent board brings background goals and Claude subagents into one view. Voice
+can be used hands-free or with configurable push-to-talk (toggle with **K**;
+hold Right Alt by default, or press **Shift+K** to bind a key or mouse button).
 Claude uses the existing Claude Code login by default; provider credentials
 remain on the bridge. See [Architecture and capabilities](docs/architecture.md)
 for the runtime overview.

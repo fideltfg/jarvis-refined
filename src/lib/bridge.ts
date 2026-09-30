@@ -1,5 +1,5 @@
 import type { AskHandlers } from './anthropic'
-import type { Blade, Panel } from '../store'
+import type { AgentBoardData, Blade, Panel, SessionAgent } from '../store'
 import type { AgentEvent } from './announce'
 import { BRIDGE_WS_URL, THEME } from '../config'
 
@@ -49,6 +49,9 @@ type Frame = {
   servers?: Array<string | { name?: string }>
   available?: string[]
   selected?: string
+  board?: AgentBoardData | null
+  online?: boolean
+  agents?: SessionAgent[]
 }
 
 /** Every question gets an id so its answer can be told from anyone else's. */
@@ -94,9 +97,32 @@ export function watchPanels(fn: (panel: Panel) => void) {
   onPanel = fn
 }
 
+/**
+ * The latest board, kept because it usually arrives before anyone is
+ * listening: the socket opens on page load, the bridge sends a snapshot a
+ * moment later, and the app only subscribes once it is powered on. Without
+ * this the snapshot was dropped and the board stayed empty until the next
+ * agent event happened to arrive.
+ */
+let lastAgents: { board: AgentBoardData | null; online: boolean } | null = null
+let onAgents: ((board: AgentBoardData | null, online: boolean) => void) | null = null
+export function watchAgents(fn: (board: AgentBoardData | null, online: boolean) => void) {
+  onAgents = fn
+  if (lastAgents) fn(lastAgents.board, lastAgents.online)
+}
+
 let onAgentEvent: ((event: AgentEvent) => void) | null = null
 export function watchAgentEvents(fn: (event: AgentEvent) => void) {
   onAgentEvent = fn
+}
+
+/** The session's subagents, kept for the same reason as the board above: a turn
+ *  can dispatch one before the app has subscribed. */
+let lastSessionAgents: SessionAgent[] | null = null
+let onSessionAgents: ((agents: SessionAgent[]) => void) | null = null
+export function watchSessionAgents(fn: (agents: SessionAgent[]) => void) {
+  onSessionAgents = fn
+  if (lastSessionAgents) fn(lastSessionAgents)
 }
 
 export function decideApproval(id: string, decision: 'approve' | 'deny') {
@@ -231,6 +257,12 @@ function dispatch(ws: WebSocket) {
       onProviders?.(availableProviders, selectedProvider)
     } else if (msg.type === 'panel' && msg.panel) {
       onPanel?.(msg.panel)
+    } else if (msg.type === 'agents') {
+      lastAgents = { board: msg.board ?? null, online: msg.online !== false }
+      onAgents?.(lastAgents.board, lastAgents.online)
+    } else if (msg.type === 'session_agents') {
+      lastSessionAgents = msg.agents ?? []
+      onSessionAgents?.(lastSessionAgents)
     } else if (msg.type === 'agent_event' && msg.event) {
       onAgentEvent?.(msg.event)
     } else if (msg.type === 'blade' && msg.blade) {

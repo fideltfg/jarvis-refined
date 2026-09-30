@@ -22,6 +22,7 @@ import { uiServer } from './ui.mjs'
 import { chromeAvailable, chromeServer, chromeTarget } from './chrome.mjs'
 import { clientAddress, createRelayHub } from './relay.mjs'
 import { visionServer } from './vision.mjs'
+import { SESSION_AGENT_TOOLS, createSessionAgents } from './session-agents.mjs'
 import { memoryPrompt, memoryServer, MEMORY_FILE } from './memory.mjs'
 import { homedir, tmpdir } from 'node:os'
 import { readFileSync, realpathSync } from 'node:fs'
@@ -1181,10 +1182,29 @@ wss.on('connection', (socket, req) => {
   }
 
   const agentApi = process.env.JARVIS_AGENTS === '1' ? agentsApi() : null
+
+  // The agent board. Every event is forwarded as it happens, and the board
+  // snapshot is refreshed shortly after, so a burst of events costs one fetch.
+  let boardTimer = null
+  const pushBoard = () => {
+    if (!agentApi) return
+    clearTimeout(boardTimer)
+    boardTimer = setTimeout(() => {
+      agentApi
+        .board()
+        .then((board) => send({ type: 'agents', board, online: true }))
+        .catch(() => send({ type: 'agents', board: null, online: false }))
+    }, 250)
+  }
+
   const agentSubscription = agentApi
     ? subscribeAgents(agentApi, {
-        onEvent: (event) => send({ type: 'agent_event', event }),
-        onState: () => {},
+        onEvent: (event) => {
+          send({ type: 'agent_event', event })
+          pushBoard()
+        },
+        onState: (online) =>
+          online ? pushBoard() : send({ type: 'agents', board: null, online: false }),
       })
     : null
 
@@ -1413,6 +1433,9 @@ wss.on('connection', (socket, req) => {
     if (!failed) sendTurn({ type: 'tool', name })
   }
 
+  /** Subagents spawned in this session, so the board covers every kind of agent. */
+  const sessionAgents = createSessionAgents({ send })
+
   const createClaudeSession = () => query({
     prompt: userMessages(),
     options: {
@@ -1537,6 +1560,9 @@ wss.on('connection', (socket, req) => {
               if (block.type === 'tool_use') {
                 activity = true
                 announceTool(block.id, block.name)
+                if (SESSION_AGENT_TOOLS.includes(block.name)) {
+                  sessionAgents.start(block.id, block.input)
+                }
               }
             }
             break
@@ -1551,6 +1577,7 @@ wss.on('connection', (socket, req) => {
             for (const block of blocks) {
               if (block?.type === 'tool_result') {
                 settleTool(block.tool_use_id, block.is_error === true)
+                sessionAgents.settle(block.tool_use_id, block.is_error === true, block.content)
               }
             }
             break
@@ -1705,7 +1732,9 @@ wss.on('connection', (socket, req) => {
 
   socket.on('close', () => {
     console.log('[jarvis] client disconnected')
+    clearTimeout(boardTimer)
     agentSubscription?.close()
+    sessionAgents.stop()
     closed = true
     activeController?.abort()
     deliver?.(null)

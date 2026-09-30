@@ -19,12 +19,12 @@ import { activeTheme } from './theme-runtime'
 import { chooseVariant, fileStem } from './sfx-variants'
 
 type BaseCue = 'boot' | 'wake' | 'listen' | 'tool' | 'done' | 'error'
-type ExtraCue = 'interrupt' | 'ack' | 'warning' | 'panelOpen' | 'panelClose' | 'taskStart' | 'taskPause' | 'taskDone'
+type ExtraCue = 'interrupt' | 'ack' | 'warning' | 'panelOpen' | 'panelClose' | 'taskStart' | 'taskPause' | 'taskDone' | 'micOpen' | 'micClose'
 type Cue = BaseCue | ExtraCue
 
 const CUES: Cue[] = [
   'boot', 'wake', 'listen', 'tool', 'done', 'error', 'interrupt', 'ack', 'warning',
-  'panelOpen', 'panelClose', 'taskStart', 'taskPause', 'taskDone',
+  'panelOpen', 'panelClose', 'taskStart', 'taskPause', 'taskDone', 'micOpen', 'micClose',
 ]
 
 /**
@@ -389,6 +389,16 @@ const EXTRA_CUES: Record<ExtraCue, () => void> = {
   taskStart: () => blip(880, { dur: 0.13, type: 'triangle', gain: 0.1 }),
   taskPause: () => blip(587, { dur: 0.16, type: 'triangle', gain: 0.1 }),
   taskDone: () => blip(1318, { dur: 0.18, type: 'triangle', gain: 0.1 }),
+
+  /**
+   * Push-to-talk. The pair has to be unmistakable while being almost nothing:
+   * it fires on every press and release, it lands directly before and after
+   * speech, and the release cue overlaps the tail of the last word. So: very
+   * short, quiet, and a rising/falling pair so open and closed are told apart
+   * without listening for them.
+   */
+  micOpen: () => blip(784, { dur: 0.05, type: 'triangle', gain: 0.09, sweepTo: 1175 }),
+  micClose: () => blip(1175, { dur: 0.06, type: 'triangle', gain: 0.07, sweepTo: 784 }),
 }
 
 export function play(cue: Cue) {
