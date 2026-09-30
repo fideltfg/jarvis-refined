@@ -147,6 +147,14 @@ const MODEL = process.env.JARVIS_MODEL ?? 'claude-opus-5'
 const EFFORT = process.env.JARVIS_EFFORT ?? 'high'
 
 /**
+ * How many agentic steps one turn may take before the SDK stops it — a step
+ * being one model call and the tools it asks for, not a unit of time. Research
+ * that fans out over many tool calls is what reaches this; ordinary
+ * conversation never comes close. Raise it when a turn is legitimately long.
+ */
+const MAX_TURNS = Number(process.env.JARVIS_MAX_TURNS) || 24
+
+/**
  * Both spellings of every renamed built-in are listed on purpose. The SDK
  * presents several tools to the model under newer names — Task is Agent,
  * BashOutput is TaskOutput, KillShell is TaskStop, and the MCP resource tools
@@ -1107,7 +1115,10 @@ console.log(
  */
 const RESULT_FAILURES = {
   error_during_execution: 'The turn failed part way through.',
-  error_max_turns: 'The turn ran too long and was stopped.',
+  // Not a timeout — the SDK stops the turn once it has taken MAX_TURNS agentic
+  // steps (a step being one model call plus its tool calls). Say that, because
+  // "too long" sent people looking for a clock that does not exist.
+  error_max_turns: `The turn reached its limit of ${MAX_TURNS} steps and was stopped before it finished.`,
   error_max_budget_usd: 'The budget for this turn ran out.',
   error_max_structured_output_retries: 'The answer could not be assembled.',
   default: 'The turn ended without an answer.',
@@ -1425,7 +1436,7 @@ wss.on('connection', (socket, req) => {
       // without this line nothing in the project has a say at all.
       model: MODEL,
       effort: EFFORT,
-      maxTurns: 24,
+      maxTurns: MAX_TURNS,
       permissionMode: 'default',
       // Without this the SDK only emits whole assistant messages, and JARVIS
       // would sit silent until the entire answer was written. Partial events

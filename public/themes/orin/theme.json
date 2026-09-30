@@ -1,0 +1,67 @@
+{
+  "name": "ORIN",
+  "css": "theme.css",
+  "backgroundColor": "#07080a",
+  "register": "machine",
+  "boot": "orin",
+  "suggestion": "summarise my active systems",
+  "copy": {
+    "title": "ORIN Console",
+    "brand": "ORIN",
+    "brandSub": "Operational Reasoning Interface",
+    "speaker": "ORIN",
+    "wakePhrase": "ORIN",
+    "status": {
+      "offline": "SYSTEM OFFLINE",
+      "boot": "INITIALISING",
+      "dormant": "STANDBY — SAY ORIN",
+      "waking": "LINK ESTABLISHED",
+      "listening": "LISTENING",
+      "thinking": "PROCESSING",
+      "tooling": "ACCESSING SYSTEMS",
+      "speaking": "RESPONDING"
+    },
+    "systemsTitle": "SUBSYSTEMS",
+    "signalTitle": "VOICE SIGNAL",
+    "toolKicker": "executing",
+    "ignitionWord": "INITIALISE",
+    "ignitionSub": "activate the reasoning interface",
+    "voiceSetTail": "",
+    "audioTest": "Audio test. ORIN speech output is functioning."
+  },
+  "phaseColors": {
+    "offline": "#74501f",
+    "boot": "#f2a33a",
+    "dormant": "#c98422",
+    "waking": "#ffd28a",
+    "listening": "#f2a33a",
+    "thinking": "#ffc45f",
+    "tooling": "#e68b31",
+    "speaking": "#fff0d8"
+  },
+  "sceneTint": { "core": "#f2a33a", "hot": "#fff8ec", "particles": "#f2a33a" },
+  "wake": {
+    "pattern": "(?:orin|orion|oren)",
+    "phrases": ["ORIN", "Orion"],
+    "language": "en-GB"
+  },
+  "voice": {
+    "kokoro": "am_michael",
+    "character": "computer",
+    "profile": {
+      "label": "Michael · ORIN",
+      "speed": 0.96,
+      "playbackRate": 1,
+      "highpassHz": 70,
+      "lowpassHz": 9000,
+      "presenceHz": 2400,
+      "presenceDb": 1,
+      "compression": { "threshold": -25, "ratio": 3, "attack": 0.014, "release": 0.2 }
+    }
+  },
+  "sound": {
+    "bank": "stark",
+    "music": false,
+    "ambient": { "tones": [48, 48.6], "noise": 0.025, "cutoff": 220, "level": 0.035 }
+  }
+}

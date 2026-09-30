@@ -1,0 +1,296 @@
+@import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+:root {
+  --interface: #f2a33a;
+  --accent: var(--interface);
+  --bg: #07080a;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  color-scheme: dark;
+}
+
+[data-theme='orin'] body::after {
+  background:
+    radial-gradient(ellipse at center, transparent 24%, rgba(0, 0, 0, 0.58) 100%),
+    repeating-linear-gradient(0deg, rgba(242, 163, 58, 0.018) 0 1px, transparent 1px 4px);
+}
+[data-theme='orin'] #root {
+  background: radial-gradient(ellipse at 50% 42%, #111317 0%, #07080a 62%);
+}
+
+[data-theme='orin'] .ignition {
+  z-index: 20;
+  background: radial-gradient(ellipse at center, #15120d 0%, #08090b 52%, #050607 100%);
+  color: #f2a33a;
+}
+[data-theme='orin'] .ignition-ring {
+  width: min(56vmin, 320px);
+  height: min(56vmin, 320px);
+  border-color: rgba(242, 163, 58, 0.28);
+  border-top-color: #f2a33a;
+}
+[data-theme='orin'] .ignition-word { color: #f2a33a; text-shadow: 0 0 30px rgba(242, 163, 58, 0.55); }
+[data-theme='orin'] .ignition-sub { color: #c9ced6; }
+
+[data-theme='orin'] .character-reactor.orin-reactor[data-inline='true'] {
+  position: fixed;
+  top: clamp(220px, 29vh, 440px);
+  left: 50%;
+  right: auto;
+  bottom: auto;
+  z-index: 1;
+  --orin-lens-size: min(52vmin, 420px);
+  width: var(--orin-lens-size);
+  height: var(--orin-lens-size);
+  aspect-ratio: 1 / 1;
+  margin: 0;
+  transform: translate(-50%, -50%) scale(var(--reactor-scale, 1));
+  will-change: transform;
+  filter: drop-shadow(0 0 32px rgba(242, 163, 58, 0.16));
+}
+
+.orin-live-lens,
+.orin-live-lens > span { position: absolute; display: block; border-radius: 50%; }
+.orin-live-lens { inset: 0; overflow: visible; }
+/* A 1px dashed ring turning once every 24 seconds is below the threshold of
+   being seen at all — the lens read as a still photograph. Shorter period,
+   longer dashes and more contrast, so the rotation is legible without becoming
+   a spinner. Period is divided by the reactor's spin so ui_reactor can drive
+   it. */
+.orin-lens-orbit {
+  inset: -6%;
+  border: 1px dashed rgba(242, 163, 58, 0.42);
+  border-style: dashed;
+  animation: orin-orbit calc(9s / var(--reactor-spin, 1)) linear infinite;
+}
+/* The machined bezel catching light as it turns. A conic gradient is the one
+   part of the lens where rotation is actually visible, and it carries the sense
+   of a physical aperture rather than a flat disc. */
+.orin-lens-bezel {
+  inset: 8%;
+  background: conic-gradient(from 210deg, #35302a, #101113, #514637, #121212, #35302a);
+  box-shadow: 0 30px 72px rgba(0, 0, 0, 0.75), inset 0 0 0 1px #62513a;
+  animation: orin-orbit calc(42s / var(--reactor-spin, 1)) linear infinite reverse;
+}
+.orin-lens-well {
+  inset: 13%;
+  background: #020203;
+  box-shadow: inset 0 10px 40px #000, 0 0 0 1px #000;
+}
+/* Brightness rather than transform, because the breathe keyframes already own
+   this element's transform and the two would overwrite each other. */
+.orin-lens-glass {
+  inset: 17%;
+  background: radial-gradient(circle, #fff8ec 0 1.5%, #f2a33a 6%, rgba(242, 163, 58, 0.55) 23%, rgba(242, 163, 58, 0.16) 43%, transparent 69%);
+  animation: orin-breathe 4s ease-in-out infinite;
+  filter: brightness(calc(1 + var(--level, 0) * 0.85));
+}
+.orin-lens-ring { border: 1px solid rgba(242, 163, 58, 0.25); }
+.orin-lens-ring-outer { inset: 32%; }
+/* The voice. --level was being passed into the lens and consumed by nothing, so
+   the reactor sat dead still while ORIN spoke. The inner ring now widens with
+   the signal — no transition, because the level is already smoothed upstream and
+   a transition here would lag behind the speech. */
+.orin-lens-ring-inner {
+  inset: 40%;
+  border-color: rgba(242, 163, 58, calc(0.25 + var(--level, 0) * 0.6));
+  transform: scale(calc(1 + var(--level, 0) * 0.42));
+}
+.orin-lens-highlight {
+  left: 30%;
+  top: 23%;
+  width: 24%;
+  height: 13%;
+  background: radial-gradient(ellipse, rgba(255, 255, 255, 0.22), transparent 70%);
+  transform: rotate(-28deg);
+}
+.orin-live-lens[data-phase='thinking'] .orin-lens-orbit,
+.orin-live-lens[data-phase='tooling'] .orin-lens-orbit { animation-duration: 5s; }
+.orin-live-lens[data-phase='listening'] .orin-lens-glass,
+.orin-live-lens[data-phase='speaking'] .orin-lens-glass { animation-duration: 2.4s; }
+
+@keyframes orin-orbit { to { transform: rotate(360deg); } }
+/* Was 0.975 → 1.01: a 3.5% swing on a soft radial glow, which is not something
+   an eye picks up. Widened until the core visibly pulses. */
+@keyframes orin-breathe {
+  0%, 100% { transform: scale(0.93); opacity: 0.72; }
+  50% { transform: scale(1.04); opacity: 1; }
+}
+
+[data-theme='orin'] .hud { color: #d9dde3; font-family: 'IBM Plex Mono', monospace; letter-spacing: 0; text-transform: none; }
+[data-theme='orin'] .boot.orin-boot {
+  z-index: 30;
+  isolation: isolate;
+  background-color: #050607;
+  background-image: radial-gradient(ellipse at 50% 48%, #17130d 0%, #08090b 48%, #050607 100%);
+}
+[data-theme='orin'] .hud-boot .orin-dashboard { visibility: hidden; }
+.orin-dashboard {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr) minmax(280px, 360px);
+  grid-template-rows: max-content minmax(0, 1fr);
+  grid-template-areas: 'brand center right' 'left center right';
+  column-gap: clamp(22px, 3.3vw, 48px);
+  row-gap: 0;
+  padding: clamp(24px, 3vw, 40px) clamp(28px, 3.4vw, 48px);
+  overflow: hidden;
+  background: transparent;
+  pointer-events: none;
+}
+.orin-dashboard > * { min-width: 0; min-height: 0; pointer-events: auto; }
+.orin-column { display: flex; flex-direction: column; }
+.orin-brand { grid-area: brand; }
+.orin-left { grid-area: left; gap: 28px; }
+.orin-brand { padding-bottom: 20px; border-bottom: 1px solid #1d2026; }
+.orin-brand-line { display: flex; align-items: center; gap: 12px; }
+.orin-brand-light { width: 12px; height: 12px; flex: 0 0 12px; border-radius: 50%; background: #f2a33a; box-shadow: 0 0 16px rgba(242, 163, 58, 0.55); }
+.orin-brand h1 { margin: 0; color: #eef0f3; font: 600 30px/1 'Chakra Petch', sans-serif; letter-spacing: 0.16em; }
+.orin-brand p { margin: 8px 0 0 24px; color: #8a909a; font-size: 10px; letter-spacing: 0.09em; text-transform: uppercase; }
+.orin-clock { display: flex; flex-direction: column; gap: 6px; padding-bottom: 20px; border-bottom: 1px solid #1d2026; }
+.orin-clock time { color: #eef0f3; font: 500 54px/1 'Chakra Petch', sans-serif; }
+.orin-clock > span { color: #8a909a; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+.orin-systems, .orin-modes { display: flex; flex-direction: column; gap: 12px; }
+.orin-systems h2, .orin-modes h2, .orin-section-head h2 { margin: 0; color: #8a909a; font-size: 10px; font-weight: 400; letter-spacing: 0.17em; text-transform: uppercase; }
+.orin-system-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; color: #c9ced6; font-size: 11px; }
+.orin-system-row > span { display: flex; align-items: center; gap: 9px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.orin-system-row b { color: #8a909a; font-size: 9px; font-weight: 400; letter-spacing: 0.08em; }
+.orin-status-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: #f2a33a; box-shadow: 0 0 9px rgba(242, 163, 58, 0.48); }
+.orin-muted, .orin-empty { margin: 0; color: #69707a; font-size: 11px; line-height: 1.6; }
+.orin-modes { margin-top: auto; padding-top: 20px; border-top: 1px solid #1d2026; }
+.orin-mode-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.orin-mode-list button { min-width: 0; min-height: 40px; border: 1px solid #262a31; border-radius: 4px; background: #0d0f12; color: #a3a9b3; font: 10px 'IBM Plex Mono', monospace; text-transform: uppercase; cursor: pointer; }
+.orin-mode-list button.is-active { border-color: #f2a33a; background: rgba(242, 163, 58, 0.13); color: #eef0f3; }
+.orin-mode-list button:disabled { cursor: default; opacity: 0.78; }
+.orin-mode-list button:focus-visible, .orin-command button:focus-visible, .orin-command input:focus-visible { outline: 2px solid #f2a33a; outline-offset: 3px; }
+
+.orin-center { grid-area: center; position: relative; z-index: 4; align-items: center; justify-content: center; gap: 28px; text-align: center; }
+.orin-center-head { display: flex; align-items: center; justify-content: center; gap: 18px; min-height: 24px; }
+.orin-phase { display: flex; align-items: center; gap: 9px; color: #f2a33a; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; }
+.orin-provider { display: flex; align-items: center; gap: 8px; color: #8a909a; font-size: 9px; text-transform: uppercase; }
+.orin-provider select { max-width: 110px; padding: 5px 20px 5px 7px; border: 1px solid #37322b; background: #0d0f12; color: #d9dde3; font: inherit; text-transform: uppercase; }
+.orin-provider select:disabled { opacity: 0.5; }
+.orin-phase[data-phase='offline'] .orin-status-dot, .orin-phase[data-phase='boot'] .orin-status-dot { background: #8a909a; box-shadow: none; }
+.orin-wave { display: flex; align-items: center; justify-content: center; gap: 3px; width: 100%; height: 34px; }
+/* Height comes from --bar, which OrinWave rewrites every animation frame from
+   the live audio level. No keyframes: a CSS animation would fight the values. */
+.orin-wave i { width: 3px; height: 100%; border-radius: 2px; background: #f2a33a; opacity: 0.35; transform: scaleY(var(--bar, 0.14)); transform-origin: 50% 50%; will-change: transform; }
+.orin-wave[data-active='true'] i { opacity: 0.9; }
+.orin-utterance { display: -webkit-box; width: 100%; max-width: 620px; min-height: 66px; max-height: 4.35em; margin: 0; overflow: hidden; color: #eef0f3; font: 500 21px/1.45 'Chakra Petch', sans-serif; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.orin-command { display: flex; align-items: center; gap: 8px; width: 100%; max-width: 640px; padding: 7px; border: 1px solid #262a31; border-radius: 999px; background: rgba(13, 15, 18, 0.96); }
+.orin-command input { flex: 1 1 auto; min-width: 0; height: 42px; padding: 0 12px; border: 0; outline: 0; background: transparent; color: #eef0f3; font: 13px 'IBM Plex Mono', monospace; }
+.orin-command input::placeholder { color: #6b717b; }
+.orin-command button { display: grid; width: 42px; height: 42px; flex: 0 0 42px; place-items: center; border: 1px solid #2f343c; border-radius: 50%; background: #14171b; color: #c9ced6; cursor: pointer; }
+.orin-command button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.orin-command button.orin-send { border-color: transparent; background: #f2a33a; color: #101114; }
+.orin-command button:disabled { cursor: default; opacity: 0.4; }
+.orin-error { max-width: 100%; margin: 0; color: #ff8474; font-size: 11px; overflow-wrap: anywhere; }
+.orin-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+.orin-right { grid-area: right; gap: 26px; }
+.orin-agents, .orin-session { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; gap: 12px; }
+.orin-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px; border-bottom: 1px solid #1d2026; }
+.orin-section-head > span { color: #8a909a; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; }
+.orin-scroll-list { display: flex; flex: 1 1 0; flex-direction: column; gap: 8px; min-height: 0; overflow: auto; padding-right: 4px; scrollbar-color: #37322b transparent; scrollbar-width: thin; }
+.orin-agent { padding: 10px 11px; border: 1px solid #1d2026; border-radius: 4px; background: rgba(11, 13, 16, 0.86); }
+.orin-agent-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.orin-agent-name { min-width: 0; overflow: hidden; color: #eef0f3; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.orin-agent-status { flex: 0 0 auto; color: #f2a33a; font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; }
+.orin-agent[data-status='done'] .orin-agent-status, .orin-agent[data-status='cancelled'] .orin-agent-status { color: #8a909a; }
+.orin-agent p { margin: 7px 0 0; color: #8a909a; font-size: 10px; line-height: 1.45; }
+.orin-progress { height: 3px; margin-top: 9px; overflow: hidden; border-radius: 2px; background: #1d2026; }
+.orin-progress i { display: block; height: 100%; background: #f2a33a; }
+.orin-approval { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 9px; color: #c9ced6; font-size: 9px; }
+.orin-approval span { flex: 1 1 100%; color: #ffc45f; }
+.orin-approval button, .orin-session-actions button { min-height: 30px; padding: 4px 8px; border: 1px solid #37322b; border-radius: 3px; background: #14171b; color: #d9dde3; font: 9px 'IBM Plex Mono', monospace; cursor: pointer; }
+.orin-approval button:hover, .orin-session-actions button:not(:disabled):hover { border-color: #f2a33a; }
+.orin-session-actions { display: flex; align-items: center; gap: 10px; }
+.orin-session-actions button { min-height: 28px; border: 0; background: transparent; color: #8a909a; text-transform: uppercase; }
+.orin-session-actions button:disabled { opacity: 0.4; cursor: default; }
+.orin-log-entry { display: flex; flex-direction: column; gap: 5px; }
+.orin-log-entry header { display: flex; justify-content: space-between; gap: 12px; color: #8a909a; font-size: 8px; letter-spacing: 0.13em; }
+.orin-log-entry.orin-log-jarvis header span:first-child { color: #f2a33a; }
+.orin-log-entry p { display: -webkit-box; margin: 0; overflow: hidden; color: #c9ced6; font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+
+@media (max-width: 1050px) {
+  .orin-dashboard { grid-template-columns: minmax(210px, 0.8fr) minmax(0, 1.45fr) minmax(230px, 0.95fr); gap: 22px; padding-inline: 28px; }
+  .orin-clock time { font-size: 44px; }
+  .orin-right { gap: 18px; }
+  .orin-center { gap: 20px; }
+}
+
+@media (max-width: 900px) {
+  .orin-dashboard { grid-template-columns: minmax(0, 1fr); grid-template-rows: max-content minmax(590px, max-content) max-content minmax(560px, max-content); grid-template-areas: 'brand' 'center' 'left' 'right'; align-content: start; gap: 16px; overflow-y: auto; padding: 22px 18px 110px; }
+  .orin-left { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: 'clock systems' 'modes modes'; align-content: start; gap: 14px; min-height: max-content; }
+  .orin-brand { padding-bottom: 12px; }
+  .orin-clock { grid-area: clock; }
+  .orin-systems { grid-area: systems; }
+  .orin-modes { grid-area: modes; }
+  .orin-clock { padding-bottom: 12px; }
+  .orin-brand h1 { font-size: 25px; }
+  .orin-brand p { font-size: 8px; }
+  .orin-clock time { font-size: 36px; }
+  .orin-clock > span { font-size: 8px; }
+  .orin-systems { gap: 8px; }
+  .orin-systems h2, .orin-modes h2 { grid-column: 1 / -1; }
+  .orin-modes { margin: 0; padding: 0; border: 0; }
+  .orin-mode-list { gap: 5px; }
+  .orin-mode-list button { min-height: 34px; font-size: 8px; }
+  .orin-center { min-height: 590px; justify-content: flex-start; gap: 14px; padding-top: 10px; }
+  .orin-center-head { flex-wrap: wrap; gap: 10px; }
+  [data-theme='orin'] .character-reactor.orin-reactor[data-inline='true'] {
+    top: clamp(205px, 27vh, 400px);
+    --orin-lens-size: min(52vmin, 360px);
+  }
+  .orin-utterance { min-height: 52px; font-size: 18px; }
+  .orin-right { min-height: 560px; }
+}
+
+.orin-boot {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: clamp(24px, 5vw, 64px);
+  overflow: hidden;
+  color: #d9dde3;
+  background: radial-gradient(ellipse at 50% 48%, #17130d 0%, #08090b 48%, #050607 100%);
+  font-family: 'IBM Plex Mono', monospace;
+}
+.orin-boot::before {
+  content: '';
+  position: absolute;
+  inset: 18px;
+  border: 1px solid rgba(242, 163, 58, 0.18);
+  pointer-events: none;
+}
+.orin-boot-head, .orin-boot-foot { display: flex; align-items: center; gap: 18px; color: #9197a0; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; }
+.orin-boot-head { justify-content: space-between; padding-bottom: 14px; border-bottom: 1px solid #26231e; }
+.orin-boot-layout { display: grid; grid-template-columns: minmax(240px, 0.8fr) minmax(220px, 1fr); align-items: center; gap: clamp(24px, 8vw, 120px); width: min(920px, 100%); margin: auto; }
+.orin-boot-checks { display: flex; flex-direction: column; gap: 14px; }
+.orin-boot-check { display: flex; justify-content: space-between; gap: 18px; padding-bottom: 10px; border-bottom: 1px solid #1d2026; color: #777e88; font-size: 10px; letter-spacing: 0.1em; }
+.orin-boot-check > span:last-child { color: #f2a33a; }
+.orin-boot-check[data-complete='true'] > span:last-child { color: #d9dde3; }
+.orin-boot-core { position: relative; width: min(56vw, 340px); justify-self: center; aspect-ratio: 1; }
+.orin-boot-core > span { position: absolute; display: block; border-radius: 50%; }
+.orin-boot-orbit { inset: -6%; border: 1px dashed rgba(242, 163, 58, 0.45); animation: orin-orbit 18s linear infinite; }
+.orin-boot-bezel { inset: 8%; border: 1px solid #55442d; background: conic-gradient(from 210deg, #332b20, #101113, #55452f, #101113, #332b20); box-shadow: 0 20px 54px #000, inset 0 0 0 8px #111214; }
+.orin-boot-glow { inset: 20%; background: radial-gradient(circle, #fff8ec 0 2%, #f2a33a 8%, rgba(242, 163, 58, 0.26) 34%, transparent 70%); animation: orin-breathe 4s ease-in-out infinite; }
+.orin-boot-point { inset: 47%; background: #fff8ec; box-shadow: 0 0 14px 6px #f2a33a, 0 0 48px 20px rgba(242, 163, 58, 0.42); }
+.orin-boot-foot { display: grid; grid-template-columns: 1fr auto; }
+.orin-boot-progress { grid-column: 1 / -1; height: 3px; background: #1d2026; }
+.orin-boot-progress i { display: block; height: 100%; background: #f2a33a; box-shadow: 0 0 12px rgba(242, 163, 58, 0.65); transition: width 150ms linear; }
+
+@media (max-width: 600px) {
+  .orin-command { position: fixed; z-index: 12; bottom: 14px; left: 14px; width: calc(100% - 28px); max-width: none; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6); }
+  .orin-boot { padding: 34px 28px; }
+  .orin-boot-head { align-items: flex-start; flex-direction: column; gap: 7px; font-size: 8px; }
+  .orin-boot-layout { grid-template-columns: minmax(0, 1fr); gap: 22px; }
+  .orin-boot-core { grid-row: 1; width: min(54vw, 240px); }
+  .orin-boot-checks { gap: 9px; }
+  .orin-boot-check { padding-bottom: 7px; font-size: 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orin-lens-orbit, .orin-lens-glass, .orin-boot-orbit, .orin-boot-glow { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; }
+}

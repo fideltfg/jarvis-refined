@@ -11,6 +11,7 @@ and live animation. Built-in themes are stored in `public/themes/`:
 | `wopr` | Amber military CRT command grid | “Joshua” |
 | `mother` | Green industrial mainframe terminal | “Mother” |
 | `lcars` | LCARS-style computer display | “Computer” |
+| `orin` | Amber operational reasoning console | “ORIN” |
 
 Set `VITE_THEME` in `.env.local` and restart the dev server to change the
 default. To preview another theme for the current browser, use a URL such as

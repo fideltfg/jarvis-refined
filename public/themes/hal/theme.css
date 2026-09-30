@@ -39,6 +39,32 @@
 @keyframes halPulse { 50% { background: #fff4e8; box-shadow: 0 0 24px #ff241b; } }
 [data-theme='hal'] .rail-item { padding: 5px 8px; border-left: 2px solid var(--accent); background: rgba(88, 3, 0, 0.22); }
 [data-theme='hal'] .tick { border-radius: 50%; transform: none; }
+[data-theme='hal'] .rail-left,
+[data-theme='hal'] .rail-right {
+  top: auto;
+  bottom: 34px;
+  transform: none;
+  gap: 6px;
+}
+[data-theme='hal'] .rail-left {
+  left: 34px;
+  width: min(28vw, 220px);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: end;
+}
+[data-theme='hal'] .rail-left .rail-title { grid-column: 1 / -1; }
+[data-theme='hal'] .rail-left .rail-item {
+  min-width: 0;
+  font-size: 9px;
+  overflow-wrap: anywhere;
+}
+[data-theme='hal'] .rail-right {
+  right: 34px;
+  width: min(18vw, 120px);
+  align-items: flex-end;
+}
+[data-theme='hal'] .rail-right .meter { width: 4px; height: 52px; }
 [data-theme='hal'] .tool-badge { border-radius: 0; background: rgba(25, 0, 0, 0.9); }
 [data-theme='hal'] .tool-name,
 [data-theme='hal'] .log-jarvis .log-text { color: #fff2eb; }
@@ -46,6 +72,11 @@
 
 @media (max-width: 700px) {
   [data-theme='hal'] .brand-sub { display: none; }
+  [data-theme='hal'] .rail-left { left: 12px; width: 39vw; gap: 4px; }
+  [data-theme='hal'] .rail-right { right: 12px; width: auto; gap: 4px; }
+  [data-theme='hal'] .rail-left .rail-item { padding: 4px 5px; font-size: 8px; }
+  [data-theme='hal'] .rail-right .meter { height: 36px; }
+  [data-theme='hal'] .rail-title { font-size: 7px; }
 }
 
 /* ------------------------------------------------------------------ intro */

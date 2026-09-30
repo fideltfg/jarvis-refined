@@ -5,6 +5,7 @@ import { ThemeBoot } from './ui/ThemeBoot'
 import { Ignition } from './ui/Ignition'
 import { Diagnostics } from './ui/Diagnostics'
 import { Enrol } from './ui/Enrol'
+import { CharacterReactor } from './ui/CharacterReactor'
 import { useStore } from './store'
 import { startVoice, type Voice, type VoiceMode } from './lib/voice'
 import { createSpeaker, cycleVoice, currentVoiceName } from './lib/tts'
@@ -768,11 +769,36 @@ export default function App() {
         onWake('')
       }
     }
+
+    const onOrinCommand = (event: Event) => {
+      const said = String((event as CustomEvent<string>).detail ?? '').trim()
+      const phase = store.getState().phase
+      if (!said || phase === 'offline' || phase === 'boot') return
+      store.getState().setError(null)
+      void respond(said)
+    }
+    const onOrinListen = () => {
+      const phase = store.getState().phase
+      if (phase === 'offline' || phase === 'boot') return
+      if (phase === 'dormant') onWake('')
+      else onSpeechStart()
+    }
+    const onOrinStandby = () => {
+      const phase = store.getState().phase
+      if (phase !== 'offline' && phase !== 'boot') goDormant()
+    }
+
     window.addEventListener('keydown', onKey)
+    window.addEventListener('jarvis:command', onOrinCommand)
+    window.addEventListener('jarvis:listen', onOrinListen)
+    window.addEventListener('jarvis:standby', onOrinStandby)
 
     return () => {
       cancelAnimationFrame(raf)
       window.removeEventListener('keydown', onKey)
+      window.removeEventListener('jarvis:command', onOrinCommand)
+      window.removeEventListener('jarvis:listen', onOrinListen)
+      window.removeEventListener('jarvis:standby', onOrinStandby)
       clearIdle()
       if (voicePoll.current) clearInterval(voicePoll.current)
       voice.current?.stop()
@@ -786,6 +812,7 @@ export default function App() {
   return (
     <>
       <Scene />
+      <CharacterReactor />
       <Hud />
       <ThemeBoot />
       <Diagnostics />

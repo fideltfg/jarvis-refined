@@ -8,6 +8,8 @@ import { Pointer } from './Pointer'
 import { GestureGuide } from './GestureGuide'
 import { copy } from '../theme'
 import { providerState, watchProviders, selectProvider, usingBridge } from '../lib/brain'
+import { activeTheme } from '../lib/theme-runtime'
+import { OrinHud } from './OrinHud'
 
 const statusText: Record<Phase, string> = copy.status
 
@@ -141,6 +143,7 @@ function DecodeText({ text }: { text: string }) {
 
 export function Hud() {
   const [providers, setProviders] = useState(providerState)
+  const orinTheme = activeTheme().id === 'orin'
   useEffect(() => {
     watchProviders((available, selected) => setProviders({ available, selected }))
     return () => watchProviders(() => {})
@@ -151,7 +154,7 @@ export function Hud() {
   const activeTool = useStore((s) => s.activeTool)
   const connected = useStore((s) => s.connected)
   const error = useStore((s) => s.error)
-  const level = useStore((s) => s.level)
+  const level = useStore((s) => orinTheme ? 0 : s.level)
   const voice = useStore((s) => s.voice)
   const bootNote = useStore((s) => s.bootNote)
   const gestures = useStore((s) => s.gestures)
@@ -172,6 +175,22 @@ export function Hud() {
     if (ui.background) root.style.setProperty('--bg', ui.background)
     else root.style.removeProperty('--bg')
   }, [ui.background])
+
+  if (orinTheme) {
+    return (
+      <div className={`hud hud-${phase} orin-hud`} style={{ ['--accent' as string]: colour }}>
+        <OrinHud />
+        <Effects />
+        <Pointer />
+        {(gestures || looking) && (
+          <div className="hands-live">
+            {looking ? `LOOKING — ${looking.toUpperCase()}` : 'CAMERA ON · G TO STOP'}
+          </div>
+        )}
+        <GestureGuide live={gestures} />
+      </div>
+    )
+  }
 
   return (
     <div className={`hud hud-${phase}`} style={{ ['--accent' as string]: colour }}>

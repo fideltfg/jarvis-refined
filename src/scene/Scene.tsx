@@ -13,6 +13,9 @@ import { Core } from './Core'
 import { Particles } from './Particles'
 import { Orbits } from './Orbits'
 import { useStore, phaseColor, accentFor, type Phase } from '../store'
+import { activeTheme } from '../lib/theme-runtime'
+
+const CHARACTER_REACTOR_THEMES = new Set(['hal', 'wopr', 'mother', 'lcars', 'orin'])
 
 /** Rings spin harder while JARVIS is working — reads as effort. */
 const spinFor: Record<Phase, number> = {
@@ -107,6 +110,7 @@ function aim(tint: Tint, css: string): THREE.Color {
 const STYLE_INDEX = { ring: 0, sphere: 1, wire: 2 } as const
 
 function Rig() {
+  const useCharacterReactor = CHARACTER_REACTOR_THEMES.has(activeTheme().id)
   const drive = useMemo<Drive>(
     () => ({
       color: new THREE.Color(phaseColor.offline),
@@ -185,8 +189,8 @@ function Rig() {
   // subject is one unbroken one.
   return (
     <>
-      <Core drive={drive} />
-      <Particles drive={drive} />
+      {!useCharacterReactor && <Core drive={drive} />}
+      {!useCharacterReactor && <Particles drive={drive} />}
       <Orbits />
     </>
   )
