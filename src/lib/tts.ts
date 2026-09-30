@@ -395,6 +395,8 @@ export function createSpeaker(): Speaker {
   let cancelled = false
   let outLevel = 0
   let pumping = false
+  let lastPriorityText = ''
+  let lastPriorityAt = 0
 
   let currentAudio: HTMLAudioElement | null = null
   let nativeInFlight = false
@@ -413,6 +415,15 @@ export function createSpeaker(): Speaker {
     // and the comma before "sir" that buys the beat.
     const text = shape(sentence)
     if (!text) return
+    // Duplicate pushed announcements can arrive while the bridge reconnects.
+    // Do not turn an event storm into a spoken loop; legitimate repeats after
+    // the short cooldown still get through.
+    if (priority) {
+      const now = Date.now()
+      if (text === lastPriorityText && now - lastPriorityAt < 3000) return
+      lastPriorityText = text
+      lastPriorityAt = now
+    }
 
     const item: Item = { text }
     if (priority) {
