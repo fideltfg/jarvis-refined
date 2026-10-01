@@ -13,7 +13,7 @@ import { MODELS } from './config.mjs'
  * What does NOT travel is decided in bridge/endpoints.mjs and agents/pool.mjs,
  * not here — by the time a task reaches this file the pool has already ruled
  * that it may go. What this file owes the user is the other half: the token is
- * only ever sent over TLS or a network TLS (the endpoint could not have been parsed otherwise), the remote task id is recorded before the first poll
+ * only ever sent over TLS (the endpoint could not have been parsed otherwise), the remote task id is recorded before the first poll
  * so a restart re-attaches instead of running the work twice, and a cancel here
  * is a cancel there.
  */
@@ -83,7 +83,11 @@ export async function runRemoteTask(task, deps) {
     } catch {
       data = null
     }
-    if (!res.ok) throw new Error(data?.error ?? `${method} ${path} answered ${res.status}`)
+    if (!res.ok) {
+      const err = new Error(data?.error ?? `${method} ${path} answered ${res.status}`)
+      err.status = res.status
+      throw err
+    }
     return data
   }
 
@@ -117,9 +121,16 @@ export async function runRemoteTask(task, deps) {
         },
       })
       id = created?.id
-      if (!id) return failed(`${endpoint.label} accepted the task but named no id for it.`)
+      if (!id) {
+        onLost?.(new Error('Remote host returned no task id.'))
+        return failed(`${endpoint.label} accepted the task but named no id for it.`)
+      }
     } catch (err) {
-      return failed(`${endpoint.label} refused the task: ${err.message}`)
+      // A timed-out POST may still have reached the host. Its origin key is
+      // idempotent there; leave this task queued for an explicit retry.
+      if (err.status) return failed(`${endpoint.label} refused the task: ${err.message}`)
+      onLost?.(err)
+      return failed(`${endpoint.label} could not confirm the task: ${err.message}`)
     }
     try {
       onRemote?.({ endpointId: endpoint.id, id })

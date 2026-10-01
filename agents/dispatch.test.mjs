@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { createDispatch, isRemote } from './dispatch.mjs'
 
 const task = { id: 't_1', goalId: 'g_1', title: 'Research', kind: 'research' }
-const remoteEndpoint = { id: 'rigel', kind: 'remote', label: 'Rigel' }
+const remoteEndpoint = { id: 'rigel', kind: 'remote', label: 'Rigel', apiKeyEnv: 'RIGEL_TOKEN' }
 
 function storeWith(taskValue = task) {
   let saved = { ...taskValue }

@@ -160,6 +160,9 @@ export function createScheduler({
       .sort((a, b) => a.updated.localeCompare(b.updated))
       .at(-1)
     if (!last || now() - Date.parse(last.updated) < parseEvery(goal.recurring.every)) return
+    // A lost remote run retains its handle; retry the same run instead of
+    // creating a new task and posting a second copy to the other host.
+    if (last.remote) return
     const next = store.newTask({
       goalId: goal.id, title: last.title, brief: last.brief, kind: last.kind, model: last.model, repo: last.workspace?.repo ?? null,
     })

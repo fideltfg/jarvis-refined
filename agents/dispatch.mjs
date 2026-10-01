@@ -33,6 +33,9 @@ export function createDispatch({
     if (isRemote(endpoint) && (current.kind !== 'research' && current.kind !== 'ops' || current.delegated)) {
       return { status: 'failed', failure: { reason: 'remote', detail: 'Only originating research and ops tasks may travel.' } }
     }
+    if (isRemote(endpoint) && !endpoint.apiKeyEnv) {
+      return { status: 'failed', failure: { reason: 'remote', detail: 'Remote endpoint requires a per-host token variable.' } }
+    }
     if (!isRemote(endpoint)) return local(current, { ...localDeps(current), ...opts, store })
     return remote(current, {
       ...remoteDeps,
