@@ -27,6 +27,7 @@ export function createScheduler({
   store, runTask, coordinator,
   now = Date.now,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+  pool = null,
   maxWorkers = MAX_WORKERS,
   tickMs = 5000,
   retryDelayMs = 30_000,
@@ -63,14 +64,14 @@ export function createScheduler({
     })
   }
 
-  async function execute(task, controller) {
+  async function execute(task, controller, endpoint) {
     const onSession = (sessionId) => {
       const t = store.getTask(task.id)
       if (t) store.saveTask({ ...t, sessionId })
     }
     for (let tries = 0; ; tries++) {
       try {
-        return await runTask(task, { signal: controller.signal, onSession })
+        return await runTask(task, { signal: controller.signal, onSession, endpoint })
       } catch (err) {
         if (isRateLimit(err)) throw err
         if (tries >= 1) return { status: 'failed', failure: { reason: 'error', detail: String(err?.message ?? err) } }
@@ -80,12 +81,18 @@ export function createScheduler({
     }
   }
 
-  function launch(task) {
+  function launch(task, lease = null) {
     const controller = new AbortController()
     const t = store.saveTask({ ...task, status: 'running' })
     running.set(t.id, controller)
-    store.appendEvent({ type: 'task_started', goalId: t.goalId, taskId: t.id, text: `Started: ${t.title}`, data: labels(t) })
-    const promise = execute(t, controller)
+    store.appendEvent({
+      type: 'task_started',
+      goalId: t.goalId,
+      taskId: t.id,
+      text: `Started: ${t.title}`,
+      data: { ...labels(t), endpoint: lease?.endpoint.id ?? null },
+    })
+    const promise = execute(t, controller, lease?.endpoint ?? null)
       .then(
         (outcome) => {
           running.delete(t.id)
@@ -110,6 +117,10 @@ export function createScheduler({
       )
       .catch((err) => console.warn('[agents] review failed:', err.message))
       .finally(() => {
+        // Released here rather than beside the outcome, so a run that ends any
+        // way at all — outcome, rate limit, thrown review — gives its capacity
+        // back. A leaked lease would shrink the pool for the process's life.
+        lease?.release()
         inflight.delete(promise)
         tick()
       })
@@ -180,7 +191,19 @@ export function createScheduler({
         requeueRecurring()
         for (const task of runnable(store, running)) {
           if (running.size >= maxWorkers) break
-          launch(task)
+          if (!pool) {
+            launch(task)
+            continue
+          }
+          const lease = pool.acquire(task)
+          // No lease for this task may mean the pool is full, or only that the
+          // endpoint it is pinned to is busy — in which case a later task can
+          // still start.
+          if (!lease) {
+            if (!pool.free()) break
+            continue
+          }
+          launch(task, lease)
         }
       } while (again)
     } catch (err) {

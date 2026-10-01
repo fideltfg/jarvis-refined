@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
 import { z } from 'zod'
 import { KINDS, MAX_ATTEMPTS, MODELS } from './config.mjs'
+import { taskModels } from './pool.mjs'
 import { agentEnv, usageData } from './worker.mjs'
 
 /**
@@ -20,7 +21,7 @@ Planning a new goal: create 2 to 6 tasks with plan_tasks. Each brief must stand 
 - research: web research and written reports.
 - ops: operating services through the user's connected tools.
 - admin: email, calendar and browser tasks on the user's behalf.
-Use model "opus" only for tasks that need deep reasoning; the default is "sonnet".
+Use model "opus" only for tasks that need deep reasoning; the default is "sonnet". The model may also be one of the other endpoint ids the tool schema lists: those are the user's own machines, cheap to run and suited to routine research and summarising, but slower and weaker at code — pin a task to one only when the work is simple and the queue is busy.
 
 Reviewing: read the trigger and the task results, then do one of:
 - add follow-up tasks with plan_tasks,
@@ -45,10 +46,16 @@ export function snapshot(store, goalId, trigger) {
   const line = (t) => {
     const state = t.status === 'failed'
       ? `failed: ${t.failure?.reason ?? 'error'}, attempts ${t.attempts}/${MAX_ATTEMPTS}`
-      : t.status
+      : t.status === 'blocked'
+        ? `blocked: ${t.failure?.blocker ?? 'unspecified'}${t.failure?.risk && t.failure.risk !== 'na' ? `, risk ${t.failure.risk}` : ''}`
+        : t.status
     const after = t.dependsOn.length ? ` — after ${t.dependsOn.join(', ')}` : ''
     const tail = t.result?.summary ?? t.failure?.detail ?? ''
-    return `- ${t.id} [${state}] (${t.kind}) ${t.title}${after}${tail ? `\n    ${tail.slice(0, 400)}` : ''}`
+    // What a blocked agent said it needs, stated as its own line so it is not
+    // buried in prose. An empty list means it named nothing, not that it needs
+    // nothing.
+    const needs = t.failure?.need?.length ? `\n    Needs: ${t.failure.need.join('; ')}` : ''
+    return `- ${t.id} [${state}] (${t.kind}) ${t.title}${after}${tail ? `\n    ${tail.slice(0, 400)}` : ''}${needs}`
   }
   return [
     `GOAL ${goal.id}: ${goal.title}`,
@@ -197,7 +204,7 @@ export function sdkModel({ queryFn = query, model = MODELS.opus, maxBudgetUsd = 
             brief: z.string().describe('Complete, standalone instructions for the agent.'),
             kind: z.enum(KINDS),
             dependsOn: z.array(z.string()).optional(),
-            model: z.enum(['sonnet', 'opus']).optional(),
+            model: z.string().optional().describe(`One of: ${taskModels().join(', ')}.`),
             repo: z.string().optional().describe('Absolute path of the git repository, for code tasks.'),
           })),
         }, async (a) => text(actions.plan_tasks(a))),
@@ -205,7 +212,7 @@ export function sdkModel({ queryFn = query, model = MODELS.opus, maxBudgetUsd = 
           taskId: z.string(),
           brief: z.string().optional(),
           status: z.enum(['queued', 'cancelled']).optional(),
-          model: z.enum(['sonnet', 'opus']).optional(),
+          model: z.string().optional().describe(`One of: ${taskModels().join(', ')}.`),
         }, async (a) => text(actions.update_task(a))),
         tool('complete_goal', 'Mark the goal done once its outcome is met.', { summary: z.string() }, async (a) => text(actions.complete_goal(a))),
         tool('note', 'Replace the running summary of where the goal stands.', { text: z.string() }, async (a) => text(actions.note(a))),

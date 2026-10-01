@@ -1,23 +1,68 @@
 import OpenAI from 'openai'
+import { endpointKey, listEndpoints } from './endpoints.mjs'
 
 export const PROVIDERS = ['claude', 'openai', 'local']
+
+/** The endpoints "local" can mean: everything OpenAI-compatible in the pool. */
+export function localEndpoints(env = process.env) {
+  return listEndpoints(env).filter((endpoint) => endpoint.kind !== 'anthropic' && endpoint.baseURL && endpoint.model)
+}
 
 export function configuredProviders(env = process.env) {
   return PROVIDERS.filter((provider) =>
     provider === 'claude' ||
     (provider === 'openai' && Boolean(env.OPENAI_API_KEY)) ||
-    (provider === 'local' && Boolean(env.JARVIS_LOCAL_URL && env.JARVIS_LOCAL_MODEL)))
+    (provider === 'local' && localEndpoints(env).length > 0))
+}
+
+/**
+ * Which machines a call may land on, in preference order. An endpoint object
+ * pins the call to that one box; "local" spreads across the pool, so a
+ * saturated endpoint hands the turn to the next one instead of failing it.
+ */
+function targets(provider, env) {
+  const of = (endpoint) => ({
+    id: endpoint.id,
+    baseURL: endpoint.baseURL,
+    model: endpoint.model,
+    apiKey: endpointKey(endpoint, env) || 'local',
+  })
+  if (provider && typeof provider === 'object') return [of(provider)]
+  if (provider === 'local') return localEndpoints(env).map(of)
+  return [{ id: 'openai', baseURL: null, model: env.OPENAI_MODEL || 'gpt-4.1-mini', apiKey: env.OPENAI_API_KEY }]
 }
 
 export function textProvider(provider, env = process.env) {
-  const local = provider === 'local'
-  const client = new OpenAI({
-    apiKey: local ? (env.JARVIS_LOCAL_API_KEY || 'local') : env.OPENAI_API_KEY,
-    ...(local ? { baseURL: env.JARVIS_LOCAL_URL } : {}),
-    maxRetries: 0,
-  })
-  const model = local ? env.JARVIS_LOCAL_MODEL : (env.OPENAI_MODEL || 'gpt-4.1-mini')
+  const pool = targets(provider, env)
+  if (!pool.length) throw new Error('No local endpoint is configured.')
 
+  const turn = (target) => oneTurn(new OpenAI({
+    apiKey: target.apiKey,
+    ...(target.baseURL ? { baseURL: target.baseURL } : {}),
+    maxRetries: 0,
+  }), target.model)
+
+  return async function stream(messages, signal, onText, options = {}) {
+    // Words already spoken cannot be unspoken, so once anything has been
+    // emitted the turn belongs to that endpoint, saturated or not.
+    let emitted = false
+    const depth = messages.length
+    const emit = (text) => {
+      emitted = true
+      onText(text)
+    }
+    for (const [index, target] of pool.entries()) {
+      try {
+        return await turn(target)(messages, signal, emit, options)
+      } catch (err) {
+        if (emitted || index === pool.length - 1 || !isCapacityError(err)) throw err
+        messages.length = depth
+      }
+    }
+  }
+}
+
+function oneTurn(client, model) {
   return async function stream(messages, signal, onText, options = {}) {
     const tools = options.tools ?? []
     for (let round = 0; round < 12; round += 1) {

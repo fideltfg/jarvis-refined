@@ -86,10 +86,34 @@ test('blocked, no report and max turns map to their outcomes', async () => {
       options.mcpServers.agent.onReport({ status: 'blocked', summary: 'Need the repo URL.' })
       yield { type: 'result', subtype: 'success' }
     }),
-    { status: 'blocked', failure: { reason: 'blocked', detail: 'Need the repo URL.' } },
+    {
+      status: 'blocked',
+      failure: { reason: 'blocked', detail: 'Need the repo URL.', blocker: 'unspecified', need: [], risk: 'na', confidence: null },
+    },
   )
   assert.equal((await run(async function* () { yield { type: 'result', subtype: 'success' } })).failure.reason, 'error')
   assert.equal((await run(async function* () { yield { type: 'result', subtype: 'error_max_turns' } })).failure.reason, 'budget')
+})
+
+test('a blocked report carries its blocker, needs and risk through to the failure', async () => {
+  const { store, task } = setup()
+  const out = await runTask(task, deps(store, {
+    queryFn: fake(async function* ({ options }) {
+      options.mcpServers.agent.onReport({
+        status: 'blocked',
+        summary: 'The visibility toggle needs an org-scoped token.',
+        blocker: 'credential',
+        need: ['a token with write:packages', 'confirmation the package should be public'],
+        risk: 'me',
+        confidence: 0.9,
+      })
+      yield { type: 'result', subtype: 'success' }
+    }),
+  }))
+  assert.equal(out.failure.blocker, 'credential')
+  assert.deepEqual(out.failure.need, ['a token with write:packages', 'confirmation the package should be public'])
+  assert.equal(out.failure.risk, 'me')
+  assert.equal(out.failure.confidence, 0.9)
 })
 
 test('a spending limit overrides a done report and records cache usage', async () => {
@@ -225,6 +249,27 @@ test('F1: workers get an allowlisted environment without the agent token or keys
   }))
   assert.ok(seen.env)
   assert.equal(seen.env.JARVIS_AGENTS_TOKEN, undefined)
+})
+
+test('a gateway endpoint is injected into the run, and widens nothing else', async () => {
+  const { agentEnv, modelFor } = await import('./worker.mjs')
+  const gateway = { id: 'rigel-gw', kind: 'gateway', baseURL: 'http://11.0.0.9:8080', model: 'llama3.1:8b', apiKeyEnv: 'RIGEL_GATEWAY_TOKEN' }
+  const env = agentEnv({
+    PATH: '/usr/bin', HOME: '/home/u',
+    JARVIS_AGENTS_TOKEN: 'secret', RIGEL_GATEWAY_TOKEN: 'sk-rigel', ANTHROPIC_BASE_URL: 'http://wrong.test',
+  }, gateway)
+  // The three Anthropic variables come from the endpoint, never from the
+  // environment: the stray ANTHROPIC_BASE_URL above must not be what is used.
+  assert.deepEqual(Object.keys(env).sort(), ['ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_MODEL', 'HOME', 'PATH'])
+  assert.equal(env.ANTHROPIC_BASE_URL, 'http://11.0.0.9:8080')
+  assert.equal(env.ANTHROPIC_AUTH_TOKEN, 'sk-rigel')
+  assert.equal(env.ANTHROPIC_MODEL, 'llama3.1:8b')
+  assert.equal(modelFor({ model: 'rigel-gw' }, gateway), 'llama3.1:8b')
+
+  // An anthropic endpoint is left exactly as it was before the pool existed.
+  const plain = agentEnv({ PATH: '/usr/bin', ANTHROPIC_BASE_URL: 'http://wrong.test' }, { id: 'claude', kind: 'anthropic', baseURL: null })
+  assert.deepEqual(Object.keys(plain), ['PATH'])
+  assert.throws(() => agentEnv({}, { id: 'broken', kind: 'gateway', baseURL: null }), /no baseURL/)
 })
 
 test('F2: a checkout URL or checkout page puts later Chrome actions behind approval', async () => {

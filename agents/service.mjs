@@ -2,12 +2,14 @@ import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { chromeServer } from '../bridge/chrome.mjs'
+import { createHealth } from '../bridge/endpoints.mjs'
 import { createApi } from './api.mjs'
 import { createApprovals } from './approvals.mjs'
-import { AGENTS_DIR, PORT, TOKEN } from './config.mjs'
+import { AGENTS_DIR, MAX_WORKERS, PORT, TOKEN } from './config.mjs'
 import { createContacts } from './contacts.mjs'
 import { createCoordinator, sdkModel } from './coordinator.mjs'
 import { paMirror } from './mirror.mjs'
+import { agentEndpoints, createPool } from './pool.mjs'
 import { recover } from './recover.mjs'
 import { createScheduler } from './scheduler.mjs'
 import { createStore } from './store.mjs'
@@ -43,18 +45,35 @@ const mcpFor = (task) => {
   return {}
 }
 
+/**
+ * Capacity, counted per endpoint. JARVIS_MAX_WORKERS is the ceiling across the
+ * whole pool — a generous endpoint list must not be able to spawn more workers
+ * than this box can bear — and the health memory keeps the scheduler from
+ * waiting on a machine that is switched off.
+ */
+const endpoints = agentEndpoints()
+const health = createHealth()
+const maxTotal = Number(process.env.JARVIS_MAX_WORKERS) || Math.max(MAX_WORKERS, endpoints.reduce((t, e) => t + e.concurrency, 0))
+const pool = createPool({ endpoints, health, maxTotal })
+
 const scheduler = createScheduler({
   store,
   coordinator,
+  pool,
+  maxWorkers: pool.capacity(),
   onCancel: (taskId) => approvals.expire(taskId),
   onArchive: (task) => removeWorkspace(task),
   runTask: (task, opts) =>
     runTask(task, { ...opts, store, approvals, contacts: () => contacts.get(), mcpServers: mcpFor(task) }),
 })
 
+// Probed in the background: a dead box is learned about before the queue needs
+// it, and startup never waits on a timeout.
+health.checkAll(endpoints).catch((err) => console.warn('[agents] endpoint probe failed:', err.message))
+
 const recovered = recover(store, approvals)
 const api = createApi({
-  store, scheduler, coordinator, approvals, mirror,
+  store, scheduler, coordinator, approvals, mirror, pool,
   cleanup: () => cleanupWorkspaces(store),
   token: TOKEN,
   port: PORT,
@@ -62,7 +81,8 @@ const api = createApi({
 
 const port = await api.listen()
 scheduler.start()
-console.log(`[agents] listening on 127.0.0.1:${port} · state in ${AGENTS_DIR} · ${recovered} task(s) recovered`)
+const capacity = `${pool.capacity()} slot(s) across ${endpoints.length} endpoint(s): ${endpoints.map((e) => `${e.id}×${e.concurrency}`).join(', ')}`
+console.log(`[agents] listening on 127.0.0.1:${port} · state in ${AGENTS_DIR} · ${recovered} task(s) recovered · ${capacity}`)
 
 const shutdown = async () => {
   scheduler.stop()

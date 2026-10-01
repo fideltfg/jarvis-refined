@@ -38,14 +38,41 @@ port and state paths with the variables in the
 
 Ask JARVIS to handle work that takes more than one turn, such as a code change,
 research report, service operation, or administrative task. The coordinator
-plans tasks, schedules up to three workers at once, tracks progress, and
-reviews task results. Goals can be paused, resumed, updated with new information,
-or abandoned. Recurring goals can be scheduled with an interval.
+plans tasks, schedules workers against the available capacity, tracks progress,
+and reviews task results. Goals can be paused, resumed, updated with new
+information, or abandoned. Recurring goals can be scheduled with an interval.
 
 Worker categories are `code`, `research`, `ops`, and `admin`. Workers have
 per-task turn, time, and spending limits. Work is persisted under
 `~/.config/jarvis/agents`; task workspaces use `~/.jarvis-work` by default.
 Completed task workspaces can be removed with JARVIS's `cleanup` agent tool.
+
+## Capacity and Endpoints
+
+Capacity is counted per machine rather than once for everything. The scheduler
+asks the pool for a lease before it starts a worker; a lease names the endpoint
+the work will run on, and it is released in the same place the worker is torn
+down, so a crashed run cannot leak capacity. When nothing is free the tick stops
+launching and the queue waits — a saturated host no longer holds up work that
+another one could take.
+
+The endpoints come from `JARVIS_ENDPOINTS`, documented in
+[Configuration](configuration.md#model-endpoints). Only `anthropic` and
+`gateway` endpoints can carry a task: the worker drives the Claude Agent SDK,
+which speaks the Anthropic API alone. To run a task on a local model, put an
+Anthropic-compatible gateway in front of it and declare that as a `gateway`
+endpoint; the worker then passes that endpoint's own model name and points the
+run at its base URL. The child process still sees only a tight set of
+environment variables, and never the agent service's own token.
+
+An `openai` endpoint — Ollama and the like — serves conversation and cheap
+summarising through the bridge instead. It is not given agent work, because the
+safety gate lives in the SDK's hooks and would not exist there.
+
+A task's `model` may be `sonnet`, `opus`, or the id of a declared endpoint,
+which pins it to that machine. An unknown name falls back to `sonnet` rather
+than pinning work to a host that does not exist. Declare nothing and the
+behaviour is as it was: three workers against the Anthropic API.
 
 ## Approvals
 

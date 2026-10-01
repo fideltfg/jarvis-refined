@@ -6,6 +6,8 @@ import { join } from 'node:path'
 
 import { createStore } from './store.mjs'
 import { createScheduler, isRateLimit } from './scheduler.mjs'
+import { createPool } from './pool.mjs'
+import { parseEndpoints } from '../bridge/endpoints.mjs'
 
 const deferred = () => {
   let resolve, reject
@@ -14,7 +16,7 @@ const deferred = () => {
 }
 const settle = () => new Promise((r) => setImmediate(r))
 
-function harness({ maxWorkers = 3 } = {}) {
+function harness({ maxWorkers = 3, pool = null } = {}) {
   let clock = Date.parse('2026-09-29T00:00:00Z')
   const store = createStore(mkdtempSync(join(tmpdir(), 'agents-sched-')), { workDir: '/work', now: () => new Date(clock) })
   const runs = new Map()
@@ -23,14 +25,15 @@ function harness({ maxWorkers = 3 } = {}) {
   const scheduler = createScheduler({
     store,
     maxWorkers,
+    pool,
     now: () => clock,
     sleep: async () => {},
     retryDelayMs: 0,
     onCancel: (id) => cancelled.push(id),
     coordinator: { review: async (goalId, ev) => { reviews.push(ev) } },
-    runTask: (task, { signal }) => {
+    runTask: (task, { signal, endpoint }) => {
       const d = deferred()
-      runs.set(task.id, { ...d, signal })
+      runs.set(task.id, { ...d, signal, endpoint })
       return d.promise
     },
   })
@@ -195,4 +198,85 @@ test('F11: recurring runs archive old tasks, keep the last three and hand them t
   assert.ok(live.length <= 4)
   assert.ok(archived.length >= 2)
   assert.ok(store.listTasks({ goalId: g.id }).filter((t) => t.archived).every((t) => archived.includes(t.id)))
+})
+
+// -- leasing across endpoints -----------------------------------------------
+
+// A task may only be pinned to an endpoint the registry knows, and the store
+// checks that on the way in, so these two boxes have to be declared in the
+// environment as well as handed to the pool.
+const BOXES = [
+  { id: 'cloud', kind: 'anthropic', concurrency: 1 },
+  { id: 'rigel', kind: 'gateway', baseURL: 'http://11.0.0.9:4000', model: 'llama3.1:8b', concurrency: 1 },
+]
+process.env.JARVIS_ENDPOINTS = JSON.stringify(BOXES)
+
+const twoBoxes = () => createPool({ endpoints: parseEndpoints(BOXES) })
+
+test('with a pool, each run is leased to an endpoint and the lease comes back', async () => {
+  const pool = twoBoxes()
+  const h = harness({ maxWorkers: 9, pool })
+  const g = h.store.newGoal({ title: 'G', outcome: 'O' })
+  const a = h.store.newTask({ goalId: g.id, title: 'A', brief: 'a' })
+  const b = h.store.newTask({ goalId: g.id, title: 'B', brief: 'b', model: 'rigel' })
+  const c = h.store.newTask({ goalId: g.id, title: 'C', brief: 'c' })
+
+  h.scheduler.tick()
+  assert.equal(h.runs.get(a.id).endpoint.id, 'cloud')
+  assert.equal(h.runs.get(b.id).endpoint.id, 'rigel')
+  assert.equal(h.runs.has(c.id), false, 'both endpoints are full, so C waits')
+  assert.equal(pool.inFlight(), 2)
+
+  // The endpoint that carried the work is recorded with the start.
+  const started = h.store.readEvents().filter((e) => e.type === 'task_started')
+  assert.deepEqual(started.map((e) => e.data.endpoint).sort(), ['cloud', 'rigel'])
+
+  // Both runs end. Releasing a lease ticks the scheduler, so the slot is not
+  // merely given back: C is placed on it without waiting for the next timer.
+  h.runs.get(a.id).resolve(DONE)
+  h.runs.get(b.id).resolve(DONE)
+  await h.scheduler.idle()
+  assert.equal(h.runs.get(c.id).endpoint.id, 'cloud')
+  assert.equal(pool.inFlight(), 1, 'two leases back, one taken again by C')
+  h.runs.get(c.id).resolve(DONE)
+  await h.scheduler.idle()
+  assert.equal(pool.inFlight(), 0, 'nothing holds capacity once the queue is empty')
+})
+
+test('a task pinned to a busy endpoint is stepped over, not a barrier', async () => {
+  const pool = twoBoxes()
+  pool.acquire({ model: 'rigel' })
+  const h = harness({ maxWorkers: 9, pool })
+  const g = h.store.newGoal({ title: 'G', outcome: 'O' })
+  const pinned = h.store.newTask({ goalId: g.id, title: 'Pinned', brief: 'a', model: 'rigel' })
+  const next = h.store.newTask({ goalId: g.id, title: 'Next', brief: 'b' })
+
+  h.scheduler.tick()
+  assert.equal(h.runs.has(pinned.id), false)
+  assert.equal(h.runs.get(next.id).endpoint.id, 'cloud', 'the queue carried on past the blocked one')
+  assert.equal(h.store.getTask(pinned.id).status, 'queued')
+})
+
+test('a run that ends badly still returns its slot', async () => {
+  const pool = createPool({ endpoints: parseEndpoints([{ id: 'cloud', kind: 'anthropic', concurrency: 1 }]) })
+  const h = harness({ maxWorkers: 9, pool })
+  const g = h.store.newGoal({ title: 'G', outcome: 'O' })
+  const a = h.store.newTask({ goalId: g.id, title: 'A', brief: 'a' })
+  h.scheduler.tick()
+  assert.equal(pool.inFlight(), 1)
+  h.runs.get(a.id).reject(new Error('429 rate limit exceeded'))
+  await h.scheduler.idle()
+  assert.equal(h.store.getTask(a.id).status, 'queued')
+  assert.equal(pool.inFlight(), 0, 'a rate-limited run must not keep the slot for the life of the process')
+})
+
+test('with no pool the old fixed ceiling still governs', () => {
+  const h = harness({ maxWorkers: 1 })
+  const g = h.store.newGoal({ title: 'G', outcome: 'O' })
+  const a = h.store.newTask({ goalId: g.id, title: 'A', brief: 'a' })
+  const b = h.store.newTask({ goalId: g.id, title: 'B', brief: 'b' })
+  h.scheduler.tick()
+  assert.equal(h.runs.size, 1)
+  assert.equal(h.runs.get(a.id).endpoint, null, 'no pool means no endpoint named')
+  assert.equal(h.runs.has(b.id), false)
 })

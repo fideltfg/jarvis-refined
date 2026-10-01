@@ -46,6 +46,7 @@ export function agentsApi({
     base,
     token,
     board: () => call('GET', '/board'),
+    endpoints: () => call('GET', '/endpoints'),
     createGoal: (goal) => call('POST', '/goals', goal),
     updateGoal: (id, change) => call('POST', `/goals/${at(id)}`, change),
     status: (goalId) => call('GET', `/status${goalId ? `?goal=${at(goalId)}` : ''}`),

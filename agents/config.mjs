@@ -12,6 +12,13 @@ export const WORK_DIR = process.env.JARVIS_WORK_DIR || join(homedir(), '.jarvis-
 export const PORT = Number(process.env.JARVIS_AGENTS_PORT) || 8788
 export const TOKEN = process.env.JARVIS_AGENTS_TOKEN || ''
 
+/**
+ * The kinds of obstacle a blocked agent may name. The coordinator routes on
+ * these, so the list is deliberately short and an agent that fits none of them
+ * names none: unspecified is a real answer, a wrong code is not.
+ */
+export const BLOCKERS = ['approval', 'credential', 'decision', 'dependency', 'upstream']
+
 export const MAX_WORKERS = 3
 export const MAX_ATTEMPTS = 3
 export const DEFAULT_TASK_CAP = 20

@@ -8,16 +8,19 @@ import { createStore } from './store.mjs'
 import { createApprovals } from './approvals.mjs'
 import { createApi } from './api.mjs'
 import { boardOf, briefing } from './briefing.mjs'
+import { createPool } from './pool.mjs'
+import { parseEndpoints } from '../bridge/endpoints.mjs'
 
 const TOKEN = 'test-token'
 
-async function setup() {
+async function setup({ pool = null } = {}) {
   const store = createStore(mkdtempSync(join(tmpdir(), 'agents-api-')), { workDir: '/work' })
   const approvals = createApprovals(store)
   const calls = { plan: [], redirect: [], cancel: [], mirror: [] }
   const api = createApi({
     store,
     approvals,
+    pool,
     token: TOKEN,
     scheduler: { running: () => new Set(), cancel: (id) => { calls.cancel.push(id); return true } },
     coordinator: {
@@ -167,4 +170,39 @@ test('F11: the board leaves out archived tasks', () => {
   store.saveTask({ ...store.newTask({ goalId: g.id, title: 'Old', brief: 'b' }), status: 'done', archived: true })
   store.newTask({ goalId: g.id, title: 'New', brief: 'b' })
   assert.deepEqual(boardOf(store).goals[0].tasks.map((t) => t.title), ['New'])
+})
+
+// -- the capacity readout ---------------------------------------------------
+
+test('GET /endpoints reports the pool, its width and what is busy', async () => {
+  const pool = createPool({
+    endpoints: parseEndpoints([
+      { id: 'cloud', kind: 'anthropic', concurrency: 2 },
+      { id: 'rigel', kind: 'gateway', baseURL: 'http://11.0.0.9:4000', model: 'llama3.1:8b', apiKeyEnv: 'RIGEL_KEY' },
+    ]),
+  })
+  pool.acquire({ model: 'rigel' })
+  const s = await setup({ pool })
+  try {
+    const res = await s.call('GET', '/endpoints')
+    assert.equal(res.status, 200)
+    const body = await res.json()
+    assert.equal(body.capacity, 3)
+    assert.equal(body.running, 1)
+    assert.deepEqual(body.endpoints.map((e) => [e.id, e.running, e.concurrency]), [['cloud', 0, 2], ['rigel', 1, 1]])
+    // No addresses and no key names go out of the process.
+    assert.doesNotMatch(JSON.stringify(body), /11\.0\.0\.9|RIGEL_KEY/)
+  } finally {
+    await s.api.close()
+  }
+})
+
+test('with no pool configured the readout still answers, from the running set', async () => {
+  const s = await setup()
+  try {
+    const body = await (await s.call('GET', '/endpoints')).json()
+    assert.deepEqual(body, { capacity: null, running: 0, endpoints: [] })
+  } finally {
+    await s.api.close()
+  }
 })

@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { mergeBoard, statusLabel } from './board.ts'
+import { capacityLine, mergeBoard, statusLabel } from './board.ts'
 
 const task = (over = {}) => ({
   id: 't1', title: 'Task', kind: 'shell', status: 'queued', attempts: 1, summary: null,
@@ -134,4 +134,39 @@ test('every status has a label', () => {
     assert.equal(typeof statusLabel(s), 'string')
   }
   assert.equal(statusLabel('awaiting_approval'), 'approval')
+})
+
+// -- the capacity line ------------------------------------------------------
+
+const ep = (over = {}) => ({
+  id: 'cloud', label: 'cloud', kind: 'anthropic', model: null,
+  healthy: true, running: 0, concurrency: 2, kinds: [], ...over,
+})
+
+test('one idle endpoint says nothing, because there is nothing to choose', () => {
+  assert.equal(capacityLine(null), null)
+  assert.equal(capacityLine(undefined), null)
+  // An older agent service with no /endpoints route.
+  assert.equal(capacityLine({ capacity: null, running: 0, endpoints: [] }), null)
+  assert.equal(capacityLine({ capacity: 3, running: 0, endpoints: [ep()] }), null)
+})
+
+test('one endpoint with work on it reports the load', () => {
+  assert.equal(capacityLine({ capacity: 3, running: 2, endpoints: [ep({ running: 2 })] }), '2 of 3 busy')
+})
+
+test('several endpoints are always worth a line, idle or not', () => {
+  const line = capacityLine({
+    capacity: 4, running: 1,
+    endpoints: [ep({ running: 1 }), ep({ id: 'rigel', kind: 'gateway', concurrency: 2 })],
+  })
+  assert.equal(line, '1 of 4 busy · 2 endpoints')
+})
+
+test('an unreachable machine is counted on the line', () => {
+  const line = capacityLine({
+    capacity: 6, running: 0,
+    endpoints: [ep(), ep({ id: 'rigel', healthy: false }), ep({ id: 'vega', healthy: false })],
+  })
+  assert.equal(line, '0 of 6 busy · 3 endpoints · 2 down')
 })

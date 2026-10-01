@@ -39,7 +39,28 @@ export type AgentGoal = {
   updated?: string
 }
 export type AgentApproval = { id: string; taskId: string; category: string; action: string; detail: string }
-export type AgentBoardData = { goals: AgentGoal[]; approvals: AgentApproval[]; running: string[] }
+
+/** One model endpoint an agent task can run on, as GET /endpoints reports it. */
+export type AgentEndpoint = {
+  id: string
+  label: string
+  kind: string
+  model: string | null
+  healthy: boolean
+  running: number
+  concurrency: number
+  kinds: string[]
+}
+/** The pool: how wide it is, how much of it is busy, and where. */
+export type AgentCapacity = { capacity: number | null; running: number; endpoints: AgentEndpoint[] }
+
+export type AgentBoardData = {
+  goals: AgentGoal[]
+  approvals: AgentApproval[]
+  running: string[]
+  /** Absent from an older agent service, which has no /endpoints route. */
+  capacity?: AgentCapacity | null
+}
 
 /** A Claude Code subagent spawned inside the voice session itself. */
 export type SessionAgent = {
@@ -141,6 +162,22 @@ export function ago(stamp: string | null, now: number = Date.now()): string | nu
   const hours = Math.round(mins / 60)
   if (hours < 24) return `${hours}h`
   return `${Math.round(hours / 24)}d`
+}
+
+/**
+ * The pool in one line: how much of the capacity is in use, and nothing else.
+ *
+ * A single endpoint is the ordinary case and says nothing worth a line of its
+ * own, so it is left out; the per-endpoint detail is drawn as chips beside it.
+ */
+export function capacityLine(capacity: AgentCapacity | null | undefined): string | null {
+  if (!capacity || capacity.capacity === null) return null
+  if (capacity.endpoints.length < 2 && capacity.running === 0) return null
+  const down = capacity.endpoints.filter((e) => !e.healthy).length
+  const parts = [`${capacity.running} of ${capacity.capacity} busy`]
+  if (capacity.endpoints.length > 1) parts.push(plural(capacity.endpoints.length, 'endpoint'))
+  if (down) parts.push(`${down} down`)
+  return parts.join(' · ')
 }
 
 const goalStatus = (status: string): BoardAgentStatus => (status === 'paused' ? 'paused' : 'active')

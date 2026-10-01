@@ -4,6 +4,7 @@ import {
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { BUDGETS, DEFAULT_TASK_CAP, KINDS, WORK_DIR } from './config.mjs'
+import { isTaskModel } from './pool.mjs'
 
 /**
  * The agent service's state: one JSON file per goal, task and approval, plus an
@@ -120,7 +121,9 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
         status: 'queued',
         dependsOn: [...dependsOn],
         workspace,
-        model: model === 'opus' ? 'opus' : 'sonnet',
+        // A size, or the id of a declared endpoint; anything else falls back
+        // rather than pinning the task to a machine that does not exist.
+        model: isTaskModel(model) ? model : 'sonnet',
         allowedSkills: kind === 'research' ? [...allowedSkills] : [],
         budget: { ...BUDGETS[kind] },
         attempts: 0,

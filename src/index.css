@@ -2403,3 +2403,101 @@ kbd {
   .enrol-card { animation: none }
   .enrol-bar::after { transition: none }
 }
+
+/* -- the agent board ------------------------------------------------------- */
+/* One list of rows: goals, their tasks, and the subagents a turn dispatched.
+   Colours come from the theme's accent, so every theme styles it without
+   rules of its own. */
+
+.agent-board {
+  position: absolute;
+  left: 24px;
+  bottom: 72px;
+  z-index: 5;
+  width: min(400px, calc(100vw - 48px));
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: 12px 14px;
+  pointer-events: auto;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  background: rgba(0, 8, 14, 0.78);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.ab-head { font-size: 11px; letter-spacing: 0.24em; opacity: 0.8; margin-bottom: 8px; }
+.ab-offline { opacity: 0.7; }
+.ab-empty { opacity: 0.6; }
+
+/* Capacity: the pool in one line, then a chip per machine. */
+.ab-pool {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: -2px 0 10px;
+  padding-bottom: 8px;
+  font-size: 11px;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+}
+.ab-pool-line { opacity: 0.75; }
+.ab-eps { display: flex; flex-wrap: wrap; gap: 4px; }
+.ab-ep {
+  padding: 0 5px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  opacity: 0.8;
+}
+.ab-ep[data-down] { color: #ff5a4f; border-color: currentColor; opacity: 1; }
+
+.ab-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ab-row { display: flex; flex-direction: column; gap: 3px; }
+.ab-row[data-nested] { padding-left: 12px; border-left: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); }
+.ab-row[data-kind='goal'] { margin-top: 4px; }
+.ab-row[data-kind='goal'] .ab-name { font-weight: 600; }
+
+.ab-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ab-chip {
+  flex: 0 0 auto;
+  min-width: 64px;
+  padding: 1px 6px;
+  text-align: center;
+  font-size: 10px;
+  text-transform: uppercase;
+  border: 1px solid currentColor;
+  opacity: 0.8;
+}
+.ab-chip-running { animation: abPulse 1.2s ease-in-out infinite; opacity: 1; }
+.ab-chip-awaiting_approval { color: #ffb000; opacity: 1; }
+.ab-chip-blocked, .ab-chip-failed { color: #ff5a4f; opacity: 1; }
+.ab-chip-done, .ab-chip-cancelled { opacity: 0.5; }
+@keyframes abPulse { 50% { opacity: 0.4; } }
+
+.ab-name { flex: 1 1 auto; min-width: 0; }
+.ab-kind, .ab-when { flex: 0 0 auto; font-size: 10px; letter-spacing: 0.12em; opacity: 0.5; }
+
+.ab-bar { height: 3px; background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.ab-bar span { display: block; height: 100%; background: var(--accent); transition: width 400ms ease; }
+
+.ab-activity, .ab-result { font-size: 11px; opacity: 0.65; padding-left: 72px; }
+.ab-result { opacity: 0.8; }
+
+.ab-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-left: 72px; }
+.ab-ask { color: #ffb000; }
+.ab-actions button {
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 10px;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--accent);
+  cursor: pointer;
+}
+.ab-actions button:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ab-chip-running { animation: none; }
+  .ab-bar span { transition: none; }
+}

@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 
 import { useStore } from '../store'
 import { decideApproval } from '../lib/brain'
-import { ago, mergeBoard, statusLabel, type BoardAgent } from '../lib/board'
+import { ago, capacityLine, mergeBoard, statusLabel, type BoardAgent } from '../lib/board'
 
 /**
  * The agent board: every agent JARVIS has running, in one view.
@@ -39,6 +39,8 @@ export function AgentBoard() {
   // The service being offline must not hide a subagent: a turn can dispatch one
   // with the agent service switched off entirely.
   const rows = useMemo(() => mergeBoard(online ? board : null, session), [board, online, session])
+  const capacity = online ? (board?.capacity ?? null) : null
+  const pool = capacityLine(capacity)
 
   // Subagents alone are reason enough to have a board.
   if (!seen && !session.length) return null
@@ -49,6 +51,27 @@ export function AgentBoard() {
       <div className="ab-head">
         AGENTS{seen && !online && <span className="ab-offline"> · offline</span>}
       </div>
+      {/* Where the work can run, and how much of it is in use. One line, plus a
+          chip per machine once there is more than one to choose between. */}
+      {pool && (
+        <div className="ab-pool">
+          <span className="ab-pool-line">{pool}</span>
+          {capacity && capacity.endpoints.length > 1 && (
+            <span className="ab-eps">
+              {capacity.endpoints.map((endpoint) => (
+                <span
+                  key={endpoint.id}
+                  className="ab-ep"
+                  data-down={endpoint.healthy ? undefined : ''}
+                  title={`${endpoint.label}${endpoint.model ? ` · ${endpoint.model}` : ''} · ${endpoint.kind}${endpoint.healthy ? '' : ' · unreachable'}`}
+                >
+                  {endpoint.id} {endpoint.running}/{endpoint.concurrency}
+                </span>
+              ))}
+            </span>
+          )}
+        </div>
+      )}
       {seen && !online && <div className="ab-empty">The agent service is offline.</div>}
       {!rows.length && online && <div className="ab-empty">Nothing in progress.</div>}
       <ul className="ab-list">

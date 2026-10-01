@@ -22,7 +22,7 @@ const readBody = (req) =>
 
 class NotFound extends Error {}
 
-export function createApi({ store, scheduler, coordinator, approvals, cleanup, mirror = {}, token, host = '127.0.0.1', port = 0 }) {
+export function createApi({ store, scheduler, coordinator, approvals, cleanup, mirror = {}, pool = null, token, host = '127.0.0.1', port = 0 }) {
   if (!token) throw new Error('JARVIS_AGENTS_TOKEN is not set; refusing to start an unauthenticated API.')
 
   const clients = new Set()
@@ -96,6 +96,12 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
       switch (route) {
         case 'GET /board':
           return send(200, boardOf(store, scheduler.running()))
+        // Where the capacity is, and how much of it is busy. Endpoint ids and
+        // labels only: no base URLs and no keys leave the process.
+        case 'GET /endpoints':
+          return send(200, pool
+            ? { capacity: pool.capacity(), running: pool.inFlight(), endpoints: pool.snapshot() }
+            : { capacity: null, running: scheduler.running().size, endpoints: [] })
         case 'GET /status':
           return send(200, { text: briefing(store, url.searchParams.get('goal') || undefined) })
         case 'POST /goals': {
