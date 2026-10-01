@@ -23,6 +23,9 @@ default. To preview another theme for the current browser, use a URL such as
 |---|---|
 | Theme wake phrase | Wake JARVIS. |
 | **Space** | Speak without the wake phrase. |
+| **K** | Toggle push-to-talk mode. |
+| Hold **Right Alt** | Talk while held when push-to-talk is enabled. |
+| **Shift+K** | Bind push-to-talk to another key or mouse button. |
 | Speak while JARVIS is talking | Interrupt speech (barge-in). |
 | **V** | Cycle the browser voice. |
 | **Escape** | Stand down. |

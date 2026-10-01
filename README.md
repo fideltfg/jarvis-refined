@@ -1,69 +1,87 @@
 # J.A.R.V.I.S. Refined
 
-JARVIS Refined is a browser-based voice assistant with a real-time 3D HUD. The
-browser handles the interface, microphone, wake-word detection, and speech
-output. A local Node.js bridge connects it to Claude, OpenAI, or an
-OpenAI-compatible model and to configured MCP tools. Tools can search the web,
-generate media, control a phone or browser, and work with other services exposed
-by your MCP setup.
+> A private, voice-first AI assistant with a cinematic browser HUD, local tools,
+> swappable model providers, and optional background workers.
 
-The app includes multiple character themes, provider selection and failover,
-locally generated Kokoro speech, an optional persistent background-agent
-service, and a remote browser relay for driving Chrome on another machine. The
-agent board brings background goals and Claude subagents into one view. Voice
-can be used hands-free or with configurable push-to-talk (toggle with **K**;
-hold Right Alt by default, or press **Shift+K** to bind a key or mouse button).
-Claude uses the existing Claude Code login by default; provider credentials
-remain on the bridge. See [Architecture and capabilities](docs/architecture.md)
-for the runtime overview.
+JARVIS Refined pairs a React/Three.js interface with a small Node.js bridge. The
+browser handles the microphone, wake phrase, HUD, and speech; the bridge keeps
+credentials private, connects models and MCP tools, and applies safety rules
+before an action runs.
 
-## Get Started
+## What you get
 
-You need Node.js 20+, Chrome or Edge in a normal browser window, and at least
-one configured model provider. Follow [Getting started](docs/getting-started.md)
-for provider setup and launch options. For a read-only session:
+| | Capability |
+|---|---|
+| **Talk naturally** | Wake-word, voice-activity, push-to-talk, transcription, and local or cloud speech. |
+| **Choose the brain** | Claude Code login, OpenAI, or an OpenAI-compatible local endpoint. |
+| **Use real tools** | MCP services, guarded files and media, browser control, memory, and rich HUD panels. |
+| **Change character** | JARVIS, HAL, WOPR, Mother, and LCARS themes—or add a theme without changing app code. |
+| **Keep work moving** | Optional persistent goals, approvals, worker pools, and secure remote workers. |
+
+## Quick start
+
+You need Node.js 20+ and Chrome or Edge. Claude users should install Claude Code
+and sign in once; OpenAI and local-model users can configure their provider
+instead.
 
 ```bash
 npm install
+npm run setup
 npm run start:readonly
 ```
 
-Open the URL printed by Vite, click **INITIALISE**, allow microphone access, and
-use the selected theme's wake phrase. Embedded browser previews commonly block
-microphone access. `npm start` also launches the bridge and frontend, but enables
-effectful tools; review [Tools and safety](docs/tools-and-safety.md) before
-using it.
+Open the URL Vite prints, click **INITIALISE**, allow microphone access, and say
+“Hey Jarvis.” Use a normal browser window—embedded IDE previews commonly block
+microphone access.
 
-## Guides
+`npm run start:readonly` keeps effectful tools disabled. When you are comfortable
+with the action gate, `npm start` enables them. Read [Tools and safety](docs/tools-and-safety.md)
+before doing so.
 
-- [Getting started](docs/getting-started.md): prerequisites, installation, and launch options.
-- [Architecture and capabilities](docs/architecture.md): browser, bridge, tools, HUD, and runtime flow.
-- [Providers and voice](docs/providers-and-voice.md): model selection, failover, transcription, and speech.
-- [Tools and safety](docs/tools-and-safety.md): write controls, security boundaries, and remote browser relay setup.
-- [Background agents](docs/background-agents.md): long-running goals, approvals, persistence, and service setup.
-- [Remote agent deployment](docs/remote-agent.md): package, install and secure a separate worker host without cloning this repository.
-- [Configuration reference](docs/configuration.md): environment variables and their defaults.
-- [Themes](docs/themes.md): built-in themes, controls, and audio behavior.
-- [Troubleshooting](docs/troubleshooting.md): microphone, audio, provider, and bridge checks.
-- [Theme package authoring](public/themes/README.md): theme files, schema, styles, persona, and audio assets.
+## Documentation
 
-## Development
+### Set up and operate
+
+- [Getting started](docs/getting-started.md) — requirements, installation, first run, and controls.
+- [Configuration reference](docs/configuration.md) — every supported environment variable and endpoint field.
+- [Deployment guide](docs/deployment.md) — local, LAN/HTTPS, production build, and service choices.
+- [Troubleshooting](docs/troubleshooting.md) — microphone, audio, provider, bridge, theme, and worker checks.
+
+### Understand and extend
+
+- [Architecture](docs/architecture.md) — browser, bridge, model, and tool data flow.
+- [Providers and voice](docs/providers-and-voice.md) — model selection, failover, input, and speech output.
+- [Tools and safety](docs/tools-and-safety.md) — action policy, file/network boundaries, and browser relay.
+- [Themes](docs/themes.md) — built-in characters, controls, and audio behavior.
+- [Theme authoring](public/themes/README.md) — theme schema, CSS, persona, and audio assets.
+
+### Scale out
+
+- [Background agents](docs/background-agents.md) — persistent goals, scheduling, approvals, and capacity.
+- [Remote agent deployment](docs/remote-agent.md) — package and secure a model worker on another host.
+
+Historical implementation plans live under `docs/superpowers/`; launch planning
+material lives under `docs/marketing/`. They are project records, not operator
+instructions. The guides above are the source of truth.
+
+## Development commands
 
 | Command | Purpose |
 |---|---|
-| `npm run start:readonly` | Start the bridge and Vite together with effectful tools disabled. |
-| `npm start` | Start the bridge and Vite together with effectful tools enabled. |
-| `npm run setup` | Run the advisory machine preflight. |
-| `npm run bridge` | Start only the read-only bridge. |
-| `npm run bridge:writes` | Start only the bridge with effectful tools enabled. |
+| `npm run start:readonly` | Start bridge and frontend with effectful tools blocked. |
+| `npm start` | Start bridge and frontend with effectful tools allowed. |
+| `npm run setup` | Run the read-only machine preflight. |
+| `npm run bridge` / `npm run bridge:writes` | Start only the bridge, without/with effectful tools. |
 | `npm run dev` | Start only the Vite frontend. |
 | `npm run agents` | Start the optional background-agent service. |
-| `npm run package:remote` | Assemble a standalone remote worker release in `dist/jarvis-remote-agent`. |
-| `npm run relay:token` | Generate a token for remote browser relays. |
-| `npm test` | Run Node test suites. |
-| `npm run build` | Type-check and build the production frontend. |
+| `npm run agents:token` | Generate the background-service bearer token. |
+| `npm run relay:token` | Generate the remote-browser relay token. |
+| `npm run package:remote` | Build the standalone remote-worker package. |
+| `npm run issue:remote -- <hostname>` | Issue a host-specific remote-worker archive and trust files. |
+| `npm test` | Run all Node test suites. |
+| `npm run build` | Type-check and build the frontend. |
+| `npm run preview` | Preview the production frontend build. |
 | `npm run lint` | Run Oxlint. |
 
-See the guides above for configuration and operational details. The project is
-MIT-licensed; audio assets may have separate redistribution requirements, as
-described in [Themes](docs/themes.md).
+JARVIS Refined is MIT-licensed. Audio assets can have separate redistribution
+terms; see [Themes](docs/themes.md).

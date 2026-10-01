@@ -88,7 +88,7 @@ launching and the queue waits — a saturated host no longer holds up work that
 another one could take.
 
 The endpoints come from `JARVIS_ENDPOINTS`, documented in
-[Configuration](configuration.md#model-endpoints). `anthropic`, `gateway`, and `remote` endpoints can carry a task: local `anthropic` and `gateway` workers use the Claude Agent SDK.
+[Configuration](configuration.md#model-endpoint-pool). `anthropic`, `gateway`, and `remote` endpoints can carry a task: local `anthropic` and `gateway` workers use the Claude Agent SDK.
 A `remote` endpoint posts research or ops work to the standalone remote-agent runtime over HTTPS; that runtime calls an on-host OpenAI-compatible model directly and the main host retrieves the result. Code and browser-based admin work stay on this machine. To run a task on a local model on the main host, put an
 Anthropic-compatible gateway in front of it and declare that as a `gateway`
 endpoint; the worker then passes that endpoint's own model name and points the

@@ -1,135 +1,176 @@
 # Configuration Reference
 
-Bridge mode is the default. Settings are optional unless their feature is being
-used. Put frontend settings in `.env.local`; provide bridge secrets to the shell
-that starts the bridge. Shell environment variables take precedence. Do not
-commit real credentials.
+This is the canonical list of supported settings. `.env.example` is a copyable
+template; this page explains the behavior and trade-offs.
 
-## Bridge
+The bridge loads `.env.local` and `~/.config/jarvis/secrets.env`. Values already
+present in the process environment take precedence. Vite also reads `.env.local`
+and exposes only `VITE_*` names to frontend code. Treat every `VITE_*` value as
+public: it is compiled into browser JavaScript.
 
-| Variable | Default | Purpose |
+Boolean settings accept the values shown below; frontend flags accept
+`true`/`false` or `1`/`0`. Restart the affected process after a change, and
+rebuild static assets after changing `VITE_*` settings.
+
+## Bridge and model provider
+
+| Variable | Default | Meaning |
 |---|---|---|
-| `JARVIS_BRIDGE_PORT` | `8787` | Bridge HTTP and WebSocket port. |
-| `JARVIS_MODEL` | `claude-opus-5` | Claude model. |
-| `JARVIS_EFFORT` | `high` | Claude reasoning effort. |
-| `JARVIS_PROVIDER` | `claude` | Initial provider for new browsers, if configured. |
-| `OPENAI_API_KEY` | unset | Enables the OpenAI provider and can enable OpenAI transcription. |
+| `JARVIS_BRIDGE_PORT` | `8787` | HTTP and WebSocket port used by the bridge. Keep `VITE_BRIDGE_URL` or the Vite proxy aligned. |
+| `JARVIS_MODEL` | `claude-opus-5` | Claude model used for bridge conversations. Use a model name accepted by the installed Claude Agent SDK. |
+| `JARVIS_EFFORT` | `high` | Claude reasoning effort. Lower values can reduce latency; unsupported values are passed to the SDK and may fail there. |
+| `JARVIS_MAX_TURNS` | `24` | Maximum model/tool turns in one bridge request. Raise only for legitimate long tool chains. |
+| `JARVIS_PROVIDER` | `claude` | Initial HUD provider. It is used only if that provider is actually configured. |
+| `OPENAI_API_KEY` | unset | Enables OpenAI chat and, when ElevenLabs is unavailable, OpenAI transcription. Keep it bridge-side. |
 | `OPENAI_MODEL` | `gpt-4.1-mini` | OpenAI chat model. |
-| `OPENAI_TRANSCRIBE_MODEL` | `gpt-4o-mini-transcribe` | OpenAI transcription model. |
-| `JARVIS_ENDPOINTS` | unset | Every model JARVIS can reach, as a JSON array or the path to a file holding one. See [Model endpoints](#model-endpoints). Overrides the `JARVIS_LOCAL_*` pair. |
-| `JARVIS_LOCAL_URL` | unset | OpenAI-compatible endpoint URL, including `/v1` when required. Shorthand for a single endpoint. |
-| `JARVIS_LOCAL_MODEL` | unset | Model name for the local endpoint; both Local settings are required. |
-| `JARVIS_LOCAL_API_KEY` | unset | Optional key for the local endpoint. |
-| `JARVIS_ALLOW_WRITES` | off | Set to `1` to allow effectful bridge tools. |
-| `JARVIS_ALLOWED_ORIGINS` | local dev origins | Additional allowed browser origins, comma-separated. |
-| `JARVIS_ALLOW_NO_ORIGIN` | off | Set to `1` to accept WebSocket clients with no Origin header. |
-| `JARVIS_RELAY_TOKEN` | unset | Shared secret that lets a browser relay on another machine register. Generate with `npm run relay:token`. |
-| `JARVIS_FILE_ROOTS` | unset | Additional permitted filesystem roots, comma-separated. |
-| `ELEVENLABS_API_KEY` | unset | Enables ElevenLabs voice and transcription. |
-| `JARVIS_VOICE_ID` | built-in default | ElevenLabs voice ID. |
+| `OPENAI_TRANSCRIBE_MODEL` | `gpt-4o-mini-transcribe` | OpenAI speech-to-text model. |
+| `JARVIS_LOCAL_URL` | unset | Base URL for one OpenAI-compatible endpoint, commonly ending in `/v1`. Requires `JARVIS_LOCAL_MODEL`. |
+| `JARVIS_LOCAL_MODEL` | unset | Model name served by the shorthand local endpoint. Requires `JARVIS_LOCAL_URL`. |
+| `JARVIS_LOCAL_API_KEY` | unset | Optional key for the shorthand local endpoint. |
+| `JARVIS_ENDPOINTS` | unset | JSON endpoint array or path to a JSON file. Replaces the shorthand local endpoint when it yields valid entries. |
+| `JARVIS_DEBUG` | off | Set to `1` for additional bridge message-event logging. Logs can contain operational metadata. |
 
-The bridge can also find `ELEVENLABS_API_KEY` in the `elevenlabs` MCP server's
-environment in `~/.claude.json`.
+Claude uses the existing Claude Code login. OpenAI and local providers use the
+bridge tool broker; Claude-only hosted tools do not automatically become
+available to them. See [Providers and voice](providers-and-voice.md).
 
-## Frontend
+## Bridge safety, state, and browser relay
 
-| Variable | Default | Purpose |
+| Variable | Default | Meaning |
 |---|---|---|
-| `VITE_THEME` | `stark` | Theme folder in `public/themes/`. |
-| `VITE_BACKEND` | `bridge` | Use the local bridge or `direct` Anthropic API mode. |
-| `VITE_BRIDGE_URL` | `ws://localhost:8787` | Bridge WebSocket address. |
-| `VITE_TTS_ENGINE` | `kokoro` | `kokoro` or browser `system` speech synthesis. |
-| `VITE_KOKORO_VOICE` | theme-selected | Optional Kokoro voice override. |
-| `VITE_USE_ELEVENLABS` | false | Explicitly prefer cloud speech when available. |
-| `VITE_ANTHROPIC_API_KEY` | unset | Direct mode only; exposed to the browser. |
+| `JARVIS_ALLOW_WRITES` | off | Set to `1` to permit effectful tool classes. `npm start` and `npm run bridge:writes` set it for that process. |
+| `JARVIS_ALLOWED_ORIGINS` | trusted local Vite/preview ranges | Comma-separated extra browser origins allowed to open the bridge WebSocket. Enter full origins such as `https://jarvis.lan:5173`. |
+| `JARVIS_ALLOW_NO_ORIGIN` | off | Set to `1` to accept clients with no `Origin` header. This weakens protection against local software and should normally remain off. |
+| `JARVIS_FILE_ROOTS` | unset | Comma-separated extra roots the `/file` route may serve. Home and system temp roots are already allowed. |
+| `JARVIS_MEMORY_FILE` | `~/.config/jarvis/pa.md` | Markdown file used by personal-assistant memory tools. |
+| `JARVIS_SESSION_AGENTS_FILE` | `~/.config/jarvis/session-agents.json` | Persistent summary of session/subagent activity shown on the board. |
+| `JARVIS_RELAY_TOKEN` | unset | Enables authenticated registration by a remote Chrome relay. Generate with `npm run relay:token`. |
 
-Only `VITE_` variables are bundled into frontend code. Never put provider
-secrets in `VITE_` variables except when deliberately using direct mode for a
-local demo.
+Write permission does not bypass tool-specific confirmation or policy. File
+roots expand what can be read or served, so add the narrowest directory rather
+than a drive or filesystem root. See [Tools and safety](tools-and-safety.md).
 
-## Model endpoints
+## Speech on the bridge
 
-`JARVIS_ENDPOINTS` declares, in one place, every machine that can run a model —
-this box, another box on the network, or someone else's API. The conversational
-brain picks from it, and background agents draw capacity from it per endpoint
-instead of from one global number, so several modest hosts carry a queue
-together. Give it a JSON array inline, or the path to a file holding one.
+| Variable | Default | Meaning |
+|---|---|---|
+| `ELEVENLABS_API_KEY` | unset | Enables ElevenLabs speech and Scribe transcription. The bridge can also discover it in the `elevenlabs` MCP entry in `~/.claude.json`. |
+| `JARVIS_VOICE_ID` | `JBFqnCBsd6RMkjVDRZzb` | ElevenLabs voice ID used by the bridge speech endpoint. |
+
+Without ElevenLabs, speech output falls back to the configured browser engine;
+speech recognition can use OpenAI when its key exists or the browser path.
+
+## Frontend and development server
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `VITE_THEME` | `stark` | Initial theme folder from `public/themes/`. `?theme=<id>` overrides it for that browser and persists the choice. |
+| `VITE_BACKEND` | `bridge` | `bridge` uses the Node bridge; `direct` calls Anthropic from the browser. |
+| `VITE_BRIDGE_URL` | `ws://localhost:8787` | Bridge WebSocket URL. A path such as `/bridge` uses the current origin and is recommended with Vite’s HTTPS proxy. |
+| `VITE_TTS_ENGINE` | `kokoro` | `kokoro` for local neural speech or `system` for browser `speechSynthesis`. |
+| `VITE_KOKORO_VOICE` | theme voice | Pins a supported Kokoro voice across themes. Invalid names fall back with a console warning. |
+| `VITE_USE_ELEVENLABS` | `false` | Prefer bridge/cloud ElevenLabs output when available. |
+| `VITE_ANTHROPIC_API_KEY` | unset | Required only by direct mode. It is exposed to anyone who can load the frontend. |
+| `VITE_ELEVENLABS_API_KEY` | unset | Direct/browser ElevenLabs credential. Public in the bundle; prefer bridge-side `ELEVENLABS_API_KEY`. |
+| `VITE_ELEVENLABS_VOICE_ID` | `JBFqnCBsd6RMkjVDRZzb` | Voice ID paired with the browser-side ElevenLabs key. |
+| `VITE_PICOVOICE_ACCESS_KEY` | unset | Enables offline Porcupine wake-word detection; otherwise browser speech recognition listens for the wake phrase. |
+| `PORT` | `5173` | Vite development-server port. The combined launcher automatically trusts this local origin. |
+| `JARVIS_HOST` | Vite default/localhost | Vite bind address; use `0.0.0.0` for LAN access. This does not change the bridge bind. |
+| `JARVIS_TLS_CERT` | unset | PEM certificate path for the Vite development server. Requires `JARVIS_TLS_KEY`. |
+| `JARVIS_TLS_KEY` | unset | PEM private-key path for the Vite development server. Requires `JARVIS_TLS_CERT`. |
+
+Supported Kokoro voices are `bm_george`, `bm_fable`, `bm_lewis`, `bm_daniel`,
+`am_michael`, `am_fenrir`, `am_echo`, `am_onyx`, `af_nicole`, `af_sarah`,
+`af_heart`, `af_bella`, `af_nova`, and `af_kore`.
+
+## Direct-mode MCP integrations
+
+These settings are read only by the browser-direct configuration. Every token
+or credential-bearing URL becomes visible in the built JavaScript and browser
+developer tools. Use them only for a private local demo; bridge mode with MCP
+servers configured in Claude Code is the secure default.
+
+| Variable | Enables | Notes |
+|---|---|---|
+| `VITE_ZAPIER_MCP_URL` | Zapier | The URL itself is a credential. |
+| `VITE_PIPEDREAM_MCP_URL` | Pipedream | The URL itself can be a credential. |
+| `VITE_NOTION_TOKEN` | Notion | Sent as a bearer token to the fixed Notion MCP URL. |
+| `VITE_LINEAR_TOKEN` | Linear | Sent as a bearer token to the fixed Linear MCP URL. |
+| `VITE_GITHUB_TOKEN` | GitHub | Sent as a bearer token to the GitHub Copilot MCP URL. |
+| `VITE_STRIPE_TOKEN` | Stripe | Grants the scope of the supplied Stripe credential. |
+| `VITE_SENTRY_TOKEN` | Sentry | Sent to the fixed Sentry MCP URL. |
+| `VITE_HOMEASSISTANT_MCP_URL` | Home Assistant | Must be reachable by Anthropic; requires `VITE_HOMEASSISTANT_TOKEN`. |
+| `VITE_HOMEASSISTANT_TOKEN` | Home Assistant | Required together with its MCP URL. |
+
+## Model endpoint pool
+
+`JARVIS_ENDPOINTS` declares conversation and worker capacity as an inline JSON
+array or a path to a JSON file. Secrets are referenced by environment-variable
+name, never embedded in the JSON.
 
 ```json
 [
-  { "id": "claude",   "kind": "anthropic", "concurrency": 3 },
-  { "id": "rigel",    "kind": "openai",  "baseURL": "http://11.0.0.9:11434/v1",
+  { "id": "claude", "kind": "anthropic", "concurrency": 3 },
+  { "id": "rigel", "kind": "openai", "baseURL": "http://10.0.0.9:11434/v1",
     "model": "llama3.1:8b", "concurrency": 2, "label": "the big box" },
-  { "id": "rigel-gw", "kind": "gateway", "baseURL": "http://11.0.0.9:8080",
-    "model": "llama3.1:8b", "concurrency": 1, "kinds": ["research"],
-    "apiKeyEnv": "RIGEL_GATEWAY_TOKEN" },
+  { "id": "research-gateway", "kind": "gateway", "baseURL": "https://gateway.lan",
+    "model": "local-model", "kinds": ["research"], "apiKeyEnv": "GATEWAY_TOKEN" },
   { "id": "remote-host", "kind": "remote", "baseURL": "https://remote-host:8789",
-    "concurrency": 1, "kinds": ["research", "ops"], "apiKeyEnv": "REMOTE_HOST_TOKEN" }
+    "kinds": ["research", "ops"], "apiKeyEnv": "REMOTE_HOST_TOKEN" }
 ]
 ```
 
-| Field | Default | Purpose |
+| Field | Default | Meaning |
 |---|---|---|
-| `id` | required | Name for the endpoint. A task's `model` may be an id, which pins it to that machine. |
-| `kind` | `openai` | How the endpoint is spoken to — see below. |
-| `baseURL` | required except for `anthropic` | Include `/v1` where the server expects it. |
-| `model` | required for `openai` | Model name as that endpoint knows it. |
-| `concurrency` | `1` | How many jobs this machine carries at once. |
-| `kinds` | all | Restrict the endpoint to some task kinds: `code`, `research`, `ops`, `admin`. |
-| `apiKeyEnv` | unset | The *name* of the environment variable holding the key. Never the key itself. |
-| `weight` | `1` | Tie-break preference when two endpoints are equally loaded. |
-| `label` | the id | Human name shown on the agent board. |
+| `id` | required | Unique stable name. A task can name it to pin execution. Duplicate ids are rejected. |
+| `kind` | `openai` | Protocol: `anthropic`, `openai`, `gateway`, or `remote`. |
+| `baseURL` | required except `anthropic` | Endpoint base URL; include `/v1` when the server expects it. `remote` requires HTTPS. |
+| `model` | required for `openai` | Model name understood by that endpoint. |
+| `concurrency` | `1` | Positive integer capacity advertised to the scheduler. |
+| `kinds` | all locally; `research`,`ops` remotely | Optional task allow-list: `code`, `research`, `ops`, `admin`. Remote entries are always reduced to travel-safe kinds. |
+| `apiKeyEnv` | unset | Name of the process environment variable containing the credential. |
+| `weight` | `1` | Tie-break preference between equally loaded eligible endpoints. |
+| `label` | `id` | Human-readable name displayed on the board. |
 
-`kind` describes the protocol, not the model:
+`anthropic` uses the Anthropic protocol/login. `openai` supports OpenAI-compatible
+conversation and summarization. `gateway` is an Anthropic-compatible proxy and
+is the only non-Claude protocol shape usable by Agent SDK workers. `remote`
+delegates the entire task to the standalone runtime and permits only research
+and ops. Malformed entries are logged and skipped; an unreachable endpoint is
+temporarily avoided. See [Remote agent deployment](remote-agent.md).
 
-- `anthropic` — the Anthropic API, or the Claude Code login the bridge already uses.
-- `openai` — anything OpenAI-compatible: Ollama, vLLM, LM Studio, OpenAI itself.
-- `remote` — a separate host running the standalone remote-agent package. HTTPS
-  with a trusted certificate and a per-host bearer token is required. Only
-  research and ops travel; see [Remote agent deployment](remote-agent.md).
-- `gateway` — an Anthropic-compatible proxy. This is the only way a background
-  agent can run on a model that is not Claude, because the agent SDK speaks the
-  Anthropic API and the safety gate lives in its hooks. An `openai` endpoint
-  therefore serves conversation and cheap summarising, never an agent task.
+## Background-agent service
 
-A malformed entry is dropped with a warning rather than taken as fatal, so one
-mistyped host does not cost you the others. Endpoints are probed for
-reachability and an unreachable one is skipped for a minute; a `401` counts as
-reachable, because that is a wrong key to fix rather than a dead host to avoid.
-With `JARVIS_ENDPOINTS` unset, `JARVIS_LOCAL_URL` and `JARVIS_LOCAL_MODEL`
-synthesise a single endpoint called `local`, exactly as before.
-
-## Background Agents
-
-| Variable | Default | Purpose |
+| Variable | Default | Meaning |
 |---|---|---|
-| `JARVIS_AGENTS` | disabled | Set to `1` in the bridge environment to expose agent tools. |
-| `JARVIS_AGENTS_TOKEN` | required | Shared bearer token for the bridge and agent service. |
-| `JARVIS_AGENTS_PORT` | `8788` | Agent service port. |
-| `JARVIS_AGENTS_HOST` | `127.0.0.1` | Address the service binds. Anything other than loopback requires the TLS pair below, or the service refuses to start. |
-| `JARVIS_AGENTS_TLS_CERT` | none | PEM certificate chain. Set with the key to serve HTTPS. |
-| `JARVIS_AGENTS_TLS_KEY` | none | PEM private key. Read from disk at startup, never held in the environment. |
-| `JARVIS_AGENTS_TLS_CA` | none | PEM CA bundle. Enables mutual TLS; current remote-dispatch clients do not present client certificates. Do not set it on a worker receiving remote tasks. |
-| `JARVIS_HOST_LABEL` | the machine's hostname | How this host names itself on another host's board. |
-| `JARVIS_AGENTS_DIR` | `~/.config/jarvis/agents` | Persistent goals, tasks, and event state. |
-| `JARVIS_WORK_DIR` | `~/.jarvis-work` | Worker workspaces. |
-| `JARVIS_AGENTS_SONNET` | `claude-sonnet-5` | Default agent-worker model. |
-| `JARVIS_AGENTS_OPUS` | `claude-opus-5` | Higher-reasoning worker model. |
-| `JARVIS_REMOTE_WORKERS` | `1` | Standalone remote runtime worker capacity, clamped from one to eight; keep the main endpoint concurrency at or below it. |
+| `JARVIS_AGENTS` | off | Set to `1` in the bridge process to expose background-agent tools and board events. |
+| `JARVIS_AGENTS_TOKEN` | required by service | Shared bearer token used by the bridge and agent API. Generate with `npm run agents:token`. |
+| `JARVIS_AGENTS_HOST` | `127.0.0.1` | Agent API bind address. Non-loopback binds require its TLS certificate and key. |
+| `JARVIS_AGENTS_PORT` | `8788` | Agent API port; the standalone unit uses `8789`. |
+| `JARVIS_AGENTS_TLS_CERT` | unset | PEM certificate-chain path for the agent API. Must be paired with the key. |
+| `JARVIS_AGENTS_TLS_KEY` | unset | PEM private-key path for the agent API. Must be paired with the certificate. |
+| `JARVIS_AGENTS_TLS_CA` | unset | CA bundle enabling mutual TLS. Current remote dispatch cannot present a client certificate, so do not set it on a receiving remote worker. |
+| `JARVIS_AGENTS_DIR` | `~/.config/jarvis/agents` | Persistent goal, task, approval, and event state. |
+| `JARVIS_WORK_DIR` | `~/.jarvis-work` | Per-task worker workspaces. |
+| `JARVIS_AGENTS_SONNET` | `claude-sonnet-5` | Default worker model alias. |
+| `JARVIS_AGENTS_OPUS` | `claude-opus-5` | Higher-reasoning worker model alias. |
+| `JARVIS_MAX_WORKERS` | endpoint capacity, minimum `3` | Process-wide worker ceiling. Non-numeric or zero values use the calculated default. |
+| `JARVIS_HOST_LABEL` | OS hostname | Name attached to work reported from this host. |
 
-| `JARVIS_MAX_WORKERS` | sum of endpoint capacity, at least `3` | Hard ceiling on workers running at once across the whole pool. |
+Endpoint `concurrency` describes per-endpoint capacity; `JARVIS_MAX_WORKERS`
+limits total simultaneous local workers. See [Background agents](background-agents.md)
+for startup, workflow, approvals, and recovery.
 
-Total worker capacity is the sum of the `concurrency` values of the `anthropic`
-and `gateway` endpoints in `JARVIS_ENDPOINTS`, under the `JARVIS_MAX_WORKERS`
-ceiling — set that when a generous endpoint list would spawn more local
-processes than this machine can bear. Declare no endpoints and behaviour is
-unchanged: three workers against the Anthropic API. `GET /endpoints` on the
-agent service reports each endpoint's health, in-flight count and capacity, and
-the agent board shows the same.
+## Standalone remote runtime
 
-A task runs on an `anthropic` endpoint unless its `model` names an endpoint id,
-so local capacity is used deliberately rather than by accident — the coordinator
-pins the work it judges cheap enough.
+The installer writes these settings to `/etc/jarvis-remote-agent/agent.env`.
+They normally should not be maintained by hand.
 
-Generate and store the shared token with `npm run agents:token`. See
-[Background agents](background-agents.md) for startup instructions.
+| Variable | Default | Meaning |
+|---|---|---|
+| `JARVIS_REMOTE_MODEL` | required | Exact model name served by the on-host OpenAI-compatible server. |
+| `JARVIS_REMOTE_MODEL_URL` | installer: `http://127.0.0.1:11434/v1` | Loopback-only HTTP(S) URL ending in `/v1`; credentials, queries, and fragments are rejected. |
+| `JARVIS_REMOTE_WORKERS` | `1` | Runtime concurrency, clamped from `1` through `8`. Keep the main endpoint declaration at or below this value. |
+
+The remote runtime also consumes the agent token, host/port, TLS, state, and
+work-directory settings above. Follow the complete [remote deployment procedure](remote-agent.md).

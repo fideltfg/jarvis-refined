@@ -1,66 +1,90 @@
 # Getting Started
 
+This guide gets one browser and one model provider running on the same machine.
+For other topologies, continue with the [Deployment guide](deployment.md).
+
 ## Requirements
 
-- Node.js 20 or newer.
-- Google Chrome or Microsoft Edge in a regular browser window. JARVIS needs
-  WebGL and microphone access; embedded editor previews often deny the latter.
+- Node.js 20 or newer and npm.
+- Chrome or Edge in a normal browser window. JARVIS needs WebGL and microphone
+  access; embedded editor previews often deny microphone access.
 - One model provider:
-  - **Claude:** install Claude Code and complete its login. The bridge reuses
-    that login; no separate Anthropic API key is needed.
-  - **OpenAI:** provide `OPENAI_API_KEY` to the bridge process.
-  - **Local:** provide an OpenAI-compatible endpoint and model name.
-- Optional speech service credentials. Without them, browser speech recognition
-  and local Kokoro speech remain available.
+  - **Claude:** install Claude Code, run `claude`, and complete login. The bridge
+    reuses that login; no separate Anthropic key is needed.
+  - **OpenAI:** set `OPENAI_API_KEY` in `.env.local` or in the bridge process.
+  - **Local:** run an OpenAI-compatible server and set `JARVIS_LOCAL_URL` plus
+    `JARVIS_LOCAL_MODEL`.
 
-Run `npm run setup` after installing dependencies for an advisory check of Node,
-Claude Code, configured MCP servers, and optional ElevenLabs availability. It
-does not install or change anything.
+Speech credentials are optional. Browser recognition and local Kokoro speech
+work without ElevenLabs or OpenAI transcription.
 
-## Install and Run
+## Install
 
-From the repository directory:
+From the repository root:
 
 ```bash
 npm install
-npm start
+npm run setup
 ```
 
-The command starts the local bridge and Vite frontend together. Open the URL Vite
-prints (normally `http://localhost:5173`) in Chrome or Edge, click
-**INITIALISE**, grant microphone permission, and say the selected theme's wake
-phrase. The default theme uses **“Hey Jarvis”**.
+The preflight is advisory and changes nothing. It checks Node, Claude Code,
+configured MCP servers, and optional ElevenLabs availability.
 
-To run the two main processes separately, use two terminals:
+Copy the example only when you need to change a setting:
 
 ```bash
-# Terminal 1: model and tools
+cp .env.example .env.local
+```
+
+Blank entries behave as unset. Add only the values you use, never commit real
+credentials, and consult the [Configuration reference](configuration.md) for
+defaults and security implications.
+
+## First run
+
+Start safely with effectful tools blocked:
+
+```bash
+npm run start:readonly
+```
+
+Open the printed Vite URL (normally `http://localhost:5173`), click
+**INITIALISE**, grant microphone permission, and say the active theme’s wake
+phrase. The default is “Hey Jarvis.” Press **K** to toggle push-to-talk; hold
+**Right Alt** by default, or press **Shift+K** to bind another key or mouse
+button. Press **G** to opt into camera-based hand tracking.
+
+Run the two processes separately when you want independent logs:
+
+```bash
+# terminal 1: model and tools
 npm run bridge
-```
 
-```bash
-# Terminal 2: browser app
+# terminal 2: browser interface
 npm run dev
 ```
 
-Open the Vite URL in a real browser window. Press **Ctrl+C** in each terminal
-when running processes separately.
+Press **Ctrl+C** to stop. The combined launcher stops both halves when either
+one exits.
 
-## Read-Only by Default
+## Allowing actions
 
-The bridge starts with effectful tools disabled. Search, reading, and generation
-may work, while actions such as sending, clicking, deleting, or installing are
-blocked. To enable actions for a session, run `npm run bridge:writes` instead of
-`npm run bridge`, or start the combined launcher with:
+Read-only mode permits retrieval and generation but blocks effectful operations
+such as sending, tapping, deleting, installing, or paying. Enable those actions
+only for a session you supervise:
 
 ```bash
-npm start -- --writes
+npm start
+# or, when running separately
+npm run bridge:writes
 ```
 
-Review [Tools and safety](tools-and-safety.md) before enabling writes.
+This is an allow gate, not blanket authorization: provider and tool approval
+rules still apply. See [Tools and safety](tools-and-safety.md).
 
-## Next Steps
+## Next steps
 
-- Configure providers, themes, and voice in the [Configuration reference](configuration.md).
-- Learn how the bridge and browser share work in [Architecture and capabilities](architecture.md).
-- Enable persistent background work using [Background agents](background-agents.md).
+- Pick models and voices in [Providers and voice](providers-and-voice.md).
+- Change characters or learn the controls in [Themes](themes.md).
+- Choose a local, LAN, or service layout in [Deployment](deployment.md).
+- Add persistent work using [Background agents](background-agents.md).
