@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Local planning and marketing drafts; keep them out of the repository.
+docs/marketing/
+docs/superpowers/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
