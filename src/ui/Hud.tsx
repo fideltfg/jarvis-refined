@@ -245,6 +245,15 @@ export function Hud() {
         </div>
       </header>
 
+      {/* Keep the mic mode legible at a distance; the footer carries shortcuts. */}
+      {ptt.enabled && (
+        <div className={`ptt-indicator${ptt.held ? ' ptt-indicator-live' : ''}`} role="status">
+          <span className="ptt-indicator-light" />
+          <span>{ptt.held ? 'Mic live' : ptt.binding ? 'Set talk key' : 'Push to talk on'}</span>
+          {!ptt.held && !ptt.binding && <span className="ptt-indicator-key">Hold {ptt.label}</span>}
+        </div>
+      )}
+
       {/* Left rail: which integrations are live */}
       {ui.chrome.systems && (
         <aside className="rail rail-left">

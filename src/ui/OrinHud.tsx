@@ -37,6 +37,7 @@ export function OrinHud() {
   const agentsSeen = useStore((state) => state.agentsSeen)
   const sessionAgents = useStore((state) => state.sessionAgents)
   const error = useStore((state) => state.error)
+  const ptt = useStore((state) => state.ptt)
   const clearScreen = useStore((state) => state.clearScreen)
   const agents = useMemo(
     () => mergeBoard(agentsOnline ? board : null, sessionAgents),
@@ -151,6 +152,13 @@ export function OrinHud() {
             </label>
           )}
         </header>
+        {ptt.enabled && (
+          <div className={`orin-ptt-indicator${ptt.held ? ' is-live' : ''}`} role="status">
+            <span className="orin-status-dot" />
+            <span>{ptt.held ? 'Mic live' : ptt.binding ? 'Set talk key' : 'Push to talk on'}</span>
+            {!ptt.held && !ptt.binding && <small>Hold {ptt.label}</small>}
+          </div>
+        )}
         <OrinWave />
         <p className="orin-utterance" aria-live="polite">{headline}</p>
         <form className="orin-command" onSubmit={submit}>

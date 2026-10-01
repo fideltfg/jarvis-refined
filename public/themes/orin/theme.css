@@ -167,6 +167,11 @@
 
 .orin-center { grid-area: center; position: relative; z-index: 4; align-items: center; justify-content: center; gap: 28px; text-align: center; }
 .orin-center-head { display: flex; align-items: center; justify-content: center; gap: 18px; min-height: 24px; }
+.orin-ptt-indicator { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; max-width: 100%; padding: 10px 16px; border: 1px solid #f2a33a; background: #241c11; color: #eef0f3; font: 600 clamp(16px, 2vw, 22px) 'Chakra Petch', sans-serif; letter-spacing: 0.06em; text-transform: uppercase; }
+.orin-ptt-indicator .orin-status-dot { width: 12px; height: 12px; flex-basis: 12px; }
+.orin-ptt-indicator small { font: 11px 'IBM Plex Mono', monospace; color: #ffc470; white-space: nowrap; }
+.orin-ptt-indicator.is-live { background: #f2a33a; color: #101114; }
+.orin-ptt-indicator.is-live .orin-status-dot { background: #101114; box-shadow: none; }
 .orin-phase { display: flex; align-items: center; gap: 9px; color: #f2a33a; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; }
 .orin-provider { display: flex; align-items: center; gap: 8px; color: #8a909a; font-size: 9px; text-transform: uppercase; }
 .orin-provider select { max-width: 110px; padding: 5px 20px 5px 7px; border: 1px solid #37322b; background: #0d0f12; color: #d9dde3; font: inherit; text-transform: uppercase; }
