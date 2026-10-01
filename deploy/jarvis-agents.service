@@ -1,3 +1,4 @@
+# Reference only: scripts/install.sh generates the installed unit with the real paths.
 [Unit]
 Description=J.A.R.V.I.S. agent service (goals, coordinator, background workers)
 After=network-online.target

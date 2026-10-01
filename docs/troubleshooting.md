@@ -42,3 +42,15 @@
 - The service refuses to start without a token. Generate one with
   `npm run agents:token` and load the same secrets file into both processes.
 - The agent service binds to loopback; it is not a remote or LAN service.
+
+## Installed Services
+
+- `scripts/install.sh` stops at the first failing step, prints the unit's log
+  lines and rolls back. Fix the reported problem and re-run it.
+- Check live state with `systemctl --user status jarvis jarvis-agents` and
+  `journalctl --user -u jarvis -u jarvis-agents -f`.
+- Services that do not start after a reboot usually mean linger is off:
+  `loginctl show-user $USER -p Linger` should print `Linger=yes`.
+- Settings changed in the unit files are replaced on the next install; put them
+  in `~/.config/jarvis/service.env` instead. Previous copies are in
+  `~/.config/jarvis/backups/`.

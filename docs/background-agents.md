@@ -28,10 +28,11 @@ set -a; . ~/.config/jarvis/secrets.env; set +a
 JARVIS_AGENTS=1 npm start
 ```
 
-The provided `deploy/jarvis-agents.service` unit loads the same secrets file
-when running the agent service under systemd. The bridge still needs
-`JARVIS_AGENTS=1` and the token in its own environment. Configure the service
-port and state paths with the variables in the
+To run the agent service and the bridge under systemd and start them at boot,
+use `./scripts/install.sh`. It generates the token, sets `JARVIS_AGENTS=1` in
+`~/.config/jarvis/service.env`, and installs both units; see
+[Run as services at boot](deployment.md#run-as-services-at-boot-scriptsinstallsh).
+Configure the service port and state paths with the variables in the
 [Configuration reference](configuration.md).
 
 ### Letting another machine reach the service

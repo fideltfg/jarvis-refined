@@ -87,4 +87,6 @@ rules still apply. See [Tools and safety](tools-and-safety.md).
 - Pick models and voices in [Providers and voice](providers-and-voice.md).
 - Change characters or learn the controls in [Themes](themes.md).
 - Choose a local, LAN, or service layout in [Deployment](deployment.md).
+- Run JARVIS as services that start at boot with `./scripts/install.sh`; see
+  [Run as services at boot](deployment.md#run-as-services-at-boot-scriptsinstallsh).
 - Add persistent work using [Background agents](background-agents.md).

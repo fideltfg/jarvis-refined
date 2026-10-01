@@ -38,6 +38,10 @@ microphone access.
 with the action gate, `npm start` enables them. Read [Tools and safety](docs/tools-and-safety.md)
 before doing so.
 
+To run the bridge, face and background agents as services that start at boot,
+run `./scripts/install.sh` (add `--readonly` to block actions). See
+[Run as services at boot](docs/deployment.md#run-as-services-at-boot-scriptsinstallsh).
+
 ## Documentation
 
 ### Set up and operate
@@ -71,6 +75,7 @@ instructions. The guides above are the source of truth.
 | `npm run start:readonly` | Start bridge and frontend with effectful tools blocked. |
 | `npm start` | Start bridge and frontend with effectful tools allowed. |
 | `npm run setup` | Run the read-only machine preflight. |
+| `./scripts/install.sh [--readonly]` | Install, enable and start bridge + agents as systemd user services at boot. |
 | `npm run bridge` / `npm run bridge:writes` | Start only the bridge, without/with effectful tools. |
 | `npm run dev` | Start only the Vite frontend. |
 | `npm run agents` | Start the optional background-agent service. |

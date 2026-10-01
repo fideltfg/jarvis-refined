@@ -8,6 +8,11 @@ present in the process environment take precedence. Vite also reads `.env.local`
 and exposes only `VITE_*` names to frontend code. Treat every `VITE_*` value as
 public: it is compiled into browser JavaScript.
 
+When installed as services with `scripts/install.sh`, both systemd units also
+load `~/.config/jarvis/secrets.env` and then `~/.config/jarvis/service.env`
+into the process environment; put host settings such as `JARVIS_HOST`, TLS
+paths, origins and ports in `service.env`.
+
 Boolean settings accept the values shown below; frontend flags accept
 `true`/`false` or `1`/`0`. Restart the affected process after a change, and
 rebuild static assets after changing `VITE_*` settings.
