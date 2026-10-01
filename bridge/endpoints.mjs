@@ -17,16 +17,49 @@ import { readFileSync } from 'node:fs'
  *   openai    — anything OpenAI-compatible: Ollama, vLLM, LM Studio, OpenAI.
  *   gateway   — an Anthropic-compatible proxy, which is the only way the agent
  *               SDK can be pointed at a model that is not Claude.
+ *   remote    — another machine running the standalone remote-agent runtime. The work does
+ *               not run here at all: it is posted to that host and polled.
  *
  * The old single-endpoint variables still work: with JARVIS_ENDPOINTS unset,
  * JARVIS_LOCAL_URL and JARVIS_LOCAL_MODEL synthesise one endpoint called
  * "local", which is exactly what they meant before.
  */
 
-export const ENDPOINT_KINDS = ['anthropic', 'openai', 'gateway']
+export const ENDPOINT_KINDS = ['anthropic', 'openai', 'gateway', 'remote']
 export const DEFAULT_CONCURRENCY = 1
 
+/**
+ * What may leave this machine. A code task's worktree, its repository and the
+ * policy allow-list that keeps it inside that worktree are all local paths; an
+ * admin task acts through the user's own signed-in browser, which is on this
+ * desk. Neither survives the journey, so neither takes it.
+ */
+export const TRAVELLING_KINDS = ['research', 'ops']
+
 const trimSlashes = (url) => String(url).replace(/\/+$/, '')
+
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
+
+/** Loopback by name or by address, including the whole 127/8 block. */
+export function isLoopback(host) {
+  const name = String(host ?? '').trim().toLowerCase()
+  return LOOPBACK.has(name) || /^127\.\d+\.\d+\.\d+$/.test(name)
+}
+
+/**
+ * A remote endpoint is spoken to with a bearer token that is as good as the
+ * user's own hands on that machine. It may only be reached over TLS. Plain HTTP
+ * loopback is allowed solely for a local test; it is not a secure remote route.
+ */
+export function remoteTransportOk(baseURL) {
+  let url
+  try {
+    url = new URL(String(baseURL))
+  } catch {
+    return false
+  }
+  return url.protocol === 'https:'
+}
 
 function readSource(raw) {
   const text = String(raw).trim()
@@ -54,7 +87,15 @@ function coerce(entry, index) {
   const baseURL = entry.baseURL ? trimSlashes(entry.baseURL) : null
   if (kind !== 'anthropic' && !baseURL) throw new Error(`endpoint "${id}" needs a baseURL`)
   if (kind === 'openai' && !entry.model) throw new Error(`endpoint "${id}" needs a model`)
+  if (kind === 'remote' && !remoteTransportOk(baseURL)) {
+    throw new Error(`endpoint "${id}" is remote at ${baseURL}; remote dispatch requires HTTPS with a valid TLS certificate`)
+  }
   const concurrency = Math.max(1, Math.trunc(Number(entry.concurrency ?? DEFAULT_CONCURRENCY)) || DEFAULT_CONCURRENCY)
+  const declaredKinds = Array.isArray(entry.kinds) ? entry.kinds.map(String) : []
+  const travels = (declaredKinds.length ? declaredKinds : TRAVELLING_KINDS).filter((k) => TRAVELLING_KINDS.includes(k))
+  if (kind === 'remote' && !travels.length) {
+    throw new Error(`endpoint "${id}" is remote and carries only ${declaredKinds.join(', ')}; none of those may leave this machine`)
+  }
   return {
     id,
     kind,
@@ -62,7 +103,10 @@ function coerce(entry, index) {
     model: entry.model ? String(entry.model) : null,
     apiKeyEnv: entry.apiKeyEnv ? String(entry.apiKeyEnv) : null,
     concurrency,
-    kinds: Array.isArray(entry.kinds) ? entry.kinds.map(String) : [],
+    // A remote endpoint carries only the kinds that can leave the machine,
+    // whether or not it was declared carefully: an over-generous list in the
+    // config must not be what decides where a repository gets written to.
+    kinds: kind === 'remote' ? travels : declaredKinds,
     weight: Number.isFinite(Number(entry.weight)) ? Number(entry.weight) : 1,
     label: entry.label ? String(entry.label) : id,
   }
@@ -129,8 +173,10 @@ export function endpointKey(endpoint, env = process.env) {
  * convention. A gateway's does not: it is handed to the agent SDK as
  * ANTHROPIC_BASE_URL, which appends /v1/messages itself. So the probe has to
  * put the version back, or every correctly configured gateway reads as dead.
+ * A remote host serves no model list at all — it is asked what capacity it has.
  */
-const probePath = (endpoint) => (endpoint.kind === 'gateway' ? '/v1/models' : '/models')
+const probePath = (endpoint) =>
+  endpoint.kind === 'remote' ? '/endpoints' : endpoint.kind === 'gateway' ? '/v1/models' : '/models'
 
 /**
  * Reachable, not correct: a 401 means the box answered and the key is wrong,

@@ -74,3 +74,67 @@ test('a provider HTTP 429 is classified for failover', async () => {
     server.close()
   }
 })
+
+test('a temporary 429 after a tool call retries without calling the tool twice', async () => {
+  let requests = 0
+  let calls = 0
+  const server = createServer(async (request, response) => {
+    for await (const _chunk of request) { /* consume the request body */ }
+    requests += 1
+    if (requests === 2) {
+      response.writeHead(429, { 'content-type': 'application/json', 'retry-after-ms': '1' })
+      response.end(JSON.stringify({ error: { message: 'Rate limit reached', type: 'tokens' } }))
+      return
+    }
+    response.writeHead(200, { 'content-type': 'application/json' })
+    response.end(JSON.stringify({ choices: [{ message: requests === 1
+      ? { role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'test_tool', arguments: '{}' } }] }
+      : { role: 'assistant', content: 'Done.' } }] }))
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const chunks = []
+    const stream = textProvider({ id: 'mock', baseURL: `http://127.0.0.1:${server.address().port}/v1`, model: 'mock' })
+    await stream([{ role: 'user', content: 'test' }], new AbortController().signal, (text) => chunks.push(text), {
+      tools: [{ type: 'function', function: { name: 'test_tool', parameters: { type: 'object' } } }],
+      callTool: async () => { calls += 1; return 'ok' },
+    })
+    assert.equal(requests, 3)
+    assert.equal(calls, 1)
+    assert.deepEqual(chunks, ['Done.'])
+  } finally {
+    server.close()
+  }
+})
+
+test('the last tool round requests a tool-free progress summary', async () => {
+  let requests = 0
+  const server = createServer(async (request, response) => {
+    const parts = []
+    for await (const part of request) parts.push(part)
+    const body = JSON.parse(Buffer.concat(parts).toString())
+    requests += 1
+    if (requests === 12) {
+      assert.equal(body.tools, undefined)
+      assert.match(body.messages.at(-1).content, /Summarize what was completed/)
+      response.writeHead(200, { 'content-type': 'text/event-stream' })
+      response.end('data: {"choices":[{"delta":{"content":"Work remains."}}]}\n\ndata: [DONE]\n\n')
+      return
+    }
+    response.writeHead(200, { 'content-type': 'application/json' })
+    response.end(JSON.stringify({ choices: [{ message: { role: 'assistant', tool_calls: [{ id: `call-${requests}`, type: 'function', function: { name: 'test_tool', arguments: '{}' } }] } }] }))
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const chunks = []
+    const stream = textProvider({ id: 'mock', baseURL: `http://127.0.0.1:${server.address().port}/v1`, model: 'mock' })
+    await stream([{ role: 'user', content: 'test' }], new AbortController().signal, (text) => chunks.push(text), {
+      tools: [{ type: 'function', function: { name: 'test_tool', parameters: { type: 'object' } } }],
+      callTool: async () => 'ok',
+    })
+    assert.equal(requests, 12)
+    assert.deepEqual(chunks, ['Work remains.'])
+  } finally {
+    server.close()
+  }
+})

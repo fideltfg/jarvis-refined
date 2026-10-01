@@ -8,7 +8,7 @@ export function recover(store, approvals) {
   let count = 0
   for (const t of store.listTasks()) {
     if (t.status !== 'running' && t.status !== 'awaiting_approval') continue
-    store.saveTask({ ...t, status: 'queued', resume: Boolean(t.sessionId) })
+    store.saveTask({ ...t, status: 'queued', resume: !t.remote && Boolean(t.sessionId) })
     store.appendEvent({ type: 'task_queued', goalId: t.goalId, taskId: t.id, text: `Resuming after a restart: ${t.title}`, data: { title: t.title } })
     count++
   }

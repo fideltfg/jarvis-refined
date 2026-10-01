@@ -1,0 +1,29 @@
+[Unit]
+Description=JARVIS standalone remote agent runtime
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jarvis-remote
+Group=jarvis-remote
+WorkingDirectory=/opt/jarvis-remote-agent/current
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=HOME=/var/lib/jarvis-remote-agent
+Environment=JARVIS_AGENTS_DIR=/var/lib/jarvis-remote-agent/state
+Environment=JARVIS_WORK_DIR=/var/lib/jarvis-remote-agent/work
+Environment=JARVIS_AGENTS_HOST=0.0.0.0
+Environment=JARVIS_AGENTS_PORT=8789
+EnvironmentFile=/etc/jarvis-remote-agent/agent.env
+ExecStart=/usr/bin/node remote-runtime/service.mjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/jarvis-remote-agent
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

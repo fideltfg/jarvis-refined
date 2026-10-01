@@ -41,6 +41,7 @@ using it.
 - [Providers and voice](docs/providers-and-voice.md): model selection, failover, transcription, and speech.
 - [Tools and safety](docs/tools-and-safety.md): write controls, security boundaries, and remote browser relay setup.
 - [Background agents](docs/background-agents.md): long-running goals, approvals, persistence, and service setup.
+- [Remote agent deployment](docs/remote-agent.md): package, install and secure a separate worker host without cloning this repository.
 - [Configuration reference](docs/configuration.md): environment variables and their defaults.
 - [Themes](docs/themes.md): built-in themes, controls, and audio behavior.
 - [Troubleshooting](docs/troubleshooting.md): microphone, audio, provider, and bridge checks.
@@ -57,6 +58,7 @@ using it.
 | `npm run bridge:writes` | Start only the bridge with effectful tools enabled. |
 | `npm run dev` | Start only the Vite frontend. |
 | `npm run agents` | Start the optional background-agent service. |
+| `npm run package:remote` | Assemble a standalone remote worker release in `dist/jarvis-remote-agent`. |
 | `npm run relay:token` | Generate a token for remote browser relays. |
 | `npm test` | Run Node test suites. |
 | `npm run build` | Type-check and build the production frontend. |

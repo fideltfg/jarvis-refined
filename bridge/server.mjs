@@ -34,6 +34,7 @@ import { configuredProviders, retryProvider, textProvider } from './providers.mj
 import { sharedContext } from './context.mjs'
 import { createToolBroker } from './tool-broker.mjs'
 import { filesServer } from './files.mjs'
+import { commandsServer } from './commands.mjs'
 import { agentsApi, subscribeAgents } from './agents-client.mjs'
 import { personaFor as themePersona, resolveThemeId } from './themes.mjs'
 
@@ -1308,7 +1309,9 @@ wss.on('connection', (socket, req) => {
       } else {
         console.error(`[jarvis] ${provider} turn failed:`, err)
         sendTurn({ type: 'error', message: activity
-          ? 'The answer was interrupted by a provider error.'
+          ? err?.status === 429
+            ? 'The provider is rate-limited after using tools. Work may be partial; wait a moment and ask me to continue.'
+            : 'The answer was interrupted by a provider error. Work may be partial; ask me to continue.'
           : `The ${provider} provider could not answer this turn: ${err?.message ?? 'unknown error'}` })
       }
     } finally {
@@ -1365,6 +1368,7 @@ wss.on('connection', (socket, req) => {
     jarvis_eyes: visionServer(ask),
     jarvis_memory: memoryServer(MEMORY_FILE),
     jarvis_files: filesServer({ roots: FILE_ROOTS, allowWrites: ALLOW_WRITES }),
+    jarvis_commands: commandsServer({ roots: FILE_ROOTS, allowWrites: ALLOW_WRITES }),
   }
   toolBrokerPromise = createToolBroker({ external: MCP_SERVERS, local: brokerMcpServers })
 

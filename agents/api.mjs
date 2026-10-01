@@ -1,9 +1,18 @@
 import http from 'node:http'
+import https from 'node:https'
+import { isLoopback, TRAVELLING_KINDS } from '../bridge/endpoints.mjs'
 import { boardOf, briefing } from './briefing.mjs'
+import { BUDGETS } from './config.mjs'
 
 /**
- * The agent service's only door: loopback HTTP with a bearer token, plus an
- * SSE stream of events for the bridge. Nothing here is reachable from the LAN.
+ * The agent service's only door: HTTP with a bearer token, plus an SSE stream
+ * of events for the bridge.
+ *
+ * It binds to loopback unless it is given TLS, because the token is as good as
+ * the user's own hands on this machine and the obvious way to reach it from
+ * another host — an SSH tunnel — lands on loopback anyway. That rule is checked
+ * here rather than written in the documentation: the service will not start
+ * open and unencrypted.
  */
 
 const readBody = (req) =>
@@ -22,8 +31,14 @@ const readBody = (req) =>
 
 class NotFound extends Error {}
 
-export function createApi({ store, scheduler, coordinator, approvals, cleanup, mirror = {}, pool = null, token, host = '127.0.0.1', port = 0 }) {
+export function createApi({ store, scheduler, coordinator, approvals, cleanup, mirror = {}, pool = null, token, host = '127.0.0.1', port = 0, tls = null }) {
   if (!token) throw new Error('JARVIS_AGENTS_TOKEN is not set; refusing to start an unauthenticated API.')
+  if (!isLoopback(host) && !tls) {
+    throw new Error(
+      `JARVIS_AGENTS_HOST is ${host}, which is not loopback. A service other machines can reach must present TLS ` +
+      '(JARVIS_AGENTS_TLS_CERT and JARVIS_AGENTS_TLS_KEY), or stay on 127.0.0.1 behind an SSH tunnel.',
+    )
+  }
 
   const clients = new Set()
   const off = store.onEvent((ev) => {
@@ -64,7 +79,100 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
     throw new Error('A change must be pause, resume, abandon, or info.')
   }
 
-  const server = http.createServer(async (req, res) => {
+  /**
+   * Delegated work needs a goal to hang from — the scheduler only runs tasks
+   * whose goal is active — but it is not a goal this machine is thinking about.
+   * One per origin host, marked delegated so the coordinator leaves it alone:
+   * the host that sent the work is the one reasoning about what comes next.
+   */
+  function delegatedGoal(label) {
+    const title = `Delegated work from ${label}`
+    const existing = store.listGoals().find((g) => g.delegated && g.title === title)
+    if (existing) return existing.status === 'active' ? existing : store.saveGoal({ ...existing, status: 'active' })
+    const goal = store.saveGoal({
+      ...store.newGoal({
+        title,
+        outcome: `Run the tasks ${label} sends, and report each result back to it.`,
+        priority: 2,
+        taskCap: Number.MAX_SAFE_INTEGER,
+      }),
+      delegated: true,
+    })
+    store.appendEvent({ type: 'goal_created', goalId: goal.id, text: `New goal: ${goal.title}`, data: { title: goal.title } })
+    return goal
+  }
+
+  /**
+   * The sender's budget, but never above this machine's own ceiling for that
+   * kind of work. Another host may ask for less time and less money; it does
+   * not get to ask for more.
+   */
+  const clampBudget = (kind, budget = {}) => {
+    const cap = BUDGETS[kind]
+    const least = (asked, limit) => Math.min(Number(asked) > 0 ? Number(asked) : limit, limit)
+    return {
+      maxTurns: least(budget.maxTurns, cap.maxTurns),
+      maxMinutes: least(budget.maxMinutes, cap.maxMinutes),
+      maxUsd: least(budget.maxUsd, cap.maxUsd),
+    }
+  }
+
+  function acceptTask(body) {
+    if (!TRAVELLING_KINDS.includes(body.kind)) {
+      throw new Error(
+        `A delegated task must be one of ${TRAVELLING_KINDS.join(', ')}; got "${body.kind ?? ''}". ` +
+        'Code stays on the machine that owns the repository, and admin work stays where the browser is signed in.',
+      )
+    }
+    const label = String(body.origin?.label ?? 'another host').slice(0, 60)
+    const goal = delegatedGoal(label)
+    // The agent here sees the local delegated goal, which says nothing about
+    // why the work matters. The sender's goal is put in the brief instead, as
+    // context rather than as instructions.
+    const context = body.origin?.goalTitle
+      ? `\n\nThis task was sent by ${label}, toward its goal: ${body.origin.goalTitle}` +
+        `${body.origin.goalOutcome ? ` — done means: ${body.origin.goalOutcome}` : ''}.`
+      : ''
+    const task = store.newTask({
+      goalId: goal.id,
+      title: body.title,
+      brief: `${body.brief ?? ''}${context}`,
+      kind: body.kind,
+      model: body.model || 'sonnet',
+      allowedSkills: Array.isArray(body.allowedSkills) ? body.allowedSkills : [],
+    })
+    const saved = store.saveTask({
+      ...task,
+      budget: clampBudget(body.kind, body.budget),
+      delegated: true,
+      origin: { label, taskId: body.origin?.taskId ?? null },
+    })
+    store.appendEvent({
+      type: 'task_queued',
+      goalId: goal.id,
+      taskId: saved.id,
+      text: `Accepted from ${label}: ${saved.title}`,
+      data: { title: saved.title, goalTitle: goal.title },
+    })
+    return { id: saved.id, goalId: goal.id }
+  }
+
+  /** How a delegated task is watched from the host that sent it. */
+  function taskState(id, since) {
+    const task = store.getTask(id)
+    if (!task) throw new NotFound(`No task ${id}.`)
+    const progress = store.readEvents({ limit: 5000 }).filter((e) => e.taskId === id && e.type === 'task_progress')
+    return {
+      id,
+      status: task.status,
+      result: task.result ?? null,
+      failure: task.failure ?? null,
+      events: progress.slice(Math.max(0, since)).map((e) => ({ at: e.at, text: e.text })),
+      eventCount: progress.length,
+    }
+  }
+
+  const handler = async (req, res) => {
     const send = (code, body) => {
       res.writeHead(code, { 'content-type': 'application/json' })
       res.end(JSON.stringify(body))
@@ -116,6 +224,13 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
           if (!goal) throw new NotFound(`No goal ${id}.`)
           return send(200, changeGoal(goal, body))
         }
+        // Work sent by another host running a remote agent runtime. It is queued
+        // here like any other task and gated here like any other task: the
+        // sender chooses what to ask for, this machine chooses what is allowed.
+        case 'POST /tasks':
+          return send(201, acceptTask(body))
+        case 'GET /tasks/:id':
+          return send(200, taskState(id, Number(url.searchParams.get('since')) || 0))
         case 'POST /tasks/:id/cancel':
           if (!scheduler.cancel(id)) throw new NotFound(`No cancellable task ${id}.`)
           return send(200, { ok: true })
@@ -131,9 +246,15 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
     } catch (err) {
       return send(err instanceof NotFound ? 404 : 400, { error: err.message })
     }
-  })
+  }
+
+  // One handler, two doors. The guard above has already decided that a door
+  // onto the network must be the TLS one, so this choice cannot be the thing
+  // that leaves the token in the open.
+  const server = tls ? https.createServer(tls, handler) : http.createServer(handler)
 
   return {
+    tls: Boolean(tls),
     listen: () => new Promise((resolve) => server.listen(port, host, () => resolve(server.address().port))),
     close() {
       off()

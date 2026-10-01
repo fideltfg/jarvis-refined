@@ -62,7 +62,9 @@ together. Give it a JSON array inline, or the path to a file holding one.
     "model": "llama3.1:8b", "concurrency": 2, "label": "the big box" },
   { "id": "rigel-gw", "kind": "gateway", "baseURL": "http://11.0.0.9:8080",
     "model": "llama3.1:8b", "concurrency": 1, "kinds": ["research"],
-    "apiKeyEnv": "RIGEL_GATEWAY_TOKEN" }
+    "apiKeyEnv": "RIGEL_GATEWAY_TOKEN" },
+  { "id": "remote-host", "kind": "remote", "baseURL": "https://remote-host:8789",
+    "concurrency": 1, "kinds": ["research", "ops"], "apiKeyEnv": "REMOTE_HOST_TOKEN" }
 ]
 ```
 
@@ -82,6 +84,9 @@ together. Give it a JSON array inline, or the path to a file holding one.
 
 - `anthropic` — the Anthropic API, or the Claude Code login the bridge already uses.
 - `openai` — anything OpenAI-compatible: Ollama, vLLM, LM Studio, OpenAI itself.
+- `remote` — a separate host running the standalone remote-agent package. HTTPS
+  with a trusted certificate and a per-host bearer token is required. Only
+  research and ops travel; see [Remote agent deployment](remote-agent.md).
 - `gateway` — an Anthropic-compatible proxy. This is the only way a background
   agent can run on a model that is not Claude, because the agent SDK speaks the
   Anthropic API and the safety gate lives in its hooks. An `openai` endpoint
@@ -100,11 +105,17 @@ synthesise a single endpoint called `local`, exactly as before.
 |---|---|---|
 | `JARVIS_AGENTS` | disabled | Set to `1` in the bridge environment to expose agent tools. |
 | `JARVIS_AGENTS_TOKEN` | required | Shared bearer token for the bridge and agent service. |
-| `JARVIS_AGENTS_PORT` | `8788` | Agent service loopback port. |
+| `JARVIS_AGENTS_PORT` | `8788` | Agent service port. |
+| `JARVIS_AGENTS_HOST` | `127.0.0.1` | Address the service binds. Anything other than loopback requires the TLS pair below, or the service refuses to start. |
+| `JARVIS_AGENTS_TLS_CERT` | none | PEM certificate chain. Set with the key to serve HTTPS. |
+| `JARVIS_AGENTS_TLS_KEY` | none | PEM private key. Read from disk at startup, never held in the environment. |
+| `JARVIS_AGENTS_TLS_CA` | none | PEM CA bundle. Enables mutual TLS; current remote-dispatch clients do not present client certificates. Do not set it on a worker receiving remote tasks. |
+| `JARVIS_HOST_LABEL` | the machine's hostname | How this host names itself on another host's board. |
 | `JARVIS_AGENTS_DIR` | `~/.config/jarvis/agents` | Persistent goals, tasks, and event state. |
 | `JARVIS_WORK_DIR` | `~/.jarvis-work` | Worker workspaces. |
 | `JARVIS_AGENTS_SONNET` | `claude-sonnet-5` | Default agent-worker model. |
 | `JARVIS_AGENTS_OPUS` | `claude-opus-5` | Higher-reasoning worker model. |
+| `JARVIS_REMOTE_WORKERS` | `1` | Standalone remote runtime worker capacity, clamped from one to eight; keep the main endpoint concurrency at or below it. |
 
 | `JARVIS_MAX_WORKERS` | sum of endpoint capacity, at least `3` | Hard ceiling on workers running at once across the whole pool. |
 

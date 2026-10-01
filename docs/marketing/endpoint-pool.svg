@@ -1,0 +1,94 @@
+<svg viewBox="0 0 1180 790" width="1180" height="790" xmlns="http://www.w3.org/2000/svg">
+<rect x="0" y="0" width="1180" height="790" fill="#070b11"/>
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#35d2e6"/></marker>
+<marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#ffb64a"/></marker>
+<marker id="c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6a8c99"/></marker>
+</defs>
+<style>
+text{font-family:ui-sans-serif,system-ui,"DejaVu Sans",sans-serif}
+.bx{fill:rgba(20,40,52,.55);stroke:#35d2e6;stroke-width:1.2;rx:6}
+.bxd{fill:rgba(20,40,52,.35);stroke:#44606e;stroke-width:1;rx:6}
+.bxg{fill:rgba(60,44,16,.45);stroke:#ffb64a;stroke-width:1.2;rx:6}
+.t{fill:#d6f2fb;font-size:15px;font-weight:600}
+.s{fill:#7fa8b8;font-size:12px}
+.m{fill:#9fd8e8;font-size:11.5px;font-family:ui-monospace,"DejaVu Sans Mono",monospace}
+.h{fill:#35d2e6;font-size:11px;letter-spacing:2.5px;font-weight:600}
+.ln{stroke:#35d2e6;stroke-width:1.3;fill:none}
+.lng{stroke:#ffb64a;stroke-width:1.3;fill:none}
+.lnd{stroke:#6a8c99;stroke-width:1;fill:none;stroke-dasharray:4 4}
+.ok{fill:#4ade80;font-size:11.5px;font-family:ui-monospace,"DejaVu Sans Mono",monospace}
+.no{fill:#ff6b6b;font-size:11.5px;font-family:ui-monospace,"DejaVu Sans Mono",monospace}
+</style>
+
+<text class="h" x="40" y="26">1 · THE ASK</text>
+<rect class="bx" x="40" y="40" width="230" height="62"/>
+<text class="t" x="56" y="66">JARVIS HUD</text><text class="s" x="56" y="86">your browser, the voice</text>
+<rect class="bx" x="330" y="40" width="250" height="62"/>
+<text class="t" x="346" y="66">bridge :8787</text><text class="s" x="346" y="86">providers.mjs · the brain you talk to</text>
+<rect class="bx" x="640" y="40" width="270" height="62"/>
+<text class="t" x="656" y="66">agents service :8788</text><text class="s" x="656" y="86">loopback only · coordinator plans</text>
+<rect class="bxd" x="950" y="40" width="190" height="62"/>
+<text class="t" x="966" y="66">endpoints.mjs</text><text class="s" x="966" y="86">JARVIS_ENDPOINTS</text>
+<line class="ln" x1="272" y1="71" x2="324" y2="71" marker-end="url(#a)"/>
+<line class="ln" x1="582" y1="71" x2="634" y2="71" marker-end="url(#a)"/>
+<line class="lnd" x1="912" y1="71" x2="946" y2="71" marker-end="url(#c)"/>
+<line class="lnd" x1="1045" y1="104" x2="1045" y2="300" marker-end="url(#c)"/>
+<text class="s" x="1055" y="200">the one list</text><text class="s" x="1055" y="216">of machines</text>
+
+<text class="h" x="40" y="150">2 · THE POOL — CAPACITY IS PER ENDPOINT, NOT A SINGLE NUMBER</text>
+<rect class="bx" x="40" y="164" width="230" height="96"/>
+<text class="t" x="56" y="190">scheduler</text><text class="s" x="56" y="210">asks for a lease instead</text><text class="s" x="56" y="226">of counting to three</text>
+<text class="m" x="56" y="248">release() in finally</text>
+<rect class="bx" x="330" y="164" width="330" height="96"/>
+<text class="t" x="346" y="190">agents/pool.mjs</text><text class="s" x="346" y="210">least-loaded, then weight, then by id</text>
+<rect class="bxd" x="346" y="222" width="46" height="24"/><text class="m" x="358" y="239">lease</text>
+<rect class="bxd" x="400" y="222" width="46" height="24"/><text class="m" x="412" y="239">lease</text>
+<rect class="bxd" x="454" y="222" width="46" height="24"/><text class="m" x="466" y="239">free</text>
+<rect class="bxd" x="508" y="222" width="46" height="24"/><text class="m" x="520" y="239">free</text>
+<rect class="bx" x="720" y="164" width="300" height="96"/>
+<text class="t" x="736" y="190">worker → Agent SDK child</text><text class="s" x="736" y="210">one task, one process, its own</text><text class="s" x="736" y="226">thirteen-variable environment</text>
+<line class="ln" x1="272" y1="212" x2="324" y2="212" marker-end="url(#a)"/>
+<line class="ln" x1="662" y1="212" x2="714" y2="212" marker-end="url(#a)"/>
+
+<text class="h" x="40" y="300">3 · WHERE THE WORK ACTUALLY LANDS</text>
+<rect class="bx" x="40" y="336" width="300" height="104"/>
+<text class="t" x="56" y="362">anthropic</text><text class="s" x="56" y="382">the cloud, three slots</text><text class="m" x="56" y="406">kind: anthropic</text><text class="ok" x="56" y="426">healthy · code tasks live here</text>
+<rect class="bxg" x="380" y="336" width="300" height="104"/>
+<text class="t" x="396" y="362">llama-gw</text><text class="s" x="396" y="382">one slot, this machine</text><text class="m" x="396" y="406">kind: gateway → :4000</text><text class="ok" x="396" y="426">healthy · proven 1 Oct 2026</text>
+<rect class="bxd" x="720" y="336" width="300" height="104"/>
+<text class="t" x="736" y="362">local</text><text class="s" x="736" y="382">conversation only, never a worker</text><text class="m" x="736" y="406">kind: openai → :11434/v1</text><text class="s" x="736" y="426">the SDK cannot drive this dialect</text>
+<line class="ln" x1="870" y1="308" x2="870" y2="330" marker-end="url(#a)"/>
+<line class="ln" x1="190" y1="308" x2="190" y2="330" marker-end="url(#a)"/>
+<line class="lng" x1="530" y1="308" x2="530" y2="330" marker-end="url(#b)"/>
+
+<text class="h" x="620" y="486">THE TRANSLATION — THE ONLY WAY A LLAMA CAN RUN AN AGENT</text>
+<rect class="bxg" x="380" y="500" width="300" height="76"/>
+<text class="t" x="396" y="526">LiteLLM :4000</text><text class="s" x="396" y="546">Anthropic Messages in, Ollama out</text><text class="m" x="396" y="566">drops the thinking parameter</text>
+<rect class="bxg" x="380" y="616" width="300" height="76"/>
+<text class="t" x="396" y="642">Ollama 172.30.57.2:11434</text><text class="s" x="396" y="662">llama3.1:8b on CPU</text><text class="m" x="396" y="682">minutes per turn, no GPU</text>
+<line class="lng" x1="530" y1="442" x2="530" y2="494" marker-end="url(#b)"/>
+<line class="lng" x1="530" y1="578" x2="530" y2="610" marker-end="url(#b)"/>
+
+<rect class="bxd" x="720" y="500" width="300" height="192"/>
+<text class="h" x="736" y="526">WHAT THE CHILD SEES</text>
+<text class="ok" x="736" y="556">+ ANTHROPIC_BASE_URL</text>
+<text class="ok" x="736" y="578">+ ANTHROPIC_AUTH_TOKEN</text>
+<text class="ok" x="736" y="600">+ ANTHROPIC_MODEL</text>
+<text class="no" x="736" y="630">− JARVIS_AGENTS_TOKEN</text>
+<text class="no" x="736" y="652">− every key in secrets.env</text>
+<text class="s" x="736" y="678">injected from the endpoint, never copied</text>
+
+<rect class="bxd" x="40" y="500" width="300" height="192"/>
+<text class="h" x="56" y="526">PHASE 2 — NOT BUILT</text>
+<text class="s" x="56" y="552">other machines as workers</text>
+<text class="s" x="56" y="574">blocked on: the API off loopback</text>
+<text class="s" x="56" y="594">behind TLS; worktrees that cannot</text>
+<text class="s" x="56" y="614">move hosts; policy paths that are</text>
+<text class="s" x="56" y="634">local; recovery that is local</text>
+<text class="s" x="56" y="664">first cut: research travels,</text>
+<text class="s" x="56" y="684">code stays home</text>
+
+<text class="s" x="40" y="740">Solid cyan is the Anthropic path, which worked before any of this. Amber is the new one: a local model reached through a translator.</text>
+<text class="s" x="40" y="762">Dashed is configuration rather than traffic.</text>
+</svg>

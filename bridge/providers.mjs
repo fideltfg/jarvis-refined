@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import { setTimeout as delay } from 'node:timers/promises'
 import { endpointKey, listEndpoints } from './endpoints.mjs'
 
 export const PROVIDERS = ['claude', 'openai', 'local']
@@ -66,19 +67,31 @@ function oneTurn(client, model) {
   return async function stream(messages, signal, onText, options = {}) {
     const tools = options.tools ?? []
     for (let round = 0; round < 12; round += 1) {
-      const response = await client.chat.completions.create({
-        model,
-        messages,
-        ...(tools.length ? { tools } : {}),
-        // Some reasoning models reject function tools on Chat Completions
-        // unless reasoning is explicitly disabled. Tool execution itself is
-        // the important reasoning loop here; Responses API support can be
-        // added later without changing the broker contract.
-        ...(tools.length ? { reasoning_effort: 'none' } : {}),
-        stream: !tools.length,
-      }, { signal })
+      const finalRound = tools.length > 0 && round === 11
+      let response
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          response = await client.chat.completions.create({
+            model,
+            messages: finalRound
+              ? [...messages, { role: 'system', content: 'No more tools are available this turn. Summarize what was completed and what remains; do not claim unfinished work is done.' }]
+              : messages,
+            ...(tools.length && !finalRound ? { tools } : {}),
+            // Some reasoning models reject function tools on Chat Completions
+            // unless reasoning is explicitly disabled.
+            ...(tools.length && !finalRound ? { reasoning_effort: 'none' } : {}),
+            stream: !tools.length || finalRound,
+          }, { signal })
+          break
+        } catch (error) {
+          if (error.status !== 429 || error.code === 'insufficient_quota' || attempt === 2) throw error
+          const milliseconds = Number(error.headers?.get('retry-after-ms'))
+          const seconds = Number(error.headers?.get('retry-after'))
+          await delay(Math.min(10_000, milliseconds > 0 ? milliseconds : seconds > 0 ? seconds * 1000 : 1000), undefined, { signal })
+        }
+      }
 
-      if (!tools.length) {
+      if (!tools.length || finalRound) {
         for await (const chunk of response) {
           const delta = chunk.choices[0]?.delta?.content
           if (delta) onText(delta)
@@ -101,7 +114,6 @@ function oneTurn(client, model) {
         options.onToolResult?.(call.function.name, result)
       }
     }
-    throw new Error('The provider used too many tool rounds.')
   }
 }
 

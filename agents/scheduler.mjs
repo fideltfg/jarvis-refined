@@ -70,11 +70,12 @@ export function createScheduler({
       if (t) store.saveTask({ ...t, sessionId })
     }
     for (let tries = 0; ; tries++) {
+      if (controller.signal.aborted) return cancelledOutcome
       try {
         return await runTask(task, { signal: controller.signal, onSession, endpoint })
       } catch (err) {
-        if (isRateLimit(err)) throw err
-        if (tries >= 1) return { status: 'failed', failure: { reason: 'error', detail: String(err?.message ?? err) } }
+        if (endpoint?.kind !== 'remote' && isRateLimit(err)) throw err
+        if (endpoint?.kind === 'remote' || tries >= 1) return { status: 'failed', failure: { reason: 'error', detail: String(err?.message ?? err) } }
         await sleep(retryDelayMs)
         if (controller.signal.aborted) return cancelledOutcome
       }

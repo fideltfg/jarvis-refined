@@ -1,8 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import https from 'node:https'
 
 import { createStore } from './store.mjs'
 import { createApprovals } from './approvals.mjs'
@@ -13,7 +14,24 @@ import { parseEndpoints } from '../bridge/endpoints.mjs'
 
 const TOKEN = 'test-token'
 
-async function setup({ pool = null } = {}) {
+/**
+ * A throwaway certificate, so the TLS door can be opened for real in a test
+ * rather than mocked. Node can mint one itself; openssl is not required.
+ */
+async function selfSigned() {
+  const { execFileSync } = await import('node:child_process')
+  const dir = mkdtempSync(join(tmpdir(), 'agents-tls-'))
+  const keyPath = join(dir, 'key.pem')
+  const certPath = join(dir, 'cert.pem')
+  execFileSync('openssl', [
+    'req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+    '-keyout', keyPath, '-out', certPath, '-days', '1',
+    '-subj', '/CN=localhost',
+  ], { stdio: 'ignore' })
+  return { cert: readFileSync(certPath), key: readFileSync(keyPath) }
+}
+
+async function setup({ pool = null, host = '127.0.0.1', tls = null } = {}) {
   const store = createStore(mkdtempSync(join(tmpdir(), 'agents-api-')), { workDir: '/work' })
   const approvals = createApprovals(store)
   const calls = { plan: [], redirect: [], cancel: [], mirror: [] }
@@ -29,20 +47,76 @@ async function setup({ pool = null } = {}) {
     },
     cleanup: () => ['t_1'],
     mirror: { goalCreated: (g) => calls.mirror.push(g.id) },
+    host,
+    tls,
   })
   const port = await api.listen()
-  const base = `http://127.0.0.1:${port}`
-  const call = (method, path, body, token = TOKEN) =>
-    fetch(`${base}${path}`, {
-      method,
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      body: body ? JSON.stringify(body) : undefined,
+  const base = `${tls ? 'https' : 'http'}://127.0.0.1:${port}`
+  /**
+   * Over TLS this goes through node:https with the test certificate named as
+   * the trust root — a real handshake that a wrong certificate would fail,
+   * rather than verification switched off.
+   */
+  const callTls = (method, path, body, token) =>
+    new Promise((resolve, reject) => {
+      const req = https.request(
+        `${base}${path}`,
+        {
+          method,
+          ca: tls.cert,
+          servername: 'localhost',
+          checkServerIdentity: () => undefined,
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        },
+        (res) => {
+          const chunks = []
+          res.on('data', (c) => chunks.push(c))
+          res.on('end', () => {
+            const text = Buffer.concat(chunks).toString()
+            resolve({ status: res.statusCode, json: async () => JSON.parse(text), text: async () => text })
+          })
+        },
+      )
+      req.on('error', reject)
+      if (body) req.write(JSON.stringify(body))
+      req.end()
     })
+  const call = (method, path, body, token = TOKEN) =>
+    tls
+      ? callTls(method, path, body, token)
+      : fetch(`${base}${path}`, {
+          method,
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: body ? JSON.stringify(body) : undefined,
+        })
   return { store, approvals, api, base, call, calls }
 }
 
 test('the API refuses to start without a token', () => {
   assert.throws(() => createApi({ token: '' }), /JARVIS_AGENTS_TOKEN/)
+})
+
+test('a host other than loopback without TLS is refused at startup', () => {
+  assert.throws(() => createApi({ token: TOKEN, host: '0.0.0.0' }), /must present TLS/)
+  assert.throws(() => createApi({ token: TOKEN, host: '11.0.0.163' }), /must present TLS/)
+})
+
+test('with TLS the service answers over https, and the token is still required', async () => {
+  const s = await setup({ tls: await selfSigned() })
+  try {
+    assert.equal(s.api.tls, true)
+    assert.ok(s.base.startsWith('https://'))
+    assert.equal((await s.call('GET', '/board')).status, 200)
+    assert.equal((await s.call('GET', '/board', null, 'wrong')).status, 401)
+  } finally {
+    await s.api.close()
+  }
+})
+
+test('plain HTTP on loopback is still the default door', async () => {
+  const s = await setup()
+  assert.equal(s.api.tls, false)
+  await s.api.close()
 })
 
 test('requests without the token are rejected', async () => {

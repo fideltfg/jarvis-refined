@@ -5,15 +5,15 @@ import { chromeServer } from '../bridge/chrome.mjs'
 import { createHealth } from '../bridge/endpoints.mjs'
 import { createApi } from './api.mjs'
 import { createApprovals } from './approvals.mjs'
-import { AGENTS_DIR, MAX_WORKERS, PORT, TOKEN } from './config.mjs'
+import { AGENTS_DIR, HOST, MAX_WORKERS, PORT, TOKEN, tlsOptions } from './config.mjs'
 import { createContacts } from './contacts.mjs'
 import { createCoordinator, sdkModel } from './coordinator.mjs'
+import { createDispatch } from './dispatch.mjs'
 import { paMirror } from './mirror.mjs'
 import { agentEndpoints, createPool } from './pool.mjs'
 import { recover } from './recover.mjs'
 import { createScheduler } from './scheduler.mjs'
 import { createStore } from './store.mjs'
-import { runTask } from './worker.mjs'
 import { cleanupWorkspaces, removeWorkspace } from './workspace.mjs'
 
 /**
@@ -56,6 +56,12 @@ const health = createHealth()
 const maxTotal = Number(process.env.JARVIS_MAX_WORKERS) || Math.max(MAX_WORKERS, endpoints.reduce((t, e) => t + e.concurrency, 0))
 const pool = createPool({ endpoints, health, maxTotal })
 
+const dispatch = createDispatch({
+  store,
+  health,
+  localDeps: (task) => ({ approvals, contacts: () => contacts.get(), mcpServers: mcpFor(task) }),
+})
+
 const scheduler = createScheduler({
   store,
   coordinator,
@@ -63,28 +69,34 @@ const scheduler = createScheduler({
   maxWorkers: pool.capacity(),
   onCancel: (taskId) => approvals.expire(taskId),
   onArchive: (task) => removeWorkspace(task),
-  runTask: (task, opts) =>
-    runTask(task, { ...opts, store, approvals, contacts: () => contacts.get(), mcpServers: mcpFor(task) }),
+  runTask: dispatch,
 })
 
-// Probed in the background: a dead box is learned about before the queue needs
-// it, and startup never waits on a timeout.
-health.checkAll(endpoints).catch((err) => console.warn('[agents] endpoint probe failed:', err.message))
+const probeAll = () =>
+  health.checkAll(endpoints, { force: true }).catch((err) => console.warn('[agents] endpoint probe failed:', err.message))
+probeAll()
+
+const probeTimer = setInterval(probeAll, 60_000)
+probeTimer.unref()
 
 const recovered = recover(store, approvals)
 const api = createApi({
   store, scheduler, coordinator, approvals, mirror, pool,
   cleanup: () => cleanupWorkspaces(store),
   token: TOKEN,
+  host: HOST,
   port: PORT,
+  tls: tlsOptions(),
 })
 
 const port = await api.listen()
 scheduler.start()
 const capacity = `${pool.capacity()} slot(s) across ${endpoints.length} endpoint(s): ${endpoints.map((e) => `${e.id}×${e.concurrency}`).join(', ')}`
-console.log(`[agents] listening on 127.0.0.1:${port} · state in ${AGENTS_DIR} · ${recovered} task(s) recovered · ${capacity}`)
+const door = `${api.tls ? 'https' : 'http'}://${HOST}:${port}`
+console.log(`[agents] listening on ${door} · state in ${AGENTS_DIR} · ${recovered} task(s) recovered · ${capacity}`)
 
 const shutdown = async () => {
+  clearInterval(probeTimer)
   scheduler.stop()
   await api.close()
   process.exit(0)

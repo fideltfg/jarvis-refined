@@ -34,6 +34,37 @@ when running the agent service under systemd. The bridge still needs
 port and state paths with the variables in the
 [Configuration reference](configuration.md).
 
+### Letting another machine reach the service
+
+By default the service binds `127.0.0.1` and nothing on the network can see it.
+The bearer token is as good as your own hands on the machine, so the service
+will not start on a routable address in plaintext: set `JARVIS_AGENTS_HOST` to
+anything but loopback and it refuses unless `JARVIS_AGENTS_TLS_CERT` and
+`JARVIS_AGENTS_TLS_KEY` are also set.
+
+Serve HTTPS with a certificate valid for the host name. Set
+`JARVIS_AGENTS_TLS_CA` when you require mutual TLS; clients without a certificate
+signed by that CA are rejected during the handshake. Remote dispatch accepts
+HTTPS only, and the connecting host must trust the server certificate. TLS 1.3
+is the floor. The current remote-dispatch client does not present client certificates, so do
+not enable mutual TLS on a host intended for remote dispatch. Use a trusted
+certificate, a distinct bearer token per remote host and a firewall allow-list.
+See [Remote agent deployment](remote-agent.md) for a complete install and
+verification procedure.
+
+A self-signed pair can work on a home network if its certificate is explicitly
+trusted by the sender. Generate one that names the
+host, and keep the key readable only by the service user:
+
+```bash
+openssl req -x509 -newkey rsa:4096 -nodes -days 825 \
+  -keyout ~/.config/jarvis/agents-key.pem \
+  -out ~/.config/jarvis/agents-cert.pem \
+  -subj "/CN=jarvis-agents" \
+  -addext "subjectAltName=DNS:$(hostname),IP:$(hostname -I | awk '{print $1}')"
+chmod 600 ~/.config/jarvis/agents-key.pem
+```
+
 ## Workflow
 
 Ask JARVIS to handle work that takes more than one turn, such as a code change,
@@ -57,13 +88,15 @@ launching and the queue waits — a saturated host no longer holds up work that
 another one could take.
 
 The endpoints come from `JARVIS_ENDPOINTS`, documented in
-[Configuration](configuration.md#model-endpoints). Only `anthropic` and
-`gateway` endpoints can carry a task: the worker drives the Claude Agent SDK,
-which speaks the Anthropic API alone. To run a task on a local model, put an
+[Configuration](configuration.md#model-endpoints). `anthropic`, `gateway`, and `remote` endpoints can carry a task: local `anthropic` and `gateway` workers use the Claude Agent SDK.
+A `remote` endpoint posts research or ops work to the standalone remote-agent runtime over HTTPS; that runtime calls an on-host OpenAI-compatible model directly and the main host retrieves the result. Code and browser-based admin work stay on this machine. To run a task on a local model on the main host, put an
 Anthropic-compatible gateway in front of it and declare that as a `gateway`
 endpoint; the worker then passes that endpoint's own model name and points the
 run at its base URL. The child process still sees only a tight set of
 environment variables, and never the agent service's own token.
+
+The standalone remote runtime is text-only: it cannot browse or operate services,
+and ops tasks return blocked. See [Remote agent deployment](remote-agent.md).
 
 An `openai` endpoint — Ollama and the like — serves conversation and cheap
 summarising through the bridge instead. It is not given agent work, because the

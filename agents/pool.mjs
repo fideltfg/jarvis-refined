@@ -9,18 +9,23 @@ import { MAX_WORKERS, MODELS } from './config.mjs'
  * four modest boxes at two jobs each carry eight tasks, and one saturated host
  * no longer holds up the whole queue.
  *
- * Only anthropic and gateway endpoints can run an agent task: the worker drives
- * the Claude Agent SDK, which speaks the Anthropic API and nothing else. An
- * OpenAI-compatible box serves conversation and cheap summarising through
+ * Only anthropic, gateway and remote endpoints can run a local agent task: the worker
+ * drives the Claude Agent SDK, which speaks the Anthropic API and nothing else.
+ * An OpenAI-compatible box serves conversation and cheap summarising through
  * bridge/providers.mjs; it cannot carry a task, because the safety gate lives in
- * the SDK's hooks and would not exist there.
+ * the SDK's hooks and would not exist there. A remote endpoint carries a task by
+ * not running it here at all — the whole task goes to another host's service,
+ * which applies its own gate. The standalone remote runtime also uses an
+ * internal `local` pool entry for its text-only OpenAI-compatible worker.
  */
 
 export const TASK_KINDS_ALL = null
 
+const CARRIERS = ['anthropic', 'gateway', 'remote']
+
 /** The endpoints an agent task may run on, defaulting to today's behaviour. */
 export function agentEndpoints(env = process.env) {
-  const usable = listEndpoints(env).filter((endpoint) => endpoint.kind === 'anthropic' || endpoint.kind === 'gateway')
+  const usable = listEndpoints(env).filter((endpoint) => CARRIERS.includes(endpoint.kind))
   if (usable.length) return usable
   return [{
     id: 'anthropic',
@@ -46,12 +51,29 @@ export function taskModels(env = process.env) {
   return [...Object.keys(MODELS), ...agentEndpoints(env).map((endpoint) => endpoint.id)]
 }
 
+/**
+ * A size names a machine that can resolve it: this process's own Anthropic
+ * credentials, or another host's service, which looks the size up in its own
+ * config. A gateway cannot — it serves one named model — so it has to be asked
+ * for by id.
+ */
 const matchesModel = (endpoint, model) => {
-  if (!model || Object.hasOwn(MODELS, model)) return endpoint.kind === 'anthropic'
+  if (!model || Object.hasOwn(MODELS, model)) return endpoint.kind === 'anthropic' || endpoint.kind === 'remote' || endpoint.kind === 'local'
   return endpoint.id === model
 }
 
 const matchesKind = (endpoint, kind) => !endpoint.kinds.length || !kind || endpoint.kinds.includes(kind)
+
+/**
+ * Two things never leave this machine, whatever the endpoint list says. A code
+ * task's worktree, repository and policy allow-list are local paths, and an
+ * admin task acts through the user's own signed-in browser. And a task that
+ * arrived here delegated is never delegated onward: two hosts pointing at each
+ * other would otherwise pass the same work back and forth for ever.
+ */
+const canCarry = (endpoint, task) =>
+  endpoint.kind !== 'remote' || (!task.delegated && (!task.remote || task.remote.endpointId === endpoint.id) &&
+    (task.kind === 'research' || task.kind === 'ops'))
 
 /**
  * @param endpoints what work may run on
@@ -68,7 +90,8 @@ export function createPool({ endpoints = agentEndpoints(), health = null, maxTot
 
   const eligible = (task = {}) =>
     endpoints.filter((endpoint) =>
-      usable(endpoint) && matchesModel(endpoint, task.model) && matchesKind(endpoint, task.kind))
+      usable(endpoint) && (!task.remote || (endpoint.kind === 'remote' && endpoint.id === task.remote.endpointId)) &&
+      canCarry(endpoint, task) && matchesModel(endpoint, task.model) && matchesKind(endpoint, task.kind))
 
   /** Least loaded relative to its own size, then by weight, then by id: no
    *  clocks and no randomness, so the choice is the same in a test twice. */
