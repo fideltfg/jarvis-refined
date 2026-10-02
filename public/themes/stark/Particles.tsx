@@ -1,8 +1,8 @@
 import { useRef, useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
-import type { Drive } from './Scene'
-import { sceneTint } from '../theme'
+import type { Drive } from '../../../src/scene/Scene'
+import { sceneTint } from '../../../src/theme'
 
 /**
  * A shell of points around the core. Each one drifts on its own orbit and gets

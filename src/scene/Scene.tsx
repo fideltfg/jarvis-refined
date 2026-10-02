@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import {
   EffectComposer,
@@ -9,13 +9,9 @@ import {
 } from '@react-three/postprocessing'
 import { BlendFunction } from 'postprocessing'
 import * as THREE from 'three'
-import { Core } from './Core'
-import { Particles } from './Particles'
 import { Orbits } from './Orbits'
 import { useStore, phaseColor, accentFor, type Phase } from '../store'
-import { activeTheme } from '../lib/theme-runtime'
-
-const CHARACTER_REACTOR_THEMES = new Set(['hal', 'wopr', 'mother', 'lcars', 'orin'])
+import { activeThemePackage } from '../lib/theme-runtime'
 
 /** Rings spin harder while JARVIS is working — reads as effort. */
 const spinFor: Record<Phase, number> = {
@@ -109,8 +105,27 @@ function aim(tint: Tint, css: string): THREE.Color {
 
 const STYLE_INDEX = { ring: 0, sphere: 1, wire: 2 } as const
 
+function DefaultReactor({ drive }: { drive: Drive }) {
+  const mesh = useRef<THREE.Mesh<THREE.TorusGeometry, THREE.MeshBasicMaterial>>(null)
+  useFrame((_state, delta) => {
+    if (!mesh.current) return
+    mesh.current.visible = drive.reactor.visible
+    mesh.current.scale.setScalar(drive.reactor.scale)
+    mesh.current.rotation.z += delta * drive.spin * drive.reactor.spin
+    mesh.current.material.color.copy(drive.reactor.color)
+    mesh.current.material.opacity = drive.reactor.intensity
+  })
+  return (
+    <mesh ref={mesh}>
+      <torusGeometry args={[1, 0.035, 16, 96]} />
+      <meshBasicMaterial transparent />
+    </mesh>
+  )
+}
+
 function Rig() {
-  const useCharacterReactor = CHARACTER_REACTOR_THEMES.has(activeTheme().id)
+  const ThemeScene = activeThemePackage().Scene
+  const useDefaultReactor = !ThemeScene && !activeThemePackage().Reactor
   const drive = useMemo<Drive>(
     () => ({
       color: new THREE.Color(phaseColor.offline),
@@ -189,8 +204,8 @@ function Rig() {
   // subject is one unbroken one.
   return (
     <>
-      {!useCharacterReactor && <Core drive={drive} />}
-      {!useCharacterReactor && <Particles drive={drive} />}
+      {ThemeScene && <ThemeScene drive={drive} />}
+      {useDefaultReactor && <DefaultReactor drive={drive} />}
       <Orbits />
     </>
   )

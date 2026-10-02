@@ -22,8 +22,8 @@
 import { activeTheme } from './theme-runtime'
 type Cue = 'boot-music' | 'ambient' | 'work'
 
-/** Nearest first: a theme's own score, then the one every theme shares. */
-const SOURCES = [`${activeTheme().dir}/audio`, '/audio']
+/** Only the active theme's score is eligible for playback. */
+const SOURCES = [`${activeTheme().dir}/audio`]
 
 type Track = {
   el: HTMLAudioElement

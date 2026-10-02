@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
-import { useStore } from '../store'
+import { useStore } from '../../../src/store'
 
 /**
  * The LCARS start-up: the U.S.S. Voyager's systems check.

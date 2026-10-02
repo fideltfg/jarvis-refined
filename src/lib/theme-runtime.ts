@@ -2,16 +2,14 @@
  * Theme packages.
  *
  * A theme is a folder under `public/themes/<id>/` — a `theme.json` manifest, an
- * optional `theme.css`, and an optional `audio/` directory of cue recordings.
+ * optional `theme.css`, `theme.tsx`, and an `audio/` directory of cue recordings.
  * Drop one in, restart, and it is selectable; nothing in `src/` has to change.
  * That is the whole point: the character the interface plays is content, not
  * code, so a new one costs a folder rather than a pull request.
  *
  * The manifest is merged over DEFAULTS, so a two-field theme.json is a valid
- * theme. Anything a theme cannot express as data — the boot animation, the
- * synthesised cue bank, the frame — is named in the manifest and resolved
- * against the handful of built-in implementations, falling back to the stock
- * ones when the name is unknown. A theme can therefore never break the app.
+ * theme. Components and synthesised sounds are exported by its own theme.tsx
+ * module. Missing exports use shared defaults; there is no character registry.
  *
  * Everything here resolves BEFORE React mounts (see main.tsx), which is what
  * lets the rest of the codebase keep reading theme values as plain module-level
@@ -19,6 +17,12 @@
  */
 
 import type { Phase } from '../store'
+import type { ThemePackage } from './theme-package'
+
+const packages = import.meta.glob<{ default: ThemePackage }>('../../public/themes/*/theme.tsx')
+let implementation: ThemePackage = {}
+
+export const activeThemePackage = (): ThemePackage => implementation
 
 export type ThemeCopy = {
   title: string
@@ -58,6 +62,7 @@ export type ThemeManifest = {
   sceneTint: { core: string; hot: string; particles: string }
   wake: { pattern: string; phrases: string[]; language: string }
   voice: {
+    engine: 'kokoro' | 'system' | null
     /** Kokoro voice id. Unknown ids fall back to the default in config.ts. */
     kokoro: string
     /** Which system-voice ranking to use when Kokoro is off. */
@@ -65,8 +70,6 @@ export type ThemeManifest = {
     profile: VoiceProfileShape
   }
   sound: {
-    /** Named synthesised cue bank. Unknown names get the stock one. */
-    bank: string
     /**
      * Whether the theme has a score — the boot swell and the loop under a
      * running tool. Off means the synthesised room tone is the only bed, which
@@ -75,8 +78,7 @@ export type ThemeManifest = {
     music: boolean
     ambient: { tones: [number, number]; noise: number; cutoff: number; level: number }
   }
-  /** Named boot animation. Unknown names get the stock one. */
-  boot: string
+  bootDurationMs: number
   /**
    * Which phrasebook the filler and agent announcements use. A butler says
    * "Very good, sir"; a machine says "Acknowledged."
@@ -142,6 +144,7 @@ const DEFAULTS: Omit<ThemeManifest, 'id' | 'dir'> = {
   sceneTint: { core: '#19c4c4', hot: '#c9fdff', particles: '#00e5ff' },
   wake: { pattern: '(?:computer)', phrases: ['Computer'], language: 'en-GB' },
   voice: {
+    engine: null,
     kokoro: 'bm_george',
     character: 'british-male',
     profile: {
@@ -156,11 +159,10 @@ const DEFAULTS: Omit<ThemeManifest, 'id' | 'dir'> = {
     },
   },
   sound: {
-    bank: 'stark',
     music: false,
     ambient: { tones: [55, 55.6], noise: 0.06, cutoff: 260, level: 0.05 },
   },
-  boot: 'stark',
+  bootDurationMs: 9200,
   register: 'machine',
   suggestion: 'what happened in AI this week',
   persona: '',
@@ -192,6 +194,13 @@ function merge<T>(base: T, patch: unknown): T {
 
 function normalise(id: string, raw: unknown): ThemeManifest {
   const merged = merge(DEFAULTS, raw)
+  if (merged.voice.engine !== 'kokoro' && merged.voice.engine !== 'system') {
+    merged.voice = { ...merged.voice, engine: null }
+  }
+  if (isObject(raw) && raw.css === null) merged.css = null
+  if (!Number.isFinite(merged.bootDurationMs) || merged.bootDurationMs < 0) {
+    merged.bootDurationMs = DEFAULTS.bootDurationMs
+  }
   return { ...merged, id, dir: `${THEMES_ROOT}/${id}` }
 }
 
@@ -319,5 +328,15 @@ export async function bootstrapTheme(): Promise<ThemeManifest> {
     ?.setAttribute('content', manifest.backgroundColor)
 
   if (manifest.css) await loadCss(`${manifest.dir}/${manifest.css}`)
+  const loadPackage = packages[`../../public/themes/${id}/theme.tsx`]
+  if (loadPackage) {
+    try {
+      const candidate = (await loadPackage()).default
+      if (!isObject(candidate)) throw new Error('theme.tsx must default-export a theme package')
+      implementation = candidate
+    } catch (error) {
+      console.warn(`[jarvis] theme "${id}" module failed to load; using defaults.`, error)
+    }
+  }
   return manifest
 }

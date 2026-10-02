@@ -1,4 +1,51 @@
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&display=swap');
+[data-theme='mother'] .mother-reactor {
+  width: min(62vw, 660px);
+  min-height: 270px;
+  padding: 12px;
+  background: #10150f;
+  border: 2px solid #59634f;
+  box-shadow: 0 0 0 5px #080a07, inset 0 0 0 3px #252c20, 0 0 36px rgba(79, 131, 54, 0.18);
+}
+[data-theme='mother'] .mother-reactor { width: min(64vw, 700px); }
+.crt-live-screen {
+  position: relative;
+  width: 100%;
+  min-height: 246px;
+  overflow: hidden;
+  padding: 18px clamp(16px, 3vw, 32px);
+  color: #9de36b;
+  background: radial-gradient(ellipse at center, #071306 0, #020602 75%);
+  font: 12px/1.55 'IBM Plex Mono', monospace;
+  text-shadow: 0 0 7px rgba(116, 255, 87, 0.55);
+}
+.crt-live-screen::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(159, 255, 121, 0.04) 0 1px, transparent 1px 4px);
+}
+.crt-live-screen header,
+.crt-live-screen footer { display: flex; justify-content: space-between; gap: 12px; font-size: 10px; letter-spacing: 0.06em; }
+.crt-live-screen header { color: #c6f69a; }
+.crt-live-rule { height: 2px; margin: 12px 0 20px; background: #659c47; box-shadow: 0 0 8px #71d84d; }
+.crt-live-copy p { display: flex; justify-content: space-between; gap: 14px; margin: 8px 0; }
+.crt-live-copy p:last-child { color: #6fa74f; }
+.crt-live-copy b { color: #d3ffae; font-weight: 400; text-align: right; }
+.crt-live-meter { height: 5px; margin: 24px 0 10px; background: #1b2b17; }
+.crt-live-meter span { display: block; width: var(--meter, 8%); height: 100%; background: #9ce66b; box-shadow: 0 0 10px #7fff50; transition: width 120ms linear; }
+.crt-live-cursor { animation: crtCursor 1s steps(2, start) infinite; }
+@keyframes crtCursor { to { visibility: hidden; } }
+@media (max-width: 700px) {
+  [data-theme='mother'] .mother-reactor { width: 86vw; min-height: 230px; }
+}
+@media (max-width: 700px) {
+  .crt-live-screen { min-height: 204px; padding: 14px 12px; font-size: 10px; }
+}
+@media (max-width: 700px) {
+  .crt-live-screen header { font-size: 8px; }
+}
 
 /* MU/TH/UR 6000 — a green industrial mainframe terminal.
 

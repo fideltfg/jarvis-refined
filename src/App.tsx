@@ -402,6 +402,34 @@ export default function App() {
     store.getState().setPtt({ enabled: true, binding: false, label: bindingLabel(binding) })
   }
 
+  const toggleHands = () => {
+    const on = store.getState().gestures
+    if (on) {
+      hands.disableHands()
+      store.getState().setGestures(false)
+    } else {
+      store.getState().setError(null)
+      void hands
+        .enableHands()
+        .then(() => store.getState().setGestures(true))
+        .catch((err: Error) => {
+          store.getState().setGestures(false)
+          store.getState().setError(
+            err?.name === 'NotAllowedError'
+              ? 'Camera access denied — gesture control is unavailable.'
+              : `Gesture control failed to start: ${err?.message ?? err}`,
+          )
+        })
+    }
+  }
+
+  const toggleVoiceProfile = () => {
+    const current = store.getState()
+    if (current.phase === 'offline' || current.phase === 'boot') return
+    if (!current.enrolling) silence()
+    current.setEnrolling(!current.enrolling)
+  }
+
   const pttMatches = (e: KeyboardEvent | MouseEvent): boolean => {
     const b = ptt.current.binding
     if (!ptt.current.enabled) return false
@@ -445,7 +473,6 @@ export default function App() {
     // Must happen inside the click handler — browsers won't start an
     // AudioContext or speech synthesis without a user gesture.
     await sfx.unlockAudio()
-    sfx.play('boot')
     // The score. Must be started from inside this click handler for the same
     // reason as the rest of the audio. A theme that declares no music gets the
     // low synthesised hum from sfx.ts instead — which is what a mainframe or a
@@ -456,6 +483,7 @@ export default function App() {
       music.playBoot()
       music.startAmbient()
     } else {
+      sfx.play('boot')
       sfx.startAmbient()
     }
 
@@ -615,7 +643,7 @@ export default function App() {
     // status bar, rings, suit schematic, reactor power-up — before the live
     // interface takes over. Kept a touch under the boot cue so the music is
     // still rising as the reactor lands.
-    await new Promise((r) => setTimeout(r, 9200)) // boot sequence
+    await new Promise((resolve) => setTimeout(resolve, activeTheme().bootDurationMs))
     await warming
     store.getState().setConnected(connectedLabels())
     store.getState().setVoice(currentVoiceName())
@@ -793,26 +821,7 @@ export default function App() {
       // thought it might be useful is not a trade anyone agreed to.
       if (e.key === 'g' && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault()
-        const on = store.getState().gestures
-        if (on) {
-          hands.disableHands()
-          store.getState().setGestures(false)
-        } else {
-          store.getState().setError(null)
-          void hands
-            .enableHands()
-            .then(() => store.getState().setGestures(true))
-            .catch((err: Error) => {
-              store.getState().setGestures(false)
-              store
-                .getState()
-                .setError(
-                  err?.name === 'NotAllowedError'
-                    ? 'Camera access denied — gesture control is unavailable.'
-                    : `Gesture control failed to start: ${err?.message ?? err}`,
-                )
-            })
-        }
+        toggleHands()
         return
       }
 
@@ -822,12 +831,7 @@ export default function App() {
       // control over who JARVIS listens to is reachable only from the keyboard.
       if (e.key === 'p' && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault()
-        const st = store.getState()
-        if (st.phase === 'offline' || st.phase === 'boot') return
-        // Enrolment takes the microphone, so he stops mid-sentence rather than
-        // talking over the first phrase.
-        if (!st.enrolling) silence()
-        st.setEnrolling(!st.enrolling)
+        toggleVoiceProfile()
         return
       }
 
@@ -900,6 +904,7 @@ export default function App() {
       const phase = store.getState().phase
       if (phase !== 'offline' && phase !== 'boot') goDormant()
     }
+    const onTogglePtt = () => setPttEnabled(!ptt.current.enabled)
 
     const onKeyUp = (e: KeyboardEvent) => {
       if (!pttMatches(e)) return
@@ -945,6 +950,9 @@ export default function App() {
     window.addEventListener('jarvis:command', onOrinCommand)
     window.addEventListener('jarvis:listen', onOrinListen)
     window.addEventListener('jarvis:standby', onOrinStandby)
+    window.addEventListener('jarvis:toggle-ptt', onTogglePtt)
+    window.addEventListener('jarvis:toggle-hands', toggleHands)
+    window.addEventListener('jarvis:voice-profile', toggleVoiceProfile)
 
     return () => {
       cancelAnimationFrame(raf)
@@ -957,6 +965,9 @@ export default function App() {
       window.removeEventListener('jarvis:command', onOrinCommand)
       window.removeEventListener('jarvis:listen', onOrinListen)
       window.removeEventListener('jarvis:standby', onOrinStandby)
+      window.removeEventListener('jarvis:toggle-ptt', onTogglePtt)
+      window.removeEventListener('jarvis:toggle-hands', toggleHands)
+      window.removeEventListener('jarvis:voice-profile', toggleVoiceProfile)
       clearIdle()
       if (voicePoll.current) clearInterval(voicePoll.current)
       voice.current?.stop()
@@ -973,7 +984,7 @@ export default function App() {
       <CharacterReactor />
       <Hud />
       <ThemeBoot />
-      <Diagnostics />
+      {activeTheme().id !== 'lcars' && <Diagnostics />}
       <Ignition onStart={() => void powerOn()} />
       <Enrol />
     </>

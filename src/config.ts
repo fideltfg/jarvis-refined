@@ -119,7 +119,7 @@ export const BRIDGE_HTTP_URL = BRIDGE_WS_URL.replace(/^ws/, 'http')
  *   round trip plus generation, which is the difference between a conversation
  *   and a walkie-talkie. Turn it on when you want the voice more than the pace.
  */
-export const USE_ELEVENLABS = flag(
+export const USE_ELEVENLABS = activeTheme().voice.engine === null && flag(
   'VITE_USE_ELEVENLABS',
   import.meta.env.VITE_USE_ELEVENLABS,
   false,
@@ -141,7 +141,7 @@ export const USE_ELEVENLABS = flag(
  */
 export const TTS_ENGINE: 'kokoro' | 'system' = choice(
   'VITE_TTS_ENGINE',
-  import.meta.env.VITE_TTS_ENGINE,
+  activeTheme().voice.engine ?? import.meta.env.VITE_TTS_ENGINE,
   ['kokoro', 'system'] as const,
   'kokoro',
 )
@@ -332,23 +332,13 @@ Using tools:
   deleting) say exactly what you're about to do and wait for confirmation.
 - If you don't know, say you don't know.`
 
-const STARK_PROMPT = `You are JARVIS, Tony Stark's assistant. You are speaking out loud.
-
-THE HARD RULE: your entire reply must be under 60 words. This is not a style
-preference — every word is read aloud by a speech synthesiser and the user is
-waiting in silence while it plays. A four-paragraph answer is a failure, however
-good the content. If a question genuinely needs more, give the headline in two
-sentences and offer the detail: "There's more if you want it."
-
-Voice:
-- Dry, precise, quietly amused. Understated competence, never fawning.
-- Say "sir" at most once per exchange, and not in every exchange.`
+const DEFAULT_PROMPT = 'You are a helpful voice assistant. Speak clearly and keep replies under 60 words.'
 
 /**
  * The character comes from the active theme's persona.md; the delivery and tool
  * rules are the same whoever is speaking, so they are appended here rather than
- * copied into every theme package. A theme that ships no persona falls back to
- * JARVIS's, which is the one voice that is guaranteed to exist.
+ * copied into every theme package. A theme that ships no persona uses a neutral
+ * voice assistant prompt.
  */
-export const SYSTEM_PROMPT = `${activeTheme().persona || STARK_PROMPT}\n${SHARED_VOICE}`
+export const SYSTEM_PROMPT = `${activeTheme().persona || DEFAULT_PROMPT}\n${SHARED_VOICE}`
 

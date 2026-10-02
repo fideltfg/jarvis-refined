@@ -1,5 +1,181 @@
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Share+Tech+Mono&display=swap');
 
+[data-theme='wopr'] .wopr-reactor {
+  width: min(76vw, 740px);
+  aspect-ratio: 1.9;
+}
+
+.wopr-machine { position: relative; width: 100%; height: 100%; color: #262626; }
+
+.wopr-console-base {
+  position: absolute;
+  inset: 29% 0 0;
+  display: grid;
+  grid-template-columns: 1.2fr 0.34fr 1fr;
+  gap: 12px;
+  align-items: end;
+  padding: 34% 3% 4%;
+  border: 5px solid #343638;
+  border-radius: 5px 8px 13px 13px;
+  background: linear-gradient(180deg, #767778, #555657 48%, #3f4142 94%, #262829);
+  box-shadow: inset 0 8px 4px rgba(255,255,255,.15), 0 14px 20px rgba(0,0,0,.5);
+}
+
+.wopr-indicators {
+  position: absolute;
+  top: 6%;
+  left: 3%;
+  right: 3%;
+  height: 25%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  padding: 5px;
+  border: 4px solid #393a3a;
+  background: #171615;
+  box-shadow: inset 0 2px 8px #000, 0 1px 0 rgba(255,255,255,.12);
+}
+
+.wopr-led-bank {
+  display: grid;
+  grid-template-columns: repeat(20, minmax(0, 1fr));
+  grid-template-rows: repeat(4, minmax(0, 1fr));
+  gap: 3px;
+  padding: 2px;
+  background: linear-gradient(135deg, #0b0b0a, #201b17);
+}
+
+.wopr-led {
+  justify-self: center;
+  align-self: center;
+  width: clamp(2px, .42vw, 5px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #35221d;
+  box-shadow: inset 0 0 1px #000;
+  transition: background 180ms ease, box-shadow 180ms ease;
+}
+
+.wopr-led[data-lit='true'][data-color='red'] {
+  background: #ff4936;
+  box-shadow: 0 0 3px 1px rgba(255, 39, 19, .72), 0 0 8px rgba(255, 39, 19, .35);
+}
+
+.wopr-led[data-lit='true'][data-color='amber'] {
+  background: #ffc34e;
+  box-shadow: 0 0 3px 1px rgba(255, 167, 39, .72), 0 0 8px rgba(255, 167, 39, .35);
+}
+
+.wopr-led[data-lit='true'][data-color='white'] {
+  background: #fff0b0;
+  box-shadow: 0 0 4px 1px rgba(255, 233, 167, .9), 0 0 9px rgba(255, 233, 167, .5);
+}
+
+.wopr-panel-door {
+  height: 74%;
+  border: 2px solid #3e3f3f;
+  border-radius: 3px;
+  background: linear-gradient(145deg, #666768, #555657 72%, #4b4d4e);
+  box-shadow: inset 0 1px rgba(255,255,255,.17), 0 2px 2px rgba(0,0,0,.26);
+}
+
+.wopr-panel-service {
+  height: 42%;
+  border: 2px solid #424344;
+  border-radius: 3px;
+  background: linear-gradient(145deg, #666768, #4a4c4d);
+  box-shadow: inset 0 1px rgba(255,255,255,.14);
+}
+
+.wopr-display-housing {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 37%;
+  height: 76%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 3% 4% 2%;
+  transform: translateX(-50%);
+  border: 4px solid #454748;
+  border-radius: 5px 7px 0 0;
+  background: linear-gradient(115deg, #8b8c8d, #696b6c 62%, #555758);
+  box-shadow: inset 0 2px rgba(255,255,255,.28), 0 -4px 7px rgba(255,255,255,.1), 4px 0 8px rgba(0,0,0,.25);
+}
+
+.wopr-display-window {
+  position: relative;
+  width: 100%;
+  height: 53%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 5px solid #333536;
+  background: #090a0a;
+  box-shadow: inset 0 0 0 2px #171819, 0 2px 4px rgba(0,0,0,.4);
+}
+
+.wopr-display-window::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(circle, rgba(255, 92, 56, .42) 0 0.7px, transparent 1px);
+  background-size: 5px 5px;
+  opacity: .36;
+}
+
+.wopr-led-copy {
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #ff6349;
+  font: 600 clamp(7px, 1vw, 12px)/1.15 'Share Tech Mono', monospace;
+  text-align: center;
+  text-shadow: 0 0 5px #fa2b16, 0 0 12px rgba(255, 72, 25, .7);
+  white-space: nowrap;
+}
+
+.wopr-led-copy span:last-child { color: #ffc35b; text-shadow: 0 0 6px #ff9d24; }
+
+.wopr-display-housing strong {
+  margin-top: 5%;
+  color: #ddd;
+  font: 600 clamp(15px, 2.5vw, 30px)/1 'IBM Plex Mono', monospace;
+  letter-spacing: .06em;
+  text-shadow: 0 1px 1px #333;
+}
+
+.wopr-model-sub {
+  margin-top: 2%;
+  color: #ddd;
+  font: 8px/1 'Share Tech Mono', monospace;
+  text-align: center;
+  white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  [data-theme='wopr'] .wopr-reactor { width: 88vw; }
+}
+
+@media (max-width: 700px) {
+  .wopr-console-base { padding-top: 36%; }
+}
+
+@media (max-width: 700px) {
+  .wopr-indicators { gap: 2px; padding: 3px; border-width: 3px; }
+}
+
+@media (max-width: 700px) {
+  .wopr-led-bank { gap: 2px; padding: 1px; }
+}
+
+@media (max-width: 700px) {
+  .wopr-led { width: 3px; }
+}
+
 /* WOPR — an amber command-room CRT and strategic grid.
 
    Scoped under [data-theme='wopr'] and this theme's own boot classes, so the

@@ -3,7 +3,7 @@
   "css": "theme.css",
   "backgroundColor": "#090700",
   "register": "machine",
-  "boot": "wopr",
+  "bootDurationMs": 9200,
   "suggestion": "run a strategic weather simulation",
   "copy": {
     "title": "WOPR",
@@ -60,7 +60,6 @@
     }
   },
   "sound": {
-    "bank": "wopr",
     "music": false,
     "ambient": { "tones": [60, 120], "noise": 0.035, "cutoff": 420, "level": 0.032 }
   }

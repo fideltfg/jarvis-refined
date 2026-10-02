@@ -3,7 +3,7 @@
   "css": "theme.css",
   "backgroundColor": "#071006",
   "register": "machine",
-  "boot": "mother",
+  "bootDurationMs": 9200,
   "suggestion": "display the ship status",
   "copy": {
     "title": "MU/TH/UR 6000",
@@ -60,7 +60,6 @@
     }
   },
   "sound": {
-    "bank": "mother",
     "music": false,
     "ambient": { "tones": [42, 43.2], "noise": 0.16, "cutoff": 190, "level": 0.06 }
   }

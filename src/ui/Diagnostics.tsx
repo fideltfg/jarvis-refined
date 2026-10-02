@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { X } from 'lucide-react'
 import { useStore } from '../store'
 
 /**
@@ -55,22 +56,27 @@ function Row({ k, v, bad }: { k: string; v: string; bad?: boolean }) {
   )
 }
 
-export function Diagnostics() {
+export function Diagnostics({ inline = false }: { inline?: boolean } = {}) {
   const [open, setOpen] = useState(false)
   const [, tick] = useState(0)
   const phase = useStore((s) => s.phase)
 
   useEffect(() => {
+    const toggle = () => setOpen((open) => !open)
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
       if (e.key === 'd' && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault()
-        setOpen((o) => !o)
+        toggle()
       }
     }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('jarvis:toggle-diagnostics', toggle)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('jarvis:toggle-diagnostics', toggle)
+    }
   }, [])
 
   useEffect(() => {
@@ -92,7 +98,9 @@ export function Diagnostics() {
 
   return (
     <div className="diag" aria-live="polite">
-      <div className="diag-head">DIAGNOSTICS · D to close</div>
+      <div className="diag-head">
+        {inline ? <><span>DIAGNOSTICS</span><button type="button" aria-label="Close diagnostics" title="Close diagnostics" onClick={() => setOpen(false)}><X size={16} /></button></> : 'DIAGNOSTICS · D to close'}
+      </div>
 
       <div className="diag-verdict">
         <span className={earsOk ? 'diag-ok' : 'diag-bad'}>

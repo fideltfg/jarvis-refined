@@ -3,7 +3,7 @@
   "css": "theme.css",
   "backgroundColor": "#050000",
   "register": "machine",
-  "boot": "hal",
+  "bootDurationMs": 9200,
   "suggestion": "show me the mission systems",
   "copy": {
     "title": "HAL 9000",
@@ -46,12 +46,13 @@
     "language": "en-GB"
   },
   "voice": {
-    "kokoro": "am_michael",
+    "engine": "kokoro",
+    "kokoro": "am_onyx",
     "character": "british-male",
     "profile": {
-      "label": "Michael · logic core",
-      "speed": 0.86,
-      "playbackRate": 0.96,
+      "label": "Onyx · HAL approximation",
+      "speed": 0.92,
+      "playbackRate": 1,
       "highpassHz": 65,
       "lowpassHz": 5200,
       "presenceHz": 1100,
@@ -60,7 +61,6 @@
     }
   },
   "sound": {
-    "bank": "hal",
     "music": false,
     "ambient": { "tones": [48, 96], "noise": 0.012, "cutoff": 180, "level": 0.026 }
   }

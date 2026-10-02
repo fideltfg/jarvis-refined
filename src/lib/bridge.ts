@@ -59,21 +59,23 @@ let askSeq = 0
 let activeAskId = ''
 let availableProviders = ['claude']
 let selectedProvider = localStorage.getItem('jarvis-provider') || 'claude'
-let onProviders: ((available: string[], selected: string) => void) | null = null
+const providerListeners = new Set<(available: string[], selected: string) => void>()
 
 export function providerState() {
   return { available: availableProviders, selected: selectedProvider }
 }
 
 export function watchProviders(fn: (available: string[], selected: string) => void) {
-  onProviders = fn
+  providerListeners.add(fn)
+  fn(availableProviders, selectedProvider)
+  return () => { providerListeners.delete(fn) }
 }
 
 export function selectProvider(provider: string) {
   if (!availableProviders.includes(provider)) return
   selectedProvider = provider
   localStorage.setItem('jarvis-provider', provider)
-  onProviders?.(availableProviders, selectedProvider)
+  for (const listener of providerListeners) listener(availableProviders, selectedProvider)
 }
 
 let socket: WebSocket | null = null
@@ -254,7 +256,7 @@ function dispatch(ws: WebSocket) {
         selectedProvider = msg.selected
         localStorage.setItem('jarvis-provider', selectedProvider)
       }
-      onProviders?.(availableProviders, selectedProvider)
+      for (const listener of providerListeners) listener(availableProviders, selectedProvider)
     } else if (msg.type === 'panel' && msg.panel) {
       onPanel?.(msg.panel)
     } else if (msg.type === 'agents') {

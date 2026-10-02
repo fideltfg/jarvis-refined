@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { useStore } from '../store'
+import { useStore } from '../../../src/store'
 
 const BARS = 32
 const FLOOR = 0.14

@@ -9,8 +9,7 @@ import { GestureGuide } from './GestureGuide'
 import { AgentBoard } from './AgentBoard'
 import { copy } from '../theme'
 import { providerState, watchProviders, selectProvider, usingBridge } from '../lib/brain'
-import { activeTheme } from '../lib/theme-runtime'
-import { OrinHud } from './OrinHud'
+import { activeTheme, activeThemePackage } from '../lib/theme-runtime'
 
 const statusText: Record<Phase, string> = copy.status
 
@@ -144,18 +143,17 @@ function DecodeText({ text }: { text: string }) {
 
 export function Hud() {
   const [providers, setProviders] = useState(providerState)
-  const orinTheme = activeTheme().id === 'orin'
-  useEffect(() => {
-    watchProviders((available, selected) => setProviders({ available, selected }))
-    return () => watchProviders(() => {})
-  }, [])
+  const CustomHud = activeThemePackage().Hud
+  const Frame = activeThemePackage().Frame
+  const lcarsTheme = activeTheme().id === 'lcars'
+  useEffect(() => watchProviders((available, selected) => setProviders({ available, selected })), [])
   const phase = useStore((s) => s.phase)
   const caption = useStore((s) => s.caption)
   const turns = useStore((s) => s.turns)
   const activeTool = useStore((s) => s.activeTool)
   const connected = useStore((s) => s.connected)
   const error = useStore((s) => s.error)
-  const level = useStore((s) => orinTheme ? 0 : s.level)
+  const level = useStore((s) => CustomHud ? 0 : s.level)
   const voice = useStore((s) => s.voice)
   const bootNote = useStore((s) => s.bootNote)
   const gestures = useStore((s) => s.gestures)
@@ -179,10 +177,11 @@ export function Hud() {
     else root.style.removeProperty('--bg')
   }, [ui.background])
 
-  if (orinTheme) {
+  if (CustomHud) {
     return (
-      <div className={`hud hud-${phase} orin-hud`} style={{ ['--accent' as string]: colour }}>
-        <OrinHud />
+      <div className={`hud hud-${phase}`} style={{ ['--accent' as string]: colour }}>
+        {Frame && <Frame phase={phase} />}
+        <CustomHud />
         <Effects />
         <Pointer />
         {(gestures || looking) && (
@@ -197,10 +196,11 @@ export function Hud() {
 
   return (
     <div className={`hud hud-${phase}`} style={{ ['--accent' as string]: colour }}>
+      {Frame && <Frame phase={phase} />}
       {/* First in the tree on purpose. Everything after it is positioned with
           `z-index: auto`, so paint order is document order and the sweep stays
           behind the transcript and the panels without a z-index war. */}
-      <BladeSweep />
+      {!lcarsTheme && <BladeSweep />}
 
       <Corner at="tl" />
       <Corner at="tr" />
@@ -282,7 +282,7 @@ export function Hud() {
       </aside>
 
       <AnimatePresence>
-        {activeTool && ui.chrome.toolBadge && (
+        {activeTool && ui.chrome.toolBadge && !lcarsTheme && (
           <motion.div
             className="tool-badge"
             // Anchored to the TOP of the frame, not the middle. The old home was
@@ -352,7 +352,7 @@ export function Hud() {
           here now; Panels.tsx is unmounted rather than deleted so the design
           system it documents stays findable. */}
       <Blades />
-      <AgentBoard />
+      {!lcarsTheme && <AgentBoard />}
 
       {ui.chrome.suggestions && <Suggestions />}
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useReducedMotion } from 'framer-motion'
-import type { Phase } from '../store'
+import type { Phase } from '../../../src/store'
 
 /**
  * The LCARS chrome, in the Voyager style: the two-part elbow frame down the

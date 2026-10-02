@@ -3,7 +3,7 @@
   "css": "theme.css",
   "backgroundColor": "#000000",
   "register": "machine",
-  "boot": "lcars",
+  "bootDurationMs": 9200,
   "suggestion": "run a level one diagnostic",
   "copy": {
     "title": "LCARS · Voyager",
@@ -21,7 +21,7 @@
       "tooling": "ACCESSING DATABANKS",
       "speaking": "RESPONDING"
     },
-    "systemsTitle": "SHIP SYSTEMS",
+    "systemsTitle": "",
     "signalTitle": "COMM CHANNEL",
     "toolKicker": "accessing",
     "ignitionWord": "ENGAGE",
@@ -30,16 +30,16 @@
     "audioTest": "Audio systems are functioning within normal parameters."
   },
   "phaseColors": {
-    "offline": "#232c48",
-    "boot": "#7a8cff",
-    "dormant": "#6677e6",
-    "waking": "#99ccff",
-    "listening": "#99ccff",
-    "thinking": "#ffaa00",
-    "tooling": "#ffaa88",
-    "speaking": "#d4e6ff"
+    "offline": "#cc514e",
+    "boot": "#a15dec",
+    "dormant": "#cc514e",
+    "waking": "#c387ee",
+    "listening": "#f1822f",
+    "thinking": "#7984f4",
+    "tooling": "#cc514e",
+    "speaking": "#f2ad98"
   },
-  "sceneTint": { "core": "#6677e6", "hot": "#e6efff", "particles": "#99ccff" },
+  "sceneTint": { "core": "#cc514e", "hot": "#f2ad98", "particles": "#7984f4" },
   "wake": {
     "pattern": "(?:computer|computa|compute her)",
     "phrases": ["Computer"],
@@ -60,7 +60,6 @@
     }
   },
   "sound": {
-    "bank": "lcars",
     "music": false,
     "ambient": { "tones": [46, 46.4], "noise": 0.07, "cutoff": 230, "level": 0.04 }
   }

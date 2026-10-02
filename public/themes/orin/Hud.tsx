@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { copy } from '../theme'
-import { mergeBoard, statusLabel } from '../lib/board'
-import { decideApproval, providerState, selectProvider, usingBridge, watchProviders } from '../lib/brain'
-import { useStore, type Phase } from '../store'
-import { CharacterReactor } from './CharacterReactor'
-import { OrinWave } from './OrinWave'
+import { copy } from '../../../src/theme'
+import { mergeBoard, statusLabel } from '../../../src/lib/board'
+import { decideApproval, providerState, selectProvider, usingBridge, watchProviders } from '../../../src/lib/brain'
+import { useStore, type Phase } from '../../../src/store'
+import { CharacterReactor } from '../../../src/ui/CharacterReactor'
+import { OrinWave } from './Wave'
 
 const MODES: { id: 'standby' | 'listening' | 'processing' | 'responding'; label: string }[] = [
   { id: 'standby', label: 'Standby' },
@@ -54,10 +54,7 @@ export function OrinHud() {
     return () => window.clearInterval(timer)
   }, [])
 
-  useEffect(() => {
-    watchProviders((available, selected) => setProviders({ available, selected }))
-    return () => watchProviders(() => {})
-  }, [])
+  useEffect(() => watchProviders((available, selected) => setProviders({ available, selected })), [])
 
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()

@@ -1,9 +1,9 @@
 {
   "name": "J.A.R.V.I.S.",
-  "css": "",
+  "css": "theme.css",
   "backgroundColor": "#01060c",
   "register": "butler",
-  "boot": "stark",
+  "bootDurationMs": 9200,
   "suggestion": "generate an image of the Mark Seven suit",
   "copy": {
     "title": "J.A.R.V.I.S.",
@@ -60,7 +60,6 @@
     }
   },
   "sound": {
-    "bank": "stark",
     "music": true,
     "ambient": { "tones": [55, 55.6], "noise": 0.06, "cutoff": 260, "level": 0.05 }
   }

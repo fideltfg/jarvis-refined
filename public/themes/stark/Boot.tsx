@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { useStore } from '../store'
-import { copy } from '../theme'
+import { useStore } from '../../../src/store'
+import { copy } from '../../../src/theme'
 
 /**
  * The start-up sequence, rebuilt to the Iron Man boot it is quoting.
