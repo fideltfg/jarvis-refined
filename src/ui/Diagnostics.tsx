@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useStore } from '../store'
 
 /**
@@ -56,7 +56,16 @@ function Row({ k, v, bad }: { k: string; v: string; bad?: boolean }) {
 }
 
 export function Diagnostics({ inline = false }: { inline?: boolean } = {}) {
-  const [open, setOpen] = useState(false)
+  const [localOpen, setLocalOpen] = useState(false)
+  const commandWindow = useStore((state) => state.commandWindow)
+  const open = inline ? commandWindow === 'diagnostics' : localOpen
+  const setOpen = useCallback((value: boolean | ((current: boolean) => boolean)) => {
+    if (!inline) { setLocalOpen(value); return }
+    const state = useStore.getState()
+    const next = typeof value === 'function' ? value(state.commandWindow === 'diagnostics') : value
+    if (next) state.setCommandWindow('diagnostics')
+    else if (state.commandWindow === 'diagnostics') state.setCommandWindow(null)
+  }, [inline])
   const [, tick] = useState(0)
   const phase = useStore((s) => s.phase)
 
@@ -76,7 +85,7 @@ export function Diagnostics({ inline = false }: { inline?: boolean } = {}) {
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('jarvis:toggle-diagnostics', toggle)
     }
-  }, [])
+  }, [setOpen])
 
   useEffect(() => {
     if (!open) return

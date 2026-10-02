@@ -1,10 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
 
 type Command = { id: string; label: string; detail: string; keywords: string; run: () => void }
 
 export function CommandPalette({ inline = false }: { inline?: boolean } = {}) {
-  const [open, setOpen] = useState(false)
+  const [localOpen, setLocalOpen] = useState(false)
+  const commandWindow = useStore((state) => state.commandWindow)
+  const open = inline ? commandWindow === 'palette' : localOpen
+  const setOpen = useCallback((value: boolean | ((current: boolean) => boolean)) => {
+    if (!inline) { setLocalOpen(value); return }
+    const state = useStore.getState()
+    const next = typeof value === 'function' ? value(state.commandWindow === 'palette') : value
+    if (next) state.setCommandWindow('palette')
+    else if (state.commandWindow === 'palette') state.setCommandWindow(null)
+  }, [inline])
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const input = useRef<HTMLInputElement>(null)
@@ -13,6 +22,7 @@ export function CommandPalette({ inline = false }: { inline?: boolean } = {}) {
     { id: 'listen', label: 'Start listening', detail: 'Open the microphone for a command', keywords: 'space talk microphone', run: () => window.dispatchEvent(new CustomEvent('jarvis:listen')) },
     { id: 'ptt', label: 'Toggle push to talk', detail: 'Enable or disable push-to-talk', keywords: 'mic keyboard k', run: () => window.dispatchEvent(new CustomEvent('jarvis:toggle-ptt')) },
     { id: 'agents', label: 'Toggle agent board', detail: 'Show or hide agent tasks and progress', keywords: 'tasks workers a', run: () => useStore.getState().toggleBoard() },
+    { id: 'timeline', label: 'Toggle tool timeline', detail: 'Show what tools have run and for how long', keywords: 'tools activity history duration shift t', run: () => useStore.getState().toggleTimeline() },
     { id: 'hands', label: 'Toggle hand controls', detail: 'Enable or disable camera-based gestures', keywords: 'camera gestures g', run: () => window.dispatchEvent(new CustomEvent('jarvis:toggle-hands')) },
     { id: 'voice-profile', label: 'Open voice profile', detail: 'Enroll, re-record, or remove the voice profile', keywords: 'privacy voice p', run: () => window.dispatchEvent(new CustomEvent('jarvis:voice-profile')) },
     { id: 'diagnostics', label: 'Toggle diagnostics', detail: 'Show voice input and audio output diagnostics', keywords: 'debug d', run: () => window.dispatchEvent(new CustomEvent('jarvis:toggle-diagnostics')) },
@@ -51,7 +61,7 @@ export function CommandPalette({ inline = false }: { inline?: boolean } = {}) {
       window.removeEventListener('keydown', onKey, true)
       window.removeEventListener('jarvis:toggle-command-palette', toggle)
     }
-  }, [open])
+  }, [open, setOpen])
 
   useEffect(() => {
     if (open) {

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { themePhaseColor } from './theme'
 import type { AgentBoardData, SessionAgent } from './lib/board'
+import { endTools, startTool, type ToolEvent } from './lib/timeline'
 
 export type Phase =
   | 'offline'   // waiting for the click that unlocks audio
@@ -228,7 +229,19 @@ function defined<T extends object>(patch: T | undefined): Partial<T> {
  */
 const MAX_ORBITS = 8
 
+export type CommandWindow = 'agents' | 'diagnostics' | 'palette' | 'timeline' | 'status' | 'voice'
+
+const commandWindowState = (commandWindow: CommandWindow | null) => ({
+  commandWindow,
+  boardOpen: commandWindow === 'agents',
+  timelineOpen: commandWindow === 'timeline',
+  enrolling: commandWindow === 'voice',
+})
+
 type State = {
+  exclusiveCommandWindows: boolean
+  commandWindow: CommandWindow | null
+  setCommandWindow: (window: CommandWindow | null) => void
   phase: Phase
   /** 0..1 mic loudness, drives the reactor pulse. */
   level: number
@@ -236,6 +249,10 @@ type State = {
   caption: string
   turns: Turn[]
   activeTool: string | null
+  /** Every tool this session, oldest first, capped by MAX_TOOL_EVENTS. */
+  toolEvents: ToolEvent[]
+  /** True while the tool-activity timeline is on screen. */
+  timelineOpen: boolean
   error: string | null
   connected: string[]
   /** Name of the speech-synthesis voice in use, shown in the HUD. */
@@ -293,6 +310,8 @@ type State = {
   setLevel: (l: number) => void
   setCaption: (c: string) => void
   setActiveTool: (t: string | null) => void
+  toggleTimeline: () => void
+  clearToolEvents: () => void
   setError: (e: string | null) => void
   setConnected: (c: string[]) => void
   pushTurn: (t: Turn) => void
@@ -308,11 +327,16 @@ type State = {
 }
 
 export const useStore = create<State>((set) => ({
+  exclusiveCommandWindows: false,
+  commandWindow: null,
+  setCommandWindow: (commandWindow) => set(commandWindowState(commandWindow)),
   phase: 'offline',
   level: 0,
   caption: '',
   turns: [],
   activeTool: null,
+  toolEvents: [],
+  timelineOpen: false,
   error: null,
   connected: [],
   voice: '',
@@ -326,7 +350,9 @@ export const useStore = create<State>((set) => ({
   sessionAgents: [],
   setAgents: (board, online) => set({ agentBoard: board, agentsOnline: online, agentsSeen: true }),
   setSessionAgents: (sessionAgents) => set({ sessionAgents }),
-  toggleBoard: () => set((s) => ({ boardOpen: !s.boardOpen })),
+  toggleBoard: () => set((s) => s.exclusiveCommandWindows
+    ? commandWindowState(s.boardOpen ? null : 'agents')
+    : { boardOpen: !s.boardOpen }),
   blades: [],
   focusedBlade: null,
   expandedBlade: null,
@@ -394,11 +420,31 @@ export const useStore = create<State>((set) => ({
     }),
   focusBlade: (focusedBlade) => set({ focusedBlade }),
   expandBlade: (expandedBlade) => set({ expandedBlade }),
-  setEnrolling: (enrolling) => set({ enrolling }),
+  setEnrolling: (enrolling) => set((s) => s.exclusiveCommandWindows
+    ? commandWindowState(enrolling ? 'voice' : s.commandWindow === 'voice' ? null : s.commandWindow)
+    : { enrolling }),
   setPhase: (phase) => set({ phase }),
   setLevel: (level) => set({ level }),
   setCaption: (caption) => set({ caption }),
-  setActiveTool: (activeTool) => set({ activeTool }),
+  // The badge and the timeline are fed by the same call, so history cannot
+  // drift from the readout. A repeat of the name already showing is the same
+  // tool still running — several code paths re-assert it — so it extends the
+  // open event rather than opening a second one for the same call.
+  setActiveTool: (activeTool) =>
+    set((s) => {
+      if (s.activeTool === activeTool) return {}
+      const at = Date.now()
+      return {
+        activeTool,
+        toolEvents: activeTool
+          ? startTool(s.toolEvents, activeTool, at)
+          : endTools(s.toolEvents, at),
+      }
+    }),
+  toggleTimeline: () => set((s) => s.exclusiveCommandWindows
+    ? commandWindowState(s.timelineOpen ? null : 'timeline')
+    : { timelineOpen: !s.timelineOpen }),
+  clearToolEvents: () => set({ toolEvents: [] }),
   setError: (error) => set({ error }),
   setConnected: (connected) => set({ connected }),
   pushTurn: (turn) => set((s) => ({ turns: [...s.turns.slice(-40), turn] })),
@@ -457,7 +503,11 @@ export const useStore = create<State>((set) => ({
       // screen, and leaving a full-height article standing while the cards
       // around it vanish is the interface arguing with the instruction.
       const blades = what === 'transcript' ? s.blades : []
-      const cleared = { panels, turns, blades, focusedBlade: null, expandedBlade: null }
+      // The timeline is a record of the conversation, so it goes with the
+      // transcript rather than with the cards. Clearing only the panels leaves
+      // it standing — the history is still true.
+      const toolEvents = what === 'panels' ? s.toolEvents : []
+      const cleared = { panels, turns, blades, toolEvents, focusedBlade: null, expandedBlade: null }
       return what === 'all'
         ? { ...cleared, caption: '', activeTool: null }
         : cleared

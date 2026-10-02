@@ -7,14 +7,17 @@ const styles = await readFile(new URL('../index.css', import.meta.url), 'utf8')
 const reactor = await readFile(new URL('../../public/themes/lcars/Reactor.tsx', import.meta.url), 'utf8')
 const app = await readFile(new URL('../App.tsx', import.meta.url), 'utf8')
 const lcarsStyles = await readFile(new URL('../../public/themes/lcars/theme.css', import.meta.url), 'utf8')
+const diagnostics = await readFile(new URL('./Diagnostics.tsx', import.meta.url), 'utf8')
+const statusReport = await readFile(new URL('../../public/themes/lcars/StatusReport.tsx', import.meta.url), 'utf8')
+const timeline = await readFile(new URL('./Timeline.tsx', import.meta.url), 'utf8')
 
 test('LCARS mounts one non-modal command palette inside the session area', () => {
-  assert.match(reactor, /<AgentBoard \/>\s*<CommandPalette inline \/>\s*<Diagnostics inline \/>/)
+  assert.match(reactor, /<AgentBoard \/>\s*<CommandPalette inline \/>\s*<Timeline inline \/>\s*<Diagnostics inline \/>/)
   assert.match(app, /activeTheme\(\)\.id !== 'lcars' && <CommandPalette \/>/)
   assert.match(source, /role=\{inline \? 'region' : 'dialog'\}/)
   assert.match(source, /aria-modal=\{inline \? undefined : true\}/)
   assert.match(source, /return inline \? palette :/)
-  assert.match(lcarsStyles, /\.command-palette-inline \{[^}]*width: 100%;[^}]*height: min\(60vh, 540px\)[^}]*background: #000/)
+  assert.match(lcarsStyles, /\.command-palette-inline \{[^}]*width: 100%;[^}]*height: auto;[^}]*background: #000/)
   assert.match(lcarsStyles, /\.command-palette-inline \{[^}]*border-left: 6px solid var\(--lc-blue\)/)
   assert.doesNotMatch(source, /Close command palette|<X /)
 })
@@ -24,6 +27,59 @@ test('LCARS command palette button follows Status report and toggles the palette
   assert.match(source, /const toggle = \(\) => setOpen\(\(value\) => !value\)/)
   assert.match(source, /addEventListener\('jarvis:toggle-command-palette', toggle\)/)
   assert.match(source, /removeEventListener\('jarvis:toggle-command-palette', toggle\)/)
+})
+
+test('LCARS diagnostics and command palette buttons reflect panel visibility using the shared active style', () => {
+  assert.match(reactor, /aria-pressed=\{diagnosticsOpen\}[^\n]*Diagnostics<\/button>/)
+  assert.match(reactor, /aria-pressed=\{commandPaletteOpen\}[^\n]*Command palette<\/button>/)
+  assert.match(reactor, /const diagnosticsOpen = commandWindow === 'diagnostics'/)
+  assert.match(reactor, /const commandPaletteOpen = commandWindow === 'palette'/)
+  assert.match(diagnostics, /const open = inline \? commandWindow === 'diagnostics' : localOpen/)
+  assert.match(source, /const open = inline \? commandWindow === 'palette' : localOpen/)
+  assert.match(lcarsStyles, /\[aria-pressed='true'\][^\n]*\{\s*--lc-button-color: var\(--lc-button-active\)/)
+})
+
+test('LCARS colors prioritize error, disabled, selected, active, off, and enabled', () => {
+  for (const [state, color] of Object.entries({ off: '#c9ced6', disabled: '#555b65', enabled: '#9edcf2', active: '#00bfff', selected: '#ff6753', error: '#8b1e2d' })) {
+    assert.ok(lcarsStyles.includes(`--lc-button-${state}: ${color};`))
+  }
+  const states = ['off', 'active', 'selected', 'disabled', 'error'].map((state) => lcarsStyles.lastIndexOf(`--lc-button-color: var(--lc-button-${state})`))
+  assert.ok(states.every((position, index) => position >= 0 && (!index || position > states[index - 1])))
+  assert.match(reactor, /data-function-off=\{!ptt.enabled\} data-function-active=\{ptt.enabled && ptt.held\}/)
+  assert.match(reactor, /data-function-off=\{!gestures\}/)
+  assert.match(reactor, /data-function-error=\{Boolean\(error\)\}/)
+  assert.match(reactor, /document.addEventListener\('click', select, true\)/)
+  assert.match(reactor, /control.setAttribute\('data-lcars-selected', 'true'\)/)
+  assert.match(reactor, /\[data-command-window="\$\{commandWindow\}"\]/)
+})
+
+test('LCARS keeps the full-screen ignition splash black and outside the button palette', () => {
+  assert.match(lcarsStyles, /\[data-theme='lcars'\] \.ignition \{\s*background: #000;/)
+  assert.match(lcarsStyles, /:is\(button, select\):where\(:not\(\.ignition\)\) \{\s*--lc-button-color:/)
+  assert.match(lcarsStyles, /button:where\(:not\(\.ignition\)\) :is\(span, strong, small, b, kbd\)/)
+})
+
+test('LCARS status report is a scrollable command window inside the session area, not a modal', () => {
+  assert.match(reactor, /<Diagnostics inline \/>\s*\{statusReportOpen && <StatusReport onClose=\{\(\) => setCommandWindow\(null\)\} \/>\}\s*<\/section>/)
+  assert.match(statusReport, /className="lcars-report-window" role="region"/)
+  assert.doesNotMatch(statusReport, /createPortal|aria-modal|role="dialog"|lcars-report-backdrop|event.key === 'Tab'/)
+  assert.match(statusReport, /event.key === 'Escape'/)
+  assert.match(lcarsStyles, /\.lcars-report-window \{[^}]*width: 100%;[^}]*height: auto;[^}]*overflow-y: auto;/)
+  assert.doesNotMatch(lcarsStyles, /\.lcars-report-backdrop/)
+})
+
+test('LCARS command-window headers do not include close buttons', () => {
+  assert.doesNotMatch(statusReport, /<button|Close status report|import \{ X \}/)
+  assert.match(timeline, /\{!inline && <button[^>]*className="tl-close"/)
+  assert.doesNotMatch(source, /Close command palette/)
+  assert.doesNotMatch(diagnostics, /<button/)
+})
+
+test('all LCARS command windows fill the available session height without individual caps', () => {
+  assert.match(lcarsStyles, /\.lcars-deck-body \{[^}]*min-height: 0;/)
+  assert.match(lcarsStyles, /\.lcars-deck-history > :is\(\.agent-board, \.command-palette-inline, \.timeline-inline, \.diag, \.lcars-report-window\) \{\s*flex: 1 1 0;\s*height: auto;\s*max-height: none;\s*min-height: 0;/)
+  assert.match(lcarsStyles, /height: calc\(100dvh - 140px\)/)
+  assert.match(lcarsStyles, /\.lcars-deck-transcript \{\s*flex: 0 1 auto;\s*max-height: min\(18dvh, 160px\);/)
 })
 
 test('command palette provides searchable operational commands and keyboard navigation', () => {

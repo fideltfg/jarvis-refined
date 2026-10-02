@@ -34,6 +34,7 @@ export function AgentBoard() {
   const online = useStore((s) => s.agentsOnline)
   const seen = useStore((s) => s.agentsSeen)
   const open = useStore((s) => s.boardOpen)
+  const exclusiveCommandWindows = useStore((s) => s.exclusiveCommandWindows)
   const session = useStore((s) => s.sessionAgents)
 
   // The service being offline must not hide a subagent: a turn can dispatch one
@@ -44,6 +45,7 @@ export function AgentBoard() {
 
   // Subagents alone are reason enough to have a board.
   if (!seen && !session.length) return null
+  if (exclusiveCommandWindows && !open) return null
   if (!open && !rows.some((r) => LIVE.includes(r.status))) return null
 
   return (

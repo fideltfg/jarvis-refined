@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react'
 import { Scene } from './scene/Scene'
 import { Hud } from './ui/Hud'
 import { CommandPalette } from './ui/CommandPalette'
+import { Timeline } from './ui/Timeline'
+import { Launcher } from './ui/Launcher'
 import { ThemeBoot } from './ui/ThemeBoot'
 import { Ignition } from './ui/Ignition'
 import { Diagnostics } from './ui/Diagnostics'
@@ -312,9 +314,7 @@ export default function App() {
    *
    * Nothing is abandoned here — no turn bump, no interrupt, no phase change.
    * He simply drops his voice, the way a person does when someone else starts
-   * talking, and waits to find out whether he is being addressed. The answer
-   * is still running underneath and resumes at full volume if it was his own
-   * playback or somebody else in the room.
+   * talking, and waits to find out whether it was his own playback or somebody else in the room.
    */
   const onSpeechMaybe = () => {
     const phase = store.getState().phase
@@ -836,6 +836,15 @@ export default function App() {
         return
       }
 
+      // Shift+T opens the tool-activity timeline. It carries the modifier
+      // because bare T is the audio test below, and that one has to stay a
+      // single keypress — it is the first thing tried when nothing is audible.
+      if (e.key === 'T' && e.shiftKey && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault()
+        store.getState().toggleTimeline()
+        return
+      }
+
       // T speaks a fixed line, bypassing the wake word, the recogniser and the
       // model entirely. When "I can't hear him" is the report, this is the one
       // keypress that separates a broken voice engine from a broken voice loop
@@ -985,6 +994,8 @@ export default function App() {
       <CharacterReactor />
       <Hud />
       {activeTheme().id !== 'lcars' && <CommandPalette />}
+      {activeTheme().id !== 'lcars' && <Timeline />}
+      {activeTheme().id !== 'lcars' && <Launcher />}
       <ThemeBoot />
       {activeTheme().id !== 'lcars' && <Diagnostics />}
       <Ignition onStart={() => void powerOn()} />

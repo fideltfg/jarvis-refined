@@ -1,6 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { X } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { BRIDGE_HTTP_URL } from '../../../src/config'
 import { usingBridge } from '../../../src/lib/brain'
 
@@ -12,7 +10,6 @@ type MemoryReport = {
 }
 
 function StatusReport({ onClose }: { onClose: () => void }) {
-  const closeRef = useRef<HTMLButtonElement>(null)
   const [report, setReport] = useState<MemoryReport | null>(null)
   const [error, setError] = useState('')
   const [generatedAt] = useState(() => new Date().toLocaleString())
@@ -30,19 +27,11 @@ function StatusReport({ onClose }: { onClose: () => void }) {
     return () => controller.abort()
   }, [])
 
-  useEffect(() => {
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    closeRef.current?.focus()
-    return () => previousFocus?.focus()
-  }, [])
-
-  return createPortal(
-    <div className="lcars-report-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }} onKeyDownCapture={(event) => {
-      if (event.key === 'Escape') { event.stopPropagation(); onClose() }
-      if (event.key === 'Tab') { event.preventDefault(); closeRef.current?.focus() }
+  return (
+      <section className="lcars-report-window" role="region" aria-labelledby="lcars-report-title" onKeyDownCapture={(event) => {
+        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose() }
     }}>
-      <section className="lcars-report-window" role="dialog" aria-modal="true" aria-labelledby="lcars-report-title">
-        <header><div><span className="lcars-reactor-eyebrow">PERSONAL ASSISTANT / CURRENT PLAN</span><h2 id="lcars-report-title">Status report</h2></div><button ref={closeRef} type="button" onClick={onClose} aria-label="Close status report" title="Close status report"><X size={16} /></button></header>
+        <header><div><span className="lcars-reactor-eyebrow">PERSONAL ASSISTANT / CURRENT PLAN</span><h2 id="lcars-report-title">Status report</h2></div></header>
         <p className="lcars-report-time">Generated {generatedAt}</p>
         {!usingBridge ? <p className="lcars-report-empty">The task list requires the local bridge.</p>
           : error ? <p className="lcars-report-empty" role="alert">{error}</p>
@@ -55,8 +44,6 @@ function StatusReport({ onClose }: { onClose: () => void }) {
                 <section><h3>Next steps</h3>{report.tasks.length ? <ol>{report.tasks.slice(0, 3).map((task, index) => <li key={`${index}-${task.text}`}>{task.text}</li>)}</ol> : <p>Nothing pending. Add a task when you have a next step.</p>}</section>
               </div>}
       </section>
-    </div>,
-    document.body,
   )
 }
 

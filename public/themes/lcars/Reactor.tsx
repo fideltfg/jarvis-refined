@@ -1,9 +1,10 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { AudioLines, Camera, ClipboardList, FileText, Mic, MicOff, Search, Send, ShieldCheck, Trash2, UserRound } from 'lucide-react'
+import { Activity, AudioLines, Camera, ClipboardList, FileText, Mic, MicOff, Search, Send, ShieldCheck, Trash2, UserRound } from 'lucide-react'
 import { providerState, selectProvider, usingBridge, watchProviders } from '../../../src/lib/brain'
 import { useStore, type Phase } from '../../../src/store'
 import { AgentBoard } from '../../../src/ui/AgentBoard'
 import { CommandPalette } from '../../../src/ui/CommandPalette'
+import { Timeline } from '../../../src/ui/Timeline'
 import { Diagnostics } from '../../../src/ui/Diagnostics'
 import StatusReport from './StatusReport'
 
@@ -19,6 +20,11 @@ const PHASE_LABELS: Record<Phase, string> = {
 }
 
 const TRACE_SAMPLES = 56
+const selectControl = (control: HTMLElement) => {
+  document.querySelectorAll('[data-lcars-selected]').forEach((selected) => selected.removeAttribute('data-lcars-selected'))
+  control.setAttribute('data-lcars-selected', 'true')
+}
+
 const WAVE_LAYERS = [
   { className: 'lcars-wave-line-violet', particleClass: 'lcars-wave-particle-violet', phase: 0, gain: 0.82, speed: 3.1 },
   { className: 'lcars-wave-line-cyan', particleClass: 'lcars-wave-particle-cyan', phase: 1.8, gain: 0.66, speed: 4.6 },
@@ -42,15 +48,51 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
   const boardOpen = useStore((state) => state.boardOpen)
   const agentsSeen = useStore((state) => state.agentsSeen)
   const toggleBoard = useStore((state) => state.toggleBoard)
+  const timelineOpen = useStore((state) => state.timelineOpen)
+  const toggleTimeline = useStore((state) => state.toggleTimeline)
+  const toolCalls = useStore((state) => state.toolEvents.length)
   const clearScreen = useStore((state) => state.clearScreen)
   const reactor = useStore((state) => state.ui.reactor)
   const [trace, setTrace] = useState<number[]>(() => Array(TRACE_SAMPLES).fill(0))
   const [command, setCommand] = useState('')
   const [providers, setProviders] = useState(providerState)
-  const [statusReportOpen, setStatusReportOpen] = useState(false)
+  const commandWindow = useStore((state) => state.commandWindow)
+  const setCommandWindow = useStore((state) => state.setCommandWindow)
+  const statusReportOpen = commandWindow === 'status'
+  const diagnosticsOpen = commandWindow === 'diagnostics'
+  const commandPaletteOpen = commandWindow === 'palette'
   const levelRef = useRef(level)
   const gridLevelRef = useRef(level)
   levelRef.current = level
+
+  useEffect(() => {
+    const state = useStore.getState()
+    state.setCommandWindow(state.enrolling ? 'voice' : state.timelineOpen ? 'timeline' : state.boardOpen ? 'agents' : null)
+    useStore.setState({ exclusiveCommandWindows: true })
+    return () => { useStore.setState({ exclusiveCommandWindows: false }) }
+  }, [])
+
+  useEffect(() => {
+    const select = (event: Event) => {
+      if (!(event.target instanceof Element)) return
+      const control = event.target.closest<HTMLElement>('button, select')
+      if (!control || control.matches(':disabled') || document.documentElement.dataset.theme !== 'lcars') return
+      selectControl(control)
+    }
+    document.addEventListener('click', select, true)
+    document.addEventListener('change', select, true)
+    return () => {
+      document.removeEventListener('click', select, true)
+      document.removeEventListener('change', select, true)
+      document.querySelectorAll('[data-lcars-selected]').forEach((selected) => selected.removeAttribute('data-lcars-selected'))
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!commandWindow) return
+    const control = document.querySelector<HTMLElement>(`[data-command-window="${commandWindow}"]`)
+    if (control) selectControl(control)
+  }, [commandWindow])
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -274,7 +316,7 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
           <div className="lcars-deck-body">
             <div className="lcars-deck-operations">
               <div className="lcars-deck-actions" role="group" aria-label="Voice mode">
-                <button type="button" aria-pressed={phase === 'listening' || phase === 'waking'} onClick={() => window.dispatchEvent(new Event('jarvis:listen'))} disabled={unavailable}><Mic size={18} /> Listen</button>
+                <button type="button" data-function-error={Boolean(error)} aria-pressed={phase === 'listening' || phase === 'waking'} onClick={() => window.dispatchEvent(new Event('jarvis:listen'))} disabled={unavailable}><Mic size={18} /> Listen</button>
                 <button type="button" aria-pressed={phase === 'dormant'} onClick={() => window.dispatchEvent(new Event('jarvis:standby'))} disabled={unavailable || phase === 'dormant'}><MicOff size={18} /> Standby</button>
               </div>
               {usingBridge && (
@@ -286,13 +328,14 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
                 </label>
               )}
               <div className="lcars-deck-switches">
-                <button type="button" aria-pressed={ptt.enabled} onClick={() => window.dispatchEvent(new Event('jarvis:toggle-ptt'))} disabled={unavailable} title={ptt.enabled ? `Hold ${ptt.label} to speak` : 'Enable push-to-talk'}><AudioLines size={17} /> Push to talk <b>{ptt.enabled ? 'ON' : 'OFF'}</b></button>
-                <button type="button" aria-pressed={gestures} onClick={() => window.dispatchEvent(new Event('jarvis:toggle-hands'))} disabled={unavailable} title="Toggle camera gesture tracking"><Camera size={17} /> Camera <b>{gestures ? 'ON' : 'OFF'}</b></button>
-                <button type="button" aria-pressed={boardOpen} onClick={toggleBoard} disabled={!agentsSeen && !sessionAgents.length} title="Open agent board"><ClipboardList size={17} /> Agents <b>{sessionAgents.length}</b></button>
-                <button type="button" onClick={() => window.dispatchEvent(new Event('jarvis:voice-profile'))} disabled={unavailable} title="Manage voice profile"><UserRound size={17} /> Voice profile <b>{enrolling ? 'OPEN' : 'SET'}</b></button>
-                <button type="button" onClick={() => window.dispatchEvent(new Event('jarvis:toggle-diagnostics'))} title="Toggle voice diagnostics"><ShieldCheck size={17} /> Diagnostics</button>
-                <button type="button" onClick={() => setStatusReportOpen(true)} title="Open status report"><FileText size={17} /> Status report</button>
-                <button type="button" onClick={() => window.dispatchEvent(new Event('jarvis:toggle-command-palette'))} title="Toggle command palette"><Search size={17} /> Command palette</button>
+                <button type="button" data-function-off={!ptt.enabled} data-function-active={ptt.enabled && ptt.held} aria-pressed={ptt.enabled} onClick={() => window.dispatchEvent(new Event('jarvis:toggle-ptt'))} disabled={unavailable} title={ptt.enabled ? `Hold ${ptt.label} to speak` : 'Enable push-to-talk'}><AudioLines size={17} /> Push to talk <b>{ptt.enabled ? 'ON' : 'OFF'}</b></button>
+                <button type="button" data-function-off={!gestures} aria-pressed={gestures} onClick={() => window.dispatchEvent(new Event('jarvis:toggle-hands'))} disabled={unavailable} title="Toggle camera gesture tracking"><Camera size={17} /> Camera <b>{gestures ? 'ON' : 'OFF'}</b></button>
+                <button type="button" data-command-window="agents" aria-pressed={boardOpen} onClick={toggleBoard} disabled={!agentsSeen && !sessionAgents.length} title="Open agent board"><ClipboardList size={17} /> Agents <b>{sessionAgents.length}</b></button>
+                <button type="button" data-command-window="voice" aria-pressed={enrolling} onClick={() => window.dispatchEvent(new Event('jarvis:voice-profile'))} disabled={unavailable} title="Manage voice profile"><UserRound size={17} /> Voice profile <b>{enrolling ? 'OPEN' : 'SET'}</b></button>
+                <button type="button" data-command-window="diagnostics" aria-pressed={diagnosticsOpen} onClick={() => window.dispatchEvent(new Event('jarvis:toggle-diagnostics'))} title="Toggle voice diagnostics"><ShieldCheck size={17} /> Diagnostics</button>
+                <button type="button" data-command-window="status" aria-pressed={statusReportOpen} onClick={() => setCommandWindow(statusReportOpen ? null : 'status')} title="Open status report"><FileText size={17} /> Status report</button>
+                <button type="button" data-command-window="palette" aria-pressed={commandPaletteOpen} onClick={() => window.dispatchEvent(new Event('jarvis:toggle-command-palette'))} title="Toggle command palette"><Search size={17} /> Command palette</button>
+                <button type="button" data-command-window="timeline" aria-pressed={timelineOpen} onClick={toggleTimeline} title="Show what tools have run and for how long"><Activity size={17} /> Tool timeline <b>{toolCalls}</b></button>
               </div>
             </div>
             <section className="lcars-deck-history" aria-label="Recent conversation">
@@ -308,10 +351,11 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
               {(caption || error) && <div className={`lcars-deck-feedback${error ? ' is-error' : ''}`} role="status">{error || caption}</div>}
               <AgentBoard />
               <CommandPalette inline />
+              <Timeline inline />
               <Diagnostics inline />
+              {statusReportOpen && <StatusReport onClose={() => setCommandWindow(null)} />}
             </section>
           </div>
-          {statusReportOpen && <StatusReport onClose={() => setStatusReportOpen(false)} />}
           <form className="lcars-command-form" onSubmit={(event) => {
             event.preventDefault()
             if (!command.trim() || unavailable || busy) return
@@ -319,7 +363,7 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
             setCommand('')
           }}>
             <input aria-label="Command" placeholder={unavailable ? 'Computer starting...' : 'Ask the computer'} value={command} onChange={(event) => setCommand(event.target.value)} disabled={unavailable || busy} autoComplete="off" />
-            <button type="submit" disabled={!command.trim() || unavailable || busy} title="Send command"><Send size={18} /> Send</button>
+            <button type="submit" data-function-error={Boolean(error)} disabled={!command.trim() || unavailable || busy} title="Send command"><Send size={18} /> Send</button>
           </form>
         </section>
       </main>
