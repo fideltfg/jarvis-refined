@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { X } from 'lucide-react'
 import { useStore } from '../store'
 
 /**
@@ -99,9 +98,10 @@ export function Diagnostics({ inline = false }: { inline?: boolean } = {}) {
   return (
     <div className="diag" aria-live="polite">
       <div className="diag-head">
-        {inline ? <><span>DIAGNOSTICS</span><button type="button" aria-label="Close diagnostics" title="Close diagnostics" onClick={() => setOpen(false)}><X size={16} /></button></> : 'DIAGNOSTICS · D to close'}
+        {inline ? 'DIAGNOSTICS' : 'DIAGNOSTICS · D TO CLOSE'}
       </div>
 
+      <div className="diag-scroll">
       <div className="diag-verdict">
         <span className={earsOk ? 'diag-ok' : 'diag-bad'}>
           {earsOk ? '● hearing you' : '● not hearing you'}
@@ -135,6 +135,7 @@ export function Diagnostics({ inline = false }: { inline?: boolean } = {}) {
       <Row k="failures" v={String(t.failures ?? 0)} bad={(t.failures ?? 0) > 0} />
       <Row k="cloud rescues" v={String(t.rescued ?? 0)} />
       <Row k="error" v={t.lastError || '—'} bad={Boolean(t.lastError)} />
+      </div>
     </div>
   )
 }

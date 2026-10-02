@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { AudioLines, Camera, ClipboardList, FileText, Mic, MicOff, Send, ShieldCheck, Trash2, UserRound } from 'lucide-react'
 import { providerState, selectProvider, usingBridge, watchProviders } from '../../../src/lib/brain'
 import { useStore, type Phase } from '../../../src/store'
@@ -18,8 +18,14 @@ const PHASE_LABELS: Record<Phase, string> = {
 }
 
 const TRACE_SAMPLES = 56
+const WAVE_LAYERS = [
+  { className: 'lcars-wave-line-violet', particleClass: 'lcars-wave-particle-violet', phase: 0, gain: 0.82, speed: 3.1 },
+  { className: 'lcars-wave-line-cyan', particleClass: 'lcars-wave-particle-cyan', phase: 1.8, gain: 0.66, speed: 4.6 },
+  { className: 'lcars-wave-line-orange', particleClass: 'lcars-wave-particle-orange', phase: 3.6, gain: 0.54, speed: 6.2 },
+]
 
 export function Reactor({ inline = false }: { inline?: boolean } = {}) {
+  const gridGradientId = useId().replace(/:/g, '')
   const level = useStore((state) => state.level)
   const phase = useStore((state) => state.phase)
   const activeTool = useStore((state) => state.activeTool)
@@ -42,13 +48,28 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
   const [providers, setProviders] = useState(providerState)
   const [statusReportOpen, setStatusReportOpen] = useState(false)
   const levelRef = useRef(level)
+  const gridLevelRef = useRef(level)
   levelRef.current = level
 
   useEffect(() => {
     const id = window.setInterval(() => {
       setTrace((samples) => [...samples.slice(1), levelRef.current])
-    }, 120)
+    }, 50)
     return () => window.clearInterval(id)
+  }, [])
+
+  useEffect(() => {
+    let frame = 0
+    let previousTime = performance.now()
+    const smoothGridLevel = (time: number) => {
+      const elapsed = Math.min((time - previousTime) / 1000, 0.1)
+      previousTime = time
+      const response = 1 - Math.exp(-elapsed / 0.35)
+      gridLevelRef.current += (levelRef.current - gridLevelRef.current) * response
+      frame = window.requestAnimationFrame(smoothGridLevel)
+    }
+    frame = window.requestAnimationFrame(smoothGridLevel)
+    return () => window.cancelAnimationFrame(frame)
   }, [])
 
   useEffect(() => watchProviders((available, selected) => setProviders({ available, selected })), [])
@@ -59,15 +80,58 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
     opacity: reactor.visible ? reactor.intensity : 0,
   } as React.CSSProperties
   const boundedLevel = Math.max(0, Math.min(1, level))
+  const gridLevel = Math.max(0, Math.min(1, gridLevelRef.current))
   const unavailable = phase === 'offline' || phase === 'boot'
   const busy = phase === 'thinking' || phase === 'tooling' || phase === 'speaking'
-  const tracePath = trace
-    .map((sample, index) => {
-      const x = (index / (TRACE_SAMPLES - 1)) * 480
-      const y = 75 - Math.max(0, Math.min(1, sample)) * 58
-      return `${index === 0 ? 'M' : 'L'} ${x} ${y}`
-    })
+  const waveTime = performance.now() * 0.001
+  const gridCenterX = 240
+  const gridCenterY = 68
+  const gridFlow = (waveTime * (0.08 + gridLevel * 0.05)) % 1
+  const gridGradientOffset = (waveTime * (12 + gridLevel * 12)) % 240
+  const gridPoint = (radius: number, angle: number) => ({
+    x: gridCenterX + Math.cos(angle) * radius * 265,
+    y: gridCenterY + Math.sin(angle) * radius * 104 + Math.max(0, 1 - radius) ** 2 * 38,
+  })
+  const gridPath = (points: { x: number; y: number }[]) => points
+    .map(({ x, y }, index) => `${index === 0 ? 'M' : 'L'} ${x} ${y}`)
     .join(' ')
+  const gridRings = Array.from({ length: 7 }, (_, ringIndex) => {
+    const ringProgress = ((ringIndex + 1) / 7 - gridFlow + 1) % 1
+    const radius = 0.06 + ringProgress * 1.25
+    const points = Array.from({ length: 65 }, (_, pointIndex) => gridPoint(radius, (pointIndex / 64) * Math.PI * 2))
+    return gridPath(points)
+  })
+  const gridSpokes = Array.from({ length: 28 }, (_, spokeIndex) => {
+    const angle = (spokeIndex / 28) * Math.PI * 2
+    const points = Array.from({ length: 20 }, (_, pointIndex) => gridPoint(0.015 + (pointIndex / 19) * 1.22, angle))
+    return gridPath(points)
+  })
+  const buildWavePath = (phase: number, gain: number, speed: number, timeOffset = 0) => trace.map((sample, index) => {
+    const x = (index / (TRACE_SAMPLES - 1)) * 480
+    const input = Math.max(0, Math.min(1, sample))
+    const amplitude = (22 + boundedLevel * 25 + input * 10) * gain
+    const angle = index * (0.76 + gain * 0.16) + phase + (waveTime + timeOffset) * speed
+    const wave = Math.sin(angle) + Math.sin(angle * 0.47 + phase) * 0.34 + Math.sin(angle * 0.19 - phase) * 0.18
+    const y = 75 - wave * amplitude
+    return `${index === 0 ? 'M' : 'L'} ${x} ${y}`
+  }).join(' ')
+  const wavePaths = WAVE_LAYERS.map(({ className, phase, gain, speed }) => ({
+    className,
+    path: buildWavePath(phase, gain, speed),
+    nearTrail: buildWavePath(phase, gain, speed, -0.12),
+    farTrail: buildWavePath(phase, gain, speed, -0.26),
+  }))
+  const waveParticles = Array.from({ length: 18 }, (_, index) => {
+    const layer = WAVE_LAYERS[index % WAVE_LAYERS.length]
+    const x = (waveTime * (34 + (index % 5) * 13) + index * 61) % 480
+    const samplePosition = (x / 480) * (TRACE_SAMPLES - 1)
+    const sample = trace[Math.floor(samplePosition)] ?? 0
+    const input = Math.max(0, Math.min(1, sample))
+    const amplitude = (22 + boundedLevel * 25 + input * 10) * layer.gain
+    const angle = samplePosition * (0.76 + layer.gain * 0.16) + layer.phase + waveTime * layer.speed
+    const wave = Math.sin(angle) + Math.sin(angle * 0.47 + layer.phase) * 0.34 + Math.sin(angle * 0.19 - layer.phase) * 0.18
+    return { x, y: 75 - wave * amplitude, radius: index % 4 === 0 ? 2.1 : 1.25, className: layer.particleClass }
+  })
 
   const systems = [
     { name: 'VOICE LOOP', state: phase === 'offline' ? 'OFFLINE' : 'READY', on: phase !== 'offline', tone: 'mint' },
@@ -115,14 +179,41 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
             </div>
 
             <div className="lcars-wave-wrap">
-              <div className="lcars-wave-grid" />
               <svg className="lcars-wave" viewBox="0 0 480 150" preserveAspectRatio="none" role="presentation">
-                <path className="lcars-wave-fill" d={`${tracePath} L 480 150 L 0 150 Z`} />
-                <path className="lcars-wave-line" d={tracePath} />
+                <defs>
+                  <linearGradient id={gridGradientId} gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="240" y2="0" spreadMethod="repeat" gradientTransform={`translate(${-gridGradientOffset} 0)`}>
+                    <stop offset="0%" stopColor="#35eaff" />
+                    <stop offset="27%" stopColor="#168bff" />
+                    <stop offset="54%" stopColor="#a568ff" />
+                    <stop offset="80%" stopColor="#1abaff" />
+                    <stop offset="100%" stopColor="#35eaff" />
+                  </linearGradient>
+                </defs>
+                <g className="lcars-wave-warp-grid" style={{ stroke: `url(#${gridGradientId})` }}>
+                  {gridRings.map((path, index) => <path className="lcars-wave-grid-ring" d={path} key={`ring-${index}`} />)}
+                  {gridSpokes.map((path, index) => <path className="lcars-wave-grid-spoke" d={path} key={`spoke-${index}`} />)}
+                </g>
+                <g className="lcars-wave-trails">
+                  {wavePaths.map(({ className, farTrail, nearTrail }) => (
+                    <g key={className}>
+                      <path className={`lcars-wave-line ${className} lcars-wave-trail-far`} d={farTrail} />
+                      <path className={`lcars-wave-line ${className} lcars-wave-trail-near`} d={nearTrail} />
+                    </g>
+                  ))}
+                </g>
+                {wavePaths.map(({ className, path }) => <path className={`lcars-wave-line ${className}`} d={path} key={className} />)}
+                <g className="lcars-wave-particles">
+                  {waveParticles.map(({ className, radius, x, y }, index) => (
+                    <g className={className} key={index}>
+                      <circle className="lcars-wave-particle-glow" cx={x} cy={y} r={radius * 2.8} />
+                      <circle className="lcars-wave-particle-core" cx={x} cy={y} r={radius} />
+                    </g>
+                  ))}
+                </g>
               </svg>
             </div>
             <div className="lcars-chart-axis">
-              <span>-6 SEC</span><span>LIVE INPUT</span><span>NOW</span>
+              <span>-3 SEC</span><span>LIVE INPUT</span><span>NOW</span>
             </div>
 
             <div className="lcars-signal-footer">
