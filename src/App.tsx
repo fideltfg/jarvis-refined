@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Scene } from './scene/Scene'
 import { Hud } from './ui/Hud'
+import { CommandPalette } from './ui/CommandPalette'
 import { ThemeBoot } from './ui/ThemeBoot'
 import { Ignition } from './ui/Ignition'
 import { Diagnostics } from './ui/Diagnostics'
@@ -983,6 +984,7 @@ export default function App() {
       <Scene />
       <CharacterReactor />
       <Hud />
+      {activeTheme().id !== 'lcars' && <CommandPalette />}
       <ThemeBoot />
       {activeTheme().id !== 'lcars' && <Diagnostics />}
       <Ignition onStart={() => void powerOn()} />

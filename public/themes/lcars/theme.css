@@ -815,6 +815,103 @@
   scrollbar-color: var(--lc-orange) #0b0d14;
 }
 
+[data-theme='lcars'] .command-palette-inline {
+  flex: 0 0 auto;
+  width: 100%;
+  min-height: 0;
+  height: min(60vh, 540px);
+  max-height: min(60vh, 540px);
+  margin-top: var(--lc-gap);
+  padding: 0 0 8px;
+  border: 0;
+  border-left: 6px solid var(--lc-blue);
+  border-radius: 0;
+  background: #000;
+  color: var(--lc-tan);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+[data-theme='lcars'] .command-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  min-height: 36px;
+  margin: 0 0 var(--lc-gap);
+  padding: 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--lc-blue) 55%, transparent);
+  background: #000;
+  color: var(--lc-blue);
+  font: 600 14px 'Antonio', sans-serif;
+  letter-spacing: 0.1em;
+}
+
+[data-theme='lcars'] .command-palette-inline .command-search {
+  padding: 6px 12px;
+  color: var(--lc-blue);
+}
+
+[data-theme='lcars'] .command-palette-inline .command-search:focus-within {
+  box-shadow: 0 -1px var(--lc-blue) inset;
+}
+
+[data-theme='lcars'] .command-palette-inline .command-search input {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--lc-tan);
+  font: inherit;
+}
+
+[data-theme='lcars'] .command-palette-inline .command-search input:focus-visible {
+  outline: none;
+}
+
+[data-theme='lcars'] .command-palette-inline kbd {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: var(--lc-blue);
+}
+
+[data-theme='lcars'] .command-palette-inline .command-option {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.6rem 0.5rem;
+  border: 1px solid transparent;
+  border-bottom-color: var(--lc-violet);
+  border-radius: 0;
+  background: transparent;
+  color: var(--lc-tan);
+  font: inherit;
+  text-transform: none;
+}
+
+[data-theme='lcars'] .command-palette-inline .command-option.is-active,
+[data-theme='lcars'] .command-palette-inline .command-option:hover,
+[data-theme='lcars'] .command-palette-inline .command-option:focus-visible {
+  background: color-mix(in srgb, var(--lc-blue) 12%, #000);
+  border-color: var(--lc-blue);
+}
+
+[data-theme='lcars'] .command-palette-inline .command-option strong {
+  color: var(--lc-tan);
+  font-weight: 400;
+}
+
+[data-theme='lcars'] .command-palette-inline .command-option small {
+  color: var(--lc-blue);
+}
+
+[data-theme='lcars'] .command-palette-inline .command-results {
+  flex: 1 1 auto;
+  overscroll-behavior: contain;
+  padding: 0 8px 0 12px;
+  scrollbar-color: var(--lc-blue) #000;
+}
+
 [data-theme='lcars'] .ab-head {
   margin: 0 0 var(--lc-gap);
   padding: 6px 6px;

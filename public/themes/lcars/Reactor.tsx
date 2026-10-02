@@ -1,8 +1,9 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { AudioLines, Camera, ClipboardList, FileText, Mic, MicOff, Send, ShieldCheck, Trash2, UserRound } from 'lucide-react'
+import { AudioLines, Camera, ClipboardList, FileText, Mic, MicOff, Search, Send, ShieldCheck, Trash2, UserRound } from 'lucide-react'
 import { providerState, selectProvider, usingBridge, watchProviders } from '../../../src/lib/brain'
 import { useStore, type Phase } from '../../../src/store'
 import { AgentBoard } from '../../../src/ui/AgentBoard'
+import { CommandPalette } from '../../../src/ui/CommandPalette'
 import { Diagnostics } from '../../../src/ui/Diagnostics'
 import StatusReport from './StatusReport'
 
@@ -291,6 +292,7 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
                 <button type="button" onClick={() => window.dispatchEvent(new Event('jarvis:voice-profile'))} disabled={unavailable} title="Manage voice profile"><UserRound size={17} /> Voice profile <b>{enrolling ? 'OPEN' : 'SET'}</b></button>
                 <button type="button" onClick={() => window.dispatchEvent(new Event('jarvis:toggle-diagnostics'))} title="Toggle voice diagnostics"><ShieldCheck size={17} /> Diagnostics</button>
                 <button type="button" onClick={() => setStatusReportOpen(true)} title="Open status report"><FileText size={17} /> Status report</button>
+                <button type="button" onClick={() => window.dispatchEvent(new Event('jarvis:toggle-command-palette'))} title="Toggle command palette"><Search size={17} /> Command palette</button>
               </div>
             </div>
             <section className="lcars-deck-history" aria-label="Recent conversation">
@@ -305,6 +307,7 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
               </div>
               {(caption || error) && <div className={`lcars-deck-feedback${error ? ' is-error' : ''}`} role="status">{error || caption}</div>}
               <AgentBoard />
+              <CommandPalette inline />
               <Diagnostics inline />
             </section>
           </div>
