@@ -23,7 +23,7 @@ import { chromeAvailable, chromeServer, chromeTarget } from './chrome.mjs'
 import { clientAddress, createRelayHub } from './relay.mjs'
 import { visionServer } from './vision.mjs'
 import { SESSION_AGENT_TOOLS, createSessionAgents } from './session-agents.mjs'
-import { memoryPrompt, memoryServer, MEMORY_FILE } from './memory.mjs'
+import { load as loadMemory, memoryPrompt, memoryServer, MEMORY_FILE } from './memory.mjs'
 import { homedir, tmpdir } from 'node:os'
 import { readFileSync, realpathSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
@@ -764,6 +764,17 @@ const handleRequest = async (req, res) => {
         : null
     res.writeHead(200, { ...cors, 'content-type': 'application/json' })
     return res.end(JSON.stringify({ ok: true, tts: eleven, stt: Boolean(sttProvider), sttProvider }))
+  }
+
+  if (req.method === 'GET' && req.url === '/memory/status') {
+    // Vite may proxy same-origin requests without Origin; only trust those from loopback.
+    if (!origin && !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)) {
+      res.writeHead(403, cors)
+      return res.end('forbidden')
+    }
+    const { goals, focus, tasks, log } = loadMemory(MEMORY_FILE)
+    res.writeHead(200, { ...cors, 'content-type': 'application/json', 'cache-control': 'no-store' })
+    return res.end(JSON.stringify({ goals, focus, tasks, progress: log.slice(-10).reverse() }))
   }
 
   // Serve local image files to the page. Screenshots and generated art land on

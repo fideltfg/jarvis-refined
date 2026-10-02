@@ -589,7 +589,7 @@
 [data-theme='lcars'] .lcars-provider select { min-width: 120px; min-height: 40px; padding: 7px 12px; border: 0; border-radius: 0 999px 999px 0; background: var(--lc-blue); color: #000; font: 600 13px 'Antonio', sans-serif; text-transform: uppercase; cursor: pointer; }
 
 [data-theme='lcars'] .lcars-deck-history { display: flex; flex-direction: column; border-left: 6px solid var(--lc-lilac); }
-[data-theme='lcars'] .lcars-deck-history header { display: flex; align-items: center; justify-content: space-between; min-height: 32px; margin-left: -6px; padding: 3px 16px 3px 12px; border-radius: 0 999px 999px 0; background: var(--lc-lilac); color: #000; font-size: 11px; font-weight: 700; }
+[data-theme='lcars'] .lcars-deck-history > header { display: flex; align-items: center; justify-content: space-between; min-height: 32px; margin-left: -6px; padding: 3px 16px 3px 12px; border-radius: 0 999px 999px 0; background: var(--lc-lilac); color: #000; font-size: 11px; font-weight: 700; }
 [data-theme='lcars'] .lcars-deck-transcript { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 12px; scrollbar-color: var(--lc-violet) #101010; }
 [data-theme='lcars'] .lcars-deck-turn { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: calc(var(--lc-gap) * 2); margin: 0 0 var(--lc-gap); padding: var(--lc-gap) 0; font-family: 'Chakra Petch', sans-serif; text-transform: none; letter-spacing: 0; }
 [data-theme='lcars'] .lcars-deck-turn span { align-self: start; padding: 3px 6px; border-radius: 0 999px 999px 0; background: var(--lc-blue); color: #000; font-family: 'Antonio', sans-serif; font-size: 11px; font-weight: 600; }
@@ -794,7 +794,7 @@
 [data-theme='lcars'] .lcars-deck-switches button:nth-child(4) { background: var(--lc-lilac); }
 [data-theme='lcars'] .lcars-deck-switches button b { margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; }
 [data-theme='lcars'] .lcars-deck-switches button[aria-pressed='true'] { background: var(--lc-orange); color: #000; }
-[data-theme='lcars'] .lcars-deck-history header button { min-height: 26px; padding: 4px 12px; background: #000; color: var(--lc-lilac); }
+[data-theme='lcars'] .lcars-deck-history > header button { min-height: 26px; padding: 4px 12px; background: #000; color: var(--lc-lilac); }
 [data-theme='lcars'] .lcars-control-deck button:hover:not(:disabled) { filter: brightness(1.16); }
 [data-theme='lcars'] .lcars-control-deck :is(button, input, select):focus-visible { outline: 2px solid var(--lc-orange); outline-offset: 2px; }
 [data-theme='lcars'] .lcars-control-deck button:disabled { filter: saturate(0.5); opacity: 0.6; cursor: default; }
@@ -1795,3 +1795,88 @@
 [data-theme='lcars'] .ptt-indicator {
   top: 10px;
 }
+[data-theme='lcars'] .lcars-report-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: grid;
+  place-items: center;
+  padding: clamp(12px, 2vw, 28px);
+  background: rgb(0 0 0 / 72%);
+  pointer-events: auto;
+}
+[data-theme='lcars'] .lcars-report-window {
+  width: min(1100px, 100%);
+  height: min(82dvh, 900px);
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  margin-top: var(--lc-gap);
+  padding: 0 0 8px;
+  border: 0;
+  border-left: 6px solid var(--lc-orange);
+  background: #000;
+  color: #f8d6ca;
+  box-shadow: none;
+  pointer-events: auto;
+  scrollbar-color: var(--lc-orange) #000;
+}
+[data-theme='lcars'] .lcars-report-window > header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+  margin: 0 0 var(--lc-gap) -6px;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 0 999px 999px 0;
+  background: var(--lc-orange);
+  color: #000;
+}
+[data-theme='lcars'] .lcars-report-window > header .lcars-reactor-eyebrow { color: #000; font-size: 8px; }
+[data-theme='lcars'] .lcars-report-window h2 { margin: 2px 0 0; color: #000; font: 600 14px 'Antonio', sans-serif; text-transform: uppercase; }
+[data-theme='lcars'] .lcars-report-window button {
+  display: grid;
+  place-items: center;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 0 999px 999px 0;
+  background: #000;
+  color: var(--lc-orange);
+  cursor: pointer;
+}
+[data-theme='lcars'] .lcars-report-window button:focus-visible { outline: 2px solid var(--lc-blue); outline-offset: 2px; }
+[data-theme='lcars'] .lcars-report-time { margin: 0 12px var(--lc-gap); color: var(--lc-peach); font-size: 10px; }
+[data-theme='lcars'] .lcars-report-empty { margin: 10px 12px; color: var(--lc-peach); font-size: 12px; }
+[data-theme='lcars'] .lcars-report-content { display: flex; flex-direction: column; gap: calc(var(--lc-gap) * 2); padding: 0 12px 8px; }
+[data-theme='lcars'] .lcars-report-content section { min-width: 0; }
+[data-theme='lcars'] .lcars-report-content h3 {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--lc-gap);
+  margin: 0 0 var(--lc-gap);
+  padding: 5px 12px;
+  border-radius: 0 999px 999px 0;
+  background: var(--lc-blue);
+  color: #000;
+  font: 600 12px 'Antonio', sans-serif;
+  text-transform: uppercase;
+}
+[data-theme='lcars'] .lcars-report-content section:nth-child(2) h3 { background: var(--lc-lilac); }
+[data-theme='lcars'] .lcars-report-content section:nth-child(3) h3 { background: var(--lc-peach); }
+[data-theme='lcars'] .lcars-report-content section:nth-child(4) h3 { background: var(--lc-orange); }
+[data-theme='lcars'] .lcars-report-content h3 span { font-size: 11px; white-space: nowrap; }
+[data-theme='lcars'] .lcars-report-content p { margin: 0; padding: 3px 8px; color: #f8d6ca; font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+[data-theme='lcars'] .lcars-report-content :is(ul, ol) { margin: 0; padding: 0; list-style: none; }
+[data-theme='lcars'] .lcars-report-content li { display: flex; justify-content: space-between; gap: var(--lc-gap); padding: 6px 8px; border-bottom: 1px solid #302532; color: #f8d6ca; font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+[data-theme='lcars'] .lcars-report-content li small { flex: 0 0 auto; color: var(--lc-peach); font-size: 10px; white-space: nowrap; }
+[data-theme='lcars'] .lcars-report-content ol { counter-reset: step; }
+[data-theme='lcars'] .lcars-report-content ol li::before { counter-increment: step; content: counter(step, decimal-leading-zero); flex: 0 0 auto; color: var(--lc-orange); font: 600 12px 'Antonio', sans-serif; }

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { AudioLines, Camera, ClipboardList, Mic, MicOff, Send, ShieldCheck, Trash2, UserRound } from 'lucide-react'
+import { AudioLines, Camera, ClipboardList, FileText, Mic, MicOff, Send, ShieldCheck, Trash2, UserRound } from 'lucide-react'
 import { providerState, selectProvider, usingBridge, watchProviders } from '../../../src/lib/brain'
 import { useStore, type Phase } from '../../../src/store'
 import { AgentBoard } from '../../../src/ui/AgentBoard'
 import { Diagnostics } from '../../../src/ui/Diagnostics'
+import StatusReport from './StatusReport'
 
 const PHASE_LABELS: Record<Phase, string> = {
   offline: 'OFFLINE',
@@ -39,6 +40,7 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
   const [trace, setTrace] = useState<number[]>(() => Array(TRACE_SAMPLES).fill(0))
   const [command, setCommand] = useState('')
   const [providers, setProviders] = useState(providerState)
+  const [statusReportOpen, setStatusReportOpen] = useState(false)
   const levelRef = useRef(level)
   levelRef.current = level
 
@@ -197,6 +199,7 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
                 <button type="button" aria-pressed={boardOpen} onClick={toggleBoard} disabled={!agentsSeen && !sessionAgents.length} title="Open agent board"><ClipboardList size={17} /> Agents <b>{sessionAgents.length}</b></button>
                 <button type="button" onClick={() => window.dispatchEvent(new Event('jarvis:voice-profile'))} disabled={unavailable} title="Manage voice profile"><UserRound size={17} /> Voice profile <b>{enrolling ? 'OPEN' : 'SET'}</b></button>
                 <button type="button" onClick={() => window.dispatchEvent(new Event('jarvis:toggle-diagnostics'))} title="Toggle voice diagnostics"><ShieldCheck size={17} /> Diagnostics</button>
+                <button type="button" onClick={() => setStatusReportOpen(true)} title="Open status report"><FileText size={17} /> Status report</button>
               </div>
             </div>
             <section className="lcars-deck-history" aria-label="Recent conversation">
@@ -214,6 +217,7 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
               <Diagnostics inline />
             </section>
           </div>
+          {statusReportOpen && <StatusReport onClose={() => setStatusReportOpen(false)} />}
           <form className="lcars-command-form" onSubmit={(event) => {
             event.preventDefault()
             if (!command.trim() || unavailable || busy) return
