@@ -330,6 +330,9 @@ export const MEMORY_GUIDE = `Personal assistant memory:
   fact. Never announce that you have saved something — at most "Noted."
 - Bring up the focus or an open task only when it bears on what they asked, or
   when they ask what to do next. Never recite the list unprompted.
+- Past conversations are searchable with \`history_recent\`, \`history_search\`
+  and \`history_read\`. Use them when they refer to something said before;
+  never recite old conversations unprompted.
 - When they ask what to do, choose one thing from the open tasks, in service of
   a goal, and say why in a sentence.`
 

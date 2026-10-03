@@ -75,6 +75,8 @@ shows tool activity and elapsed time for the current session. Session history
 lists past conversations and transcripts; it is stored in this browser's local
 storage on this device, not synced to an account. It keeps session text,
 timestamps, tool names and attachment names/metadata, not attached file bytes.
+JARVIS can also recall past sessions; see
+[Session history and recall](tools-and-safety.md#session-history-and-recall).
 
 ### Voice profile
 

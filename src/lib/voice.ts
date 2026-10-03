@@ -76,6 +76,7 @@ export type Voice = {
 
 export type VoiceOptions = {
   pushToTalk?: boolean
+  liveTranscription?: boolean
 }
 
 const NO_VOICE: Voice = {
@@ -419,7 +420,9 @@ export async function startVoice(h: VoiceHandlers, opts: VoiceOptions = {}): Pro
     )
     return NO_VOICE
   }
-  diag.engine = caps().sttProvider ?? 'browser'
+  const browserAvailable = Boolean((window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition)
+  const useServer = caps().stt && !(opts.liveTranscription && browserAvailable)
+  diag.engine = useServer ? caps().sttProvider ?? 'browser' : 'browser'
 
   /**
    * Whether the speaker gate can run at all.
@@ -440,7 +443,7 @@ export async function startVoice(h: VoiceHandlers, opts: VoiceOptions = {}): Pro
   if (enrolled) warmSpeaker()
 
   diag.ptt = !!opts.pushToTalk
-  return caps().stt ? startServerVoice(h, diag.ptt) : startBrowserVoice(h, diag.ptt)
+  return useServer ? startServerVoice(h, diag.ptt) : startBrowserVoice(h, diag.ptt)
 }
 
 /** Local VAD plus transcription through the configured bridge provider. */

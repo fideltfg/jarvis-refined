@@ -23,6 +23,7 @@ import { chromeAvailable, chromeServer, chromeTarget } from './chrome.mjs'
 import { clientAddress, createRelayHub } from './relay.mjs'
 import { visionServer } from './vision.mjs'
 import { SESSION_AGENT_TOOLS, createSessionAgents } from './session-agents.mjs'
+import { historyServer, save as saveHistory } from './history.mjs'
 import { load as loadMemory, MEMORY_GUIDE, memoryServer, memorySnapshot, MEMORY_FILE } from './memory.mjs'
 import { homedir, tmpdir } from 'node:os'
 import { readFileSync, realpathSync } from 'node:fs'
@@ -332,7 +333,7 @@ function decideTool(name) {
     // writes one private notes file of the user's own, and an assistant who
     // cannot take a note is not one. It also has to be named, since `pa_task`
     // and friends read as writes to the verb rules below.
-    if (server === 'jarvis_memory') return true
+    if (server === 'jarvis_memory' || server === 'jarvis_history') return true
 
     const tool = mcpToolOf(name)
     if (EFFECTFUL_VERB.test(tool) && !VETO_EXEMPT.has(`${server}__${tool}`)) {
@@ -1430,6 +1431,7 @@ wss.on('connection', (socket, req) => {
     jarvis_chrome: chromeServer({ allowWrites: ALLOW_WRITES, pick: pickBrowser }),
     jarvis_eyes: visionServer(ask),
     jarvis_memory: memoryServer(MEMORY_FILE),
+    jarvis_history: historyServer(),
     jarvis_files: filesServer({ roots: FILE_ROOTS, allowWrites: ALLOW_WRITES }),
   }
   brokerMcpServers = {
@@ -1441,6 +1443,7 @@ wss.on('connection', (socket, req) => {
     jarvis_chrome: chromeServer({ allowWrites: ALLOW_WRITES, pick: pickBrowser }),
     jarvis_eyes: visionServer(ask),
     jarvis_memory: memoryServer(MEMORY_FILE),
+    jarvis_history: historyServer(),
     jarvis_files: filesServer({ roots: FILE_ROOTS, allowWrites: ALLOW_WRITES }),
     jarvis_commands: commandsServer({ roots: FILE_ROOTS, allowWrites: ALLOW_WRITES }),
   }
@@ -1761,6 +1764,15 @@ wss.on('connection', (socket, req) => {
 
     if (msg.type === 'ping') {
       send({ type: 'pong' })
+      return
+    }
+
+    if (msg.type === 'sessions_sync' && Array.isArray(msg.sessions)) {
+      try {
+        saveHistory(msg.sessions)
+      } catch (err) {
+        console.warn('[jarvis] could not save session history:', err.message)
+      }
       return
     }
 

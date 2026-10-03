@@ -51,6 +51,7 @@ available to them. The HUD's model menu is built from the variables above; see
 | `JARVIS_ALLOW_NO_ORIGIN` | off | Set to `1` to accept clients with no `Origin` header. This weakens protection against local software and should normally remain off. |
 | `JARVIS_FILE_ROOTS` | unset | Comma-separated extra roots the `/file` route may serve. Home and system temp roots are already allowed. |
 | `JARVIS_MEMORY_FILE` | `~/.config/jarvis/pa.md` | Markdown file used by personal-assistant memory tools. |
+| `JARVIS_HISTORY_FILE` | `~/.config/jarvis/sessions.json` | Copy of saved chat sessions that JARVIS searches to recall earlier conversations. |
 | `JARVIS_SESSION_AGENTS_FILE` | `~/.config/jarvis/session-agents.json` | Persistent summary of session/subagent activity shown on the board. |
 | `JARVIS_RELAY_TOKEN` | unset | Enables authenticated registration by a remote Chrome relay. Generate with `npm run relay:token`. |
 

@@ -250,6 +250,7 @@ type State = {
   level: number
   /** What JARVIS is currently reading aloud or has just said. */
   caption: string
+  voiceDraft: string
   turns: Turn[]
   activeTool: string | null
   /** Every tool this session, oldest first, capped by MAX_TOOL_EVENTS. */
@@ -314,6 +315,7 @@ type State = {
   setPhase: (p: Phase) => void
   setLevel: (l: number) => void
   setCaption: (c: string) => void
+  setVoiceDraft: (text: string) => void
   setActiveTool: (t: string | null) => void
   toggleTimeline: () => void
   toggleHistory: () => void
@@ -339,6 +341,7 @@ export const useStore = create<State>((set) => ({
   phase: 'offline',
   level: 0,
   caption: '',
+  voiceDraft: '',
   turns: [],
   activeTool: null,
   toolEvents: [],
@@ -430,9 +433,15 @@ export const useStore = create<State>((set) => ({
   setEnrolling: (enrolling) => set((s) => s.exclusiveCommandWindows
     ? commandWindowState(enrolling ? 'voice' : s.commandWindow === 'voice' ? null : s.commandWindow)
     : { enrolling }),
-  setPhase: (phase) => set({ phase }),
+  setPhase: (phase) => set((state) => ({
+    phase,
+    ...(phase === 'offline' || phase === 'boot' || phase === 'dormant' || phase === 'speaking' || (phase === 'listening' && state.phase !== 'listening')
+      ? { voiceDraft: '' }
+      : {}),
+  })),
   setLevel: (level) => set({ level }),
   setCaption: (caption) => set({ caption }),
+  setVoiceDraft: (voiceDraft) => set({ voiceDraft }),
   // The badge and the timeline are fed by the same call, so history cannot
   // drift from the readout. A repeat of the name already showing is the same
   // tool still running — several code paths re-assert it — so it extends the

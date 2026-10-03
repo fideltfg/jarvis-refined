@@ -143,7 +143,10 @@ const newSession = (now: number): ChatSession => ({
  * Records the store's turns into the current session and persists them.
  * Saves are debounced because streamed answers update the last turn per token.
  */
-export function createSessionHistory(source: TurnSource, { now = Date.now, delay = SAVE_DELAY_MS } = {}) {
+export function createSessionHistory(
+  source: TurnSource,
+  { now = Date.now, delay = SAVE_DELAY_MS, onSave }: { now?: () => number; delay?: number; onSave?: (sessions: ChatSession[]) => void } = {},
+) {
   let sessions = loadSessions()
   let current = recordTurns(newSession(now()), source.getState().turns, now())
   let snapshot: SessionSnapshot = { sessions: upsertSession(sessions, current), currentId: current.id }
@@ -160,6 +163,7 @@ export function createSessionHistory(source: TurnSource, { now = Date.now, delay
     // Re-read so other tabs' sessions and deletions are not overwritten.
     sessions = upsertSession(loadSessions(), current)
     saveSessions(sessions)
+    onSave?.(sessions)
   }
   const schedule = () => {
     if (timer === null) timer = setTimeout(flush, delay)
@@ -191,12 +195,14 @@ export function createSessionHistory(source: TurnSource, { now = Date.now, delay
       if (id === current.id) return
       sessions = loadSessions().filter((session) => session.id !== id)
       saveSessions(upsertSession(sessions, current))
+      onSave?.(upsertSession(sessions, current))
       publish()
     },
     /** Deletes every past session, keeping the live one. */
     clearPast: () => {
       sessions = []
       saveSessions(upsertSession(sessions, current))
+      onSave?.(upsertSession(sessions, current))
       publish()
     },
     flush,

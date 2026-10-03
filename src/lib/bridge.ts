@@ -164,6 +164,18 @@ export function watchSessionAgents(fn: (agents: SessionAgent[]) => void) {
   if (lastSessionAgents) fn(lastSessionAgents)
 }
 
+/** Mirrors saved chat history to the bridge so JARVIS can search it. */
+let sessionSource: (() => unknown[]) | null = null
+export function syncSessions(sessions?: unknown[]) {
+  const payload = sessions ?? sessionSource?.()
+  if (payload && socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: 'sessions_sync', sessions: payload }))
+  }
+}
+export function setSessionSource(fn: () => unknown[]) {
+  sessionSource = fn
+}
+
 export function decideApproval(id: string, decision: 'approve' | 'deny') {
   if (socket?.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: 'agent_decide', id, decision }))
@@ -302,6 +314,7 @@ function dispatch(ws: WebSocket) {
         .filter(Boolean)
       onServers?.(servers)
       firstReady.resolve()
+      syncSessions()
     } else if (msg.type === 'providers' && msg.available && msg.selected) {
       if (msg.ask && msg.ask !== activeAskId) return
       availableProviders = msg.available

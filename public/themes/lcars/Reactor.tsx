@@ -46,6 +46,7 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
   const gestures = useStore((state) => state.gestures)
   const turns = useStore((state) => state.turns)
   const caption = useStore((state) => state.caption)
+  const voiceDraft = useStore((state) => state.voiceDraft)
   const error = useStore((state) => state.error)
   const ptt = useStore((state) => state.ptt)
   const enrolling = useStore((state) => state.enrolling)
@@ -334,8 +335,9 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
           <div className="lcars-deck-body">
             <div className="lcars-deck-operations">
               <div className="lcars-deck-actions" role="group" aria-label="Voice mode">
-                <button type="button" data-function-error={Boolean(error)} aria-pressed={phase === 'listening' || phase === 'waking'} onClick={() => window.dispatchEvent(new Event('jarvis:listen'))} disabled={unavailable}><Mic size={18} /> Listen</button>
-                <button type="button" aria-pressed={phase === 'dormant'} onClick={() => window.dispatchEvent(new Event('jarvis:standby'))} disabled={unavailable || phase === 'dormant'}><MicOff size={18} /> Standby</button>
+                <button type="button" data-function-error={Boolean(error)} data-function-off={phase === 'dormant'} aria-label="Toggle voice mode" aria-pressed={phase !== 'dormant' && phase !== 'offline' && phase !== 'boot'} onClick={() => window.dispatchEvent(new Event(phase === 'dormant' ? 'jarvis:listen' : 'jarvis:standby'))} disabled={unavailable}>
+                  {phase === 'dormant' ? <Mic size={18} /> : <MicOff size={18} />}{phase === 'dormant' ? 'Listen' : phase === 'offline' ? 'Offline' : phase === 'boot' ? 'Initialising' : 'Standby'}
+                </button>
               </div>
               {usingBridge && (
                 <div className="lcars-deck-selects">
@@ -389,41 +391,42 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
               {statusReportOpen && <StatusReport onClose={() => setCommandWindow(null)} />}
             </section>
           </div>
-          <form className="lcars-command-form" data-dragging={files.dragging} onSubmit={(event) => {
-            event.preventDefault()
-            if ((!command.trim() && !files.attachments.length) || files.reading || unavailable || busy) return
-            window.dispatchEvent(new CustomEvent('jarvis:command', { detail: { text: command.trim(), attachments: files.attachments } }))
-            setCommand('')
-            files.clear()
-          }}>
-            <AttachmentTray attachments={files.attachments} onRemove={files.remove} />
-            <input {...files.pickerProps} />
-            <button type="button" className="lcars-attach" onClick={files.openPicker} disabled={unavailable || busy} title="Attach files (or paste / drop them)" aria-label="Attach files"><Paperclip size={18} /></button>
-            <textarea
-              aria-label="Command"
-              placeholder={unavailable ? 'Computer starting...' : files.dragging ? 'Drop files to attach' : 'Ask the computer (Ctrl+Enter for a new line)'}
-              value={command}
-              rows={Math.min(6, command.split('\n').length)}
-              onChange={(event) => setCommand(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key !== 'Enter' || event.nativeEvent.isComposing || event.shiftKey) return
-                event.preventDefault()
-                if (event.ctrlKey || event.metaKey) {
-                  const field = event.currentTarget
-                  field.setRangeText('\n', field.selectionStart, field.selectionEnd, 'end')
-                  setCommand(field.value)
-                } else {
-                  event.currentTarget.form?.requestSubmit()
-                }
-              }}
-              onPaste={files.onPaste}
-              disabled={unavailable || busy}
-              autoComplete="off"
-            />
-            <button type="submit" data-function-error={Boolean(error)} disabled={(!command.trim() && !files.attachments.length) || files.reading || unavailable || busy} title="Send command"><Send size={18} /> Send</button>
-          </form>
         </section>
       </main>
+      <form className="lcars-command-form" data-dragging={files.dragging} onSubmit={(event) => {
+        event.preventDefault()
+        if (voiceDraft || (!command.trim() && !files.attachments.length) || files.reading || unavailable || busy) return
+        window.dispatchEvent(new CustomEvent('jarvis:command', { detail: { text: command.trim(), attachments: files.attachments } }))
+        setCommand('')
+        files.clear()
+      }}>
+        <AttachmentTray attachments={files.attachments} onRemove={files.remove} />
+        <input {...files.pickerProps} />
+        <button type="button" className="lcars-attach" onClick={files.openPicker} disabled={unavailable || busy} title="Attach files (or paste / drop them)" aria-label="Attach files"><Paperclip size={18} /></button>
+        <textarea
+          aria-label="Command"
+          placeholder={unavailable ? 'Computer starting...' : files.dragging ? 'Drop files to attach' : 'Ask the computer (Ctrl+Enter for a new line)'}
+          value={voiceDraft || command}
+          rows={Math.min(6, (voiceDraft || command).split('\n').length)}
+          readOnly={Boolean(voiceDraft)}
+          onChange={(event) => setCommand(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' || event.nativeEvent.isComposing || event.shiftKey) return
+            event.preventDefault()
+            if (event.ctrlKey || event.metaKey) {
+              const field = event.currentTarget
+              field.setRangeText('\n', field.selectionStart, field.selectionEnd, 'end')
+              setCommand(field.value)
+            } else {
+              event.currentTarget.form?.requestSubmit()
+            }
+          }}
+          onPaste={files.onPaste}
+          disabled={unavailable || busy}
+          autoComplete="off"
+        />
+        <button type="submit" data-function-error={Boolean(error)} disabled={Boolean(voiceDraft) || (!command.trim() && !files.attachments.length) || files.reading || unavailable || busy} title="Send command"><Send size={18} /> Send</button>
+      </form>
     </div>
   )
 }

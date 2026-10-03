@@ -8,15 +8,20 @@
   height: 100dvh;
   min-width: 0;
   min-height: 0;
-  display: block;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  place-items: stretch;
+  box-sizing: border-box;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  overflow: hidden;
   transform: none;
   color: var(--lc-tan);
   font-family: 'Chakra Petch', 'Antonio', sans-serif;
 }
 
 [data-theme='lcars'] .lcars-reactor-console {
-  position: absolute;
-  inset: 0 0 62px;
+  position: relative;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -716,6 +721,10 @@
   gap: var(--lc-gap);
 }
 
+[data-theme='lcars'] .lcars-deck-actions {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 [data-theme='lcars'] .lcars-deck-switches button:last-child {
   grid-column: 0 / 0;
 }
@@ -1287,7 +1296,10 @@
   flex-wrap: wrap;
   align-items: flex-end;
   gap: var(--lc-gap);
-  padding-top: var(--lc-gap);
+  margin: 0 2%;
+  padding: var(--lc-gap) 0;
+  background: #000;
+  pointer-events: auto;
   border-top: 6px solid var(--lc-peach);
   color: var(--lc-tan);
 }
@@ -1338,9 +1350,9 @@
   field-sizing: content;
 }
 
-[data-theme='lcars'] .lcars-control-deck button,
-[data-theme='lcars'] .lcars-control-deck input,
-[data-theme='lcars'] .lcars-control-deck textarea {
+[data-theme='lcars'] :is(.lcars-control-deck, .lcars-command-form) button,
+[data-theme='lcars'] :is(.lcars-control-deck, .lcars-command-form) input,
+[data-theme='lcars'] :is(.lcars-control-deck, .lcars-command-form) textarea {
   padding: 9px 12px;
   border: 1px solid var(--lc-lilac);
   background: var(--dark-gray);
@@ -1350,7 +1362,7 @@
   pointer-events: auto;
 }
 
-[data-theme='lcars'] .lcars-control-deck button {
+[data-theme='lcars'] :is(.lcars-control-deck, .lcars-command-form) button {
   display: inline-flex;
   align-items: center;
   justify-content: flex-start;
@@ -1372,14 +1384,6 @@
 [data-theme='lcars'] .lcars-deck-actions button {
   border-radius: 0;
   background: var(--lc-tan);
-}
-
-[data-theme='lcars'] .lcars-deck-actions button:first-child {
-  justify-content: flex-end;
-}
-
-[data-theme='lcars'] .lcars-deck-actions button:last-child {
-  background: var(--lc-blue);
 }
 
 [data-theme='lcars'] :is(.lcars-deck-actions button, .lcars-deck-switches button, .ab-actions button) {
@@ -1453,16 +1457,16 @@
   color: var(--lc-lilac);
 }
 
-[data-theme='lcars'] .lcars-control-deck button:hover:not(:disabled) {
+[data-theme='lcars'] :is(.lcars-control-deck, .lcars-command-form) button:hover:not(:disabled) {
   filter: brightness(1.16);
 }
 
-[data-theme='lcars'] .lcars-control-deck :is(button, input, select):focus-visible {
+[data-theme='lcars'] :is(.lcars-control-deck, .lcars-command-form) :is(button, input, select):focus-visible {
   outline: 2px solid var(--lc-orange);
   outline-offset: 2px;
 }
 
-[data-theme='lcars'] .lcars-control-deck button:disabled {
+[data-theme='lcars'] :is(.lcars-control-deck, .lcars-command-form) button:disabled {
   filter: saturate(0.5);
   opacity: 0.6;
   cursor: default;
@@ -1557,7 +1561,7 @@
 
 @media (max-width: 900px) {
   [data-theme='lcars'] .lcars-reactor-console {
-    inset: 0 18px 66px;
+    margin: 0 18px;
     gap: 10px;
     overflow-y: auto;
     pointer-events: auto;
@@ -1602,7 +1606,7 @@
 
 @media (max-width: 700px) {
   [data-theme='lcars'] .lcars-reactor-console {
-    inset: 0 12px 60px;
+    margin: 0 12px;
   }
 
   [data-theme='lcars'] .lcars-reactor-heading>div:first-child {
@@ -1636,9 +1640,11 @@
 }
 
 @media (max-height: 680px) and (min-width: 901px) {
+  [data-theme='lcars'] .lcars-reactor {
+    padding-top: 64px;
+  }
+
   [data-theme='lcars'] .lcars-reactor-console {
-    top: 64px;
-    bottom: 96px;
     overflow-y: auto;
     pointer-events: auto;
     touch-action: pan-y;
@@ -2151,6 +2157,7 @@
   opacity: 0.6;
   font-size: 11px;
   letter-spacing: 0.14em;
+  display: none;
 }
 
 [data-theme='lcars'] kbd {

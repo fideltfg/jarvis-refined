@@ -10,6 +10,42 @@ const lcarsStyles = await readFile(new URL('../../public/themes/lcars/theme.css'
 const diagnostics = await readFile(new URL('./Diagnostics.tsx', import.meta.url), 'utf8')
 const statusReport = await readFile(new URL('../../public/themes/lcars/StatusReport.tsx', import.meta.url), 'utf8')
 const timeline = await readFile(new URL('./Timeline.tsx', import.meta.url), 'utf8')
+const storeSource = await readFile(new URL('../store.ts', import.meta.url), 'utf8')
+const voiceSource = await readFile(new URL('../lib/voice.ts', import.meta.url), 'utf8')
+
+test('LCARS docks the composer outside the scrolling console and reserves its height', () => {
+  assert.match(reactor, /<\/main>\s*<form className="lcars-command-form"/)
+  assert.match(lcarsStyles, /\.lcars-reactor \{[^}]*display: grid;[^}]*grid-template-rows: minmax\(0, 1fr\) auto;[^}]*place-items: stretch;/)
+  assert.match(lcarsStyles, /\.lcars-reactor-console \{[^}]*position: relative;[^}]*min-height: 0;[^}]*overflow-y: auto;/)
+  assert.doesNotMatch(lcarsStyles, /\.lcars-command-form \{[^}]*position: fixed;/)
+  assert.match(lcarsStyles, /padding-bottom: env\(safe-area-inset-bottom, 0px\)/)
+  assert.doesNotMatch(lcarsStyles, /padding-bottom: (62|66|60|96)px/)
+})
+
+test('LCARS shows live speech in the composer without replacing the typed draft', () => {
+  assert.match(reactor, /const voiceDraft = useStore\(\(state\) => state.voiceDraft\)/)
+  assert.match(reactor, /value=\{voiceDraft \|\| command\}/)
+  assert.match(reactor, /readOnly=\{Boolean\(voiceDraft\)\}/)
+  assert.match(app, /const onPartial = \(text: string\) => \{[^}]*setVoiceDraft\(text\)/)
+  assert.match(app, /setVoiceDraft\(said\)\s*void respond\(said\)/)
+  assert.doesNotMatch(app, /const onUtterance = \(text: string\) => \{\s*store.getState\(\).setVoiceDraft\(''\)/)
+})
+
+test('LCARS keeps completed speech visible while processing and clears it when the AI responds', () => {
+  const setPhaseSource = storeSource.match(/setPhase: \(phase\) => set\(\(state\) => \(\{[\s\S]*?\}\)\),/)?.[0]
+  assert.ok(setPhaseSource)
+  assert.match(setPhaseSource, /phase === 'listening' && state.phase !== 'listening'/)
+  assert.match(setPhaseSource, /phase === 'speaking'/)
+  assert.doesNotMatch(setPhaseSource, /phase === '(thinking|tooling)'/)
+  assert.match(app, /onText: \(delta\) => \{[\s\S]*?if \(!started\) \{\s*started = true\s*store.getState\(\).setPhase\('speaking'\)/)
+})
+
+test('LCARS requests interim recognition even when server transcription is available', () => {
+  assert.match(app, /liveTranscription: activeTheme\(\).id === 'lcars'/)
+  assert.match(voiceSource, /const useServer = caps\(\).stt && !\(opts.liveTranscription && browserAvailable\)/)
+  assert.match(voiceSource, /return useServer \? startServerVoice\(h, diag.ptt\) : startBrowserVoice\(h, diag.ptt\)/)
+  assert.match(voiceSource, /rec.interimResults = true/)
+})
 
 test('LCARS mounts one non-modal command palette inside the session area', () => {
   assert.match(reactor, /<AgentBoard \/>\s*<CommandPalette inline \/>\s*<Timeline inline \/>\s*<Diagnostics inline \/>/)

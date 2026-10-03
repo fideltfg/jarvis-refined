@@ -42,6 +42,22 @@ the speaker model is unavailable or a segment is too short or cannot be
 analysed, verification allows the segment through. Use push-to-talk or mute the
 microphone when commands from other voices would be unsafe.
 
+## Session history and recall
+
+Session history (**Shift+H**) lists past conversations. It is stored in this
+browser's local storage and keeps session text, timestamps, tool names and
+attachment names/metadata, not attached file bytes.
+
+A copy of the session text (not tool names or attachment metadata) is also
+mirrored to the local bridge at `~/.config/jarvis/sessions.json` (override with
+`JARVIS_HISTORY_FILE`; up to 200 sessions, owner-readable only). JARVIS reads it
+with the `history_recent`, `history_search` and `history_read` tools, so he can
+recall in detail what was said in earlier sessions on the local device. These tools are read-only and
+are available even when writes are disabled. Deleting a session in the History
+view removes it from the copy too.
+
+Jarvis does not have access to session history stored on other devices you used to access him.
+
 ## Files and Network Boundaries
 
 The shared `jarvis_files` tools can read text, list directories, search below

@@ -350,14 +350,17 @@ export default function App() {
       return
     }
 
+    store.getState().setVoiceDraft(said)
     void respond(said)
   }
 
   const onPartial = (text: string) => {
     store.getState().setCaption(text)
+    store.getState().setVoiceDraft(text)
   }
 
   const onVoiceError = (message: string) => {
+    store.getState().setVoiceDraft('')
     store.getState().setError(message)
     sfx.play('warning')
   }
@@ -686,7 +689,7 @@ export default function App() {
         onUtterance,
         onError: onVoiceError,
       },
-      { pushToTalk: ptt.current.enabled },
+      { pushToTalk: ptt.current.enabled, liveTranscription: activeTheme().id === 'lcars' },
     )
 
     store.getState().setPhase('dormant')
