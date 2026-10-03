@@ -8,8 +8,8 @@ only research and ops tasks. Code and admin tasks remain on the main host.
 
 The first release is built from this repository; it is not a separate repository
 or a published npm package. The package has no npm runtime dependencies.
-Each remote host must have Node.js 20+ at `/usr/bin/node`, OpenSSL, systemd and a
-local OpenAI-compatible model server bound to loopback. No Claude login, API
+Installation requires root privileges, Node.js 20+ at `/usr/bin/node`, OpenSSL,
+systemd and a local OpenAI-compatible model server bound to loopback. No Claude login, API
 key, paid provider, or external model connection is required. The main host
 retrieves reports through the remote runtime's authenticated HTTPS API. Do not
 copy the coordinator's secrets file or browser profile. An ops task has no
@@ -54,8 +54,10 @@ rm -rf jarvis-remote-agent remote-host.lan.tar.gz remote-host.lan.tar.gz.sha256
 ```
 
 The installer creates the restricted service account, state directories, TLS
-files and service config, installs the package into a versioned directory and
-enables systemd. It refuses to overwrite an existing install. The optional
+files and service config, installs the package into a timestamped versioned
+directory under `releases/`, points `current` at it, and enables systemd. This
+is true on the initial install too. The installer refuses to overwrite an
+existing install. The optional
 second installer argument sets a different numeric-loopback `/v1` model URL;
 the default is `http://127.0.0.1:11434/v1`. Check the local model server before
 installing. Do not set
@@ -94,15 +96,15 @@ are sent to the main host or an outside provider.
 
 ## Upgrade, rollback and limits
 
-Stop the service, unpack a newly built and checksum-verified archive into a
-**new versioned directory**, install locked dependencies there and atomically
-repoint `current`; then restart and repeat the health and task checks. Preserve
+Do not rerun `install.sh` to upgrade: it intentionally refuses to overwrite an
+existing install. Stop the service, unpack a newly built and checksum-verified
+archive into a **new versioned directory**, install locked dependencies there
+and atomically repoint `current`; then restart and repeat the health and task checks. Preserve
 `/var/lib/jarvis-remote-agent` across releases. For rollback, stop the service,
 repoint `current` to the previous tested directory, restart and verify. Do not
 replace a directory in place while a worker is running; drain tasks first.
-The initial install commands use an unversioned directory only because no
-previous release exists. Remote work interrupted by a restart is recovered from
-persistent state, but check the task board before upgrades.
+Remote work interrupted by a restart is recovered from persistent state, but
+check the task board before upgrades.
 
 Keep this host isolated and grant the service account only necessary access.
 The remote runtime uses a text-only local model worker: it cannot browse,

@@ -1,6 +1,8 @@
 # Themes
 
-Themes are a work in progress. Some work better than others. The persona of each is different and can be tempramental. LCARS and Stark(Jarvis) are proving to be the most reliable.
+Themes are a work in progress. Some work better than others. Each has a
+different persona and can be temperamental. LCARS and Stark (JARVIS) are the
+most reliable.
 
 Themes change the assistant's character and the entire browser presentation:
 palette, typography, wake phrase, persona, voice profile, audio, boot sequence,
@@ -40,17 +42,10 @@ browser. Production deployments need a new build to include the theme.
 ![Screenshot LCARS](../public/themes/lcars/lcars.png)
 
 ### HAL
-![Screenshot STARK](../public/themes/hal/hal.png)
+![Screenshot HAL](../public/themes/hal/hal.png)
 
 ### ORIN
 ![ORIN THEME](../public/themes/orin/orin.png)
-### WOPR
-> Screenshot Soon.
-
-### Mother
-> Screenshot Soon.
-
-
 Set `VITE_THEME` in `.env.local` and restart the dev server to change the
 default. To preview another theme for the current browser, use a URL such as
 `http://localhost:5173/?theme=hal`. The browser remembers the URL selection.
@@ -70,6 +65,35 @@ default. To preview another theme for the current browser, use a URL such as
 | **D** | Open live diagnostics. |
 | **T** | Run the audio self-test. |
 | **G** | Toggle optional hand tracking and camera access. |
+| **P** | Open voice-profile enrollment, re-recording, or removal. |
+| **Shift+Space** | Open the command palette; the **Commands** launcher button also opens it. |
+| **Shift+T** | Open the tool timeline; the **Timeline** launcher button also opens it. |
+| **Shift+H** | Open session history; the **History** launcher button also opens it. |
+
+The command palette searches available interface actions. The tool timeline
+shows tool activity and elapsed time for the current session. Session history
+lists past conversations and transcripts; it is stored in this browser's local
+storage on this device, not synced to an account. It keeps session text,
+timestamps, tool names and attachment names/metadata, not attached file bytes.
+
+### Voice profile
+
+Pressing **P** opens the profile workflow; it does not enroll a voice by itself.
+Choose **Begin** and read all five prompted phrases to create a profile. The
+profile is stored locally in this browser. It can reduce responses to other
+speakers, but is not authentication or a security boundary: when no profile is
+enrolled, the speaker model is unavailable, or a segment is too short or cannot
+be analysed, verification allows the segment through. Use push-to-talk or mute
+the microphone when stronger control is needed.
+
+### Chat attachments
+
+The LCARS and ORIN typed-chat composers accept files through the attachment
+button, paste, or drag-and-drop. Up to 10 files and 25 MB total are accepted:
+PNG, JPEG, GIF, or WebP images (5 MB each), PDFs (20 MB each), and UTF-8 text
+files (512 KB each). Audio, video, and other binary formats are not accepted.
+Attachment bytes are sent with that chat request; session history stores only
+their names and metadata.
 
 ## Audio
 

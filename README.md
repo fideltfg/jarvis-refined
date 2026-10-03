@@ -18,7 +18,11 @@ before an action runs.
 >
 > - Use push-to-talk, or mute the microphone when not in use, unless you are in
 >   a secluded, quiet area.
-> - Use device-local voice profiles [Press P] to reduce Jarvis listening to other people.
+> - Press **P** to open voice-profile enrollment and complete all five phrases
+>   before enabling it. An unenrolled profile provides no filtering, and
+>   verification fails open when the speaker model is unavailable or audio is
+>   too short or cannot be analysed; use push-to-talk or mute for stronger
+>   control.
 
 ## What you get
 

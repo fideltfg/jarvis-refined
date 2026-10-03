@@ -13,7 +13,7 @@ cheap.**
 | Surface | Default reach | Source |
 |---|---|---|
 | `jarvis_files` tools (`fs_read`, `fs_list`, `fs_search`, `fs_write`) | The owning user's whole home directory, the system temp directories, plus `JARVIS_FILE_ROOTS` | `bridge/server.mjs`, `bridge/files.mjs` |
-| Writes | Blocked unless the bridge was started with `--writes` | [Tools and Safety](tools-and-safety.md) |
+| Writes | Blocked by `--readonly`; the service installer enables writes unless passed `--readonly` | [Tools and Safety](tools-and-safety.md) |
 | Background-agent workspaces | `~/.jarvis-work/<taskId>` (`JARVIS_WORK_DIR`) | [Background agents](background-agents.md) |
 | Agent state | `~/.config/jarvis/agents` (`JARVIS_AGENTS_DIR`) | [Configuration](configuration.md) |
 | Secrets | `~/.config/jarvis/secrets.env` | [Deployment](deployment.md) |
@@ -58,9 +58,16 @@ read-only mount; do not point it at the original.
 ./scripts/install.sh --readonly
 ```
 
-Enable writes (`--writes`) only for sessions where changes are intended, and
-return to read-only afterwards. Run the HUD in read-only on any host that is
-unattended, always-on, or in a room with other people talking.
+The installer enables writes by default. Use it only when actions are intended,
+then re-run it with `--readonly` to return to read-only mode:
+
+```bash
+./scripts/install.sh              # enable writes; restarts the services
+./scripts/install.sh --readonly   # block writes; restarts the services
+```
+
+`--writes` is not an installer option. Run the HUD in read-only on any host
+that is unattended, always-on, or in a room with other people talking.
 
 ## 3. Make the code and configuration read-only to JARVIS
 
@@ -78,10 +85,20 @@ resolve symlinks and check the real path against the roots, a symlink pointing
 out of a root does not grant access, but it also does not protect a file inside
 one. Use ownership and mode bits, not symlinks, for protection.
 
-Writable by the service: `~/.config/jarvis/`, `~/.jarvis-work/`,
-`~/workspace/`, and `node_modules/.vite` if the dev server is used. Everything
-else should be read-only. Updating (`git pull`, `npm ci`) is then done by an
-administrator, followed by `./scripts/install.sh`.
+Writable by the service: `~/.config/jarvis/`, `~/.jarvis-work/`, and
+`~/workspace/`. If the Vite development server is used, its cache also needs
+group write permission and a systemd writable-path exception; the recursive
+checkout hardening above removes that permission, and `ReadOnlyPaths` below
+would otherwise block it even if the mode bits allowed writes:
+
+```bash
+sudo install -d -o root -g jarvis -m 2770 /home/jarvis/jarvis-refined/node_modules/.vite
+sudo chown -R root:jarvis /home/jarvis/jarvis-refined/node_modules/.vite
+sudo chmod -R g+rwX /home/jarvis/jarvis-refined/node_modules/.vite
+```
+
+Everything else should be read-only. Updating (`git pull`, `npm ci`) is then
+done by an administrator, followed by `./scripts/install.sh`.
 
 Protect secrets:
 
@@ -110,7 +127,7 @@ RestrictSUIDSGID=yes
 LockPersonality=yes
 # Read-only view of the checkout; writable only where listed.
 ReadOnlyPaths=%h/jarvis-refined
-ReadWritePaths=%h/.config/jarvis %h/.jarvis-work %h/workspace
+ReadWritePaths=%h/.config/jarvis %h/.jarvis-work %h/workspace %h/jarvis-refined/node_modules/.vite
 # Limit runaway resource use so a loop cannot take the host down.
 MemoryMax=2G
 TasksMax=512
@@ -186,7 +203,10 @@ backup is a hope.
 Most accidents begin with audio JARVIS should not have acted on.
 
 - Use push-to-talk, or mute the microphone, unless the room is private and quiet.
-- Use device-local voice profiles so other voices and media are ignored.
+- A voice profile filters speakers only after you enroll it with **P** and read
+  all five phrases. It is not authentication: no profile, a missing speaker
+  model, or audio that is too short or cannot be analysed allows speech
+  through. Prefer push-to-talk or mute when needed.
 - Keep the approval flow on for background agents and review pending approvals
   before accepting them; do not auto-approve destructive categories.
 - For goals that touch files, state the exact directory and say "do not delete".
@@ -208,7 +228,9 @@ Most accidents begin with audio JARVIS should not have acted on.
 - [ ] Ports are bound to the intended interface and firewalled.
 - [ ] `JARVIS_FILE_ROOTS` contains only the paths you intend.
 - [ ] Provider API keys have spend limits.
-- [ ] Push-to-talk or voice profiles are enabled.
+- [ ] Push-to-talk is enabled, or an enrolled voice profile is used with its
+  fail-open behavior for missing profiles, unavailable models, and short or
+  unanalysable audio understood.
 
 ## Verify the boundary
 

@@ -77,7 +77,8 @@ files by hand.
 ## Run as services at boot (`scripts/install.sh`)
 
 `scripts/install.sh` installs, enables and starts the bridge + face and the
-agent service as systemd **user** units, and makes them start at boot:
+agent service as systemd **user** units, and makes them start at boot. It
+enables writes by default; pass `--readonly` to block effectful actions:
 
 ```bash
 ./scripts/install.sh              # actions allowed (same as npm start)
@@ -104,9 +105,10 @@ What it does, in order:
 6. **Health checks** — waits for the agent API, the bridge `/health` endpoint
    and the face port, and confirms neither service crash-restarted.
 
-It is safe to re-run (for example after `git pull`): files that already match
-are left alone, nothing is appended twice, and the services are restarted to
-pick up new code.
+It is safe to re-run (for example after `git pull` or to change the action
+mode): files that already match are left alone, nothing is appended twice, and
+the services are restarted to pick up new code and mode. The installer accepts
+`--readonly`, not `--writes`; omitting the switch enables writes.
 
 ### Files and paths
 

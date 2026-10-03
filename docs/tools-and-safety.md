@@ -8,10 +8,12 @@ read from that account by the local bridge.
 
 ## Action Gate
 
-The bridge is read-only by default. Read and lookup operations can run, while
-effectful operations such as sending, clicking, typing, deleting, installing, or
-paying are denied unless writes are enabled. The bridge owns this policy; user
-Claude Code permission settings cannot override it.
+The bridge blocks effectful operations such as sending, clicking, typing,
+deleting, installing, or paying unless writes are enabled. The read-only
+commands are `npm run bridge` and `npm run start:readonly`; `npm run
+bridge:writes`, `npm start`, and an installed service without `--readonly`
+enable writes. The bridge owns this policy; user Claude Code permission
+settings cannot override it.
 
 Enable writes only for a session where actions are intended:
 
@@ -21,9 +23,24 @@ npm run bridge:writes
 npm start -- --writes
 ```
 
+For systemd services, `./scripts/install.sh` enables writes by default and
+`./scripts/install.sh --readonly` blocks them. Re-run the installer with the
+desired mode to update and restart the service; `--writes` is not an installer
+option. See [Deployment](deployment.md#run-as-services-at-boot-scriptsinstallsh).
+
 Treat voice requests as real actions. When writes are enabled, a broad request
 can have effects outside the HUD. The background-agent workers use their own
 tool policy and approval flow; see [Background agents](background-agents.md).
+
+### Voice profile limits
+
+Pressing **P** only opens the voice-profile workflow. To enable speaker
+filtering, explicitly enroll by reading all five prompted phrases; the profile
+is stored locally in this browser. It is a convenience filter, not
+authentication or a security boundary: without an enrolled profile, or when
+the speaker model is unavailable or a segment is too short or cannot be
+analysed, verification allows the segment through. Use push-to-talk or mute the
+microphone when commands from other voices would be unsafe.
 
 ## Files and Network Boundaries
 
@@ -61,9 +78,15 @@ npm run relay:token        # on the server, once; then restart the bridge
 
 ```bash
 # on the machine with Chrome (Node 22+, one file, no install)
-curl -kO https://<server>:5173/jarvis-relay.mjs
+# For a private/self-signed CA, use the trusted CA certificate here.
+curl --cacert jarvis.crt -O https://<server>:5173/jarvis-relay.mjs
 node jarvis-relay.mjs wss://<server>:5173/bridge/relay --token <token> --ca jarvis.crt
 ```
+
+If the server certificate chains to a CA already trusted by the machine, use
+`curl -O` and omit `--ca` from Node. Never use `curl -k` for executable code:
+the Node `--ca` option verifies only the later WebSocket connection, not the
+download.
 
 That machine needs Chrome open with the Claude extension, and Claude Code
 installed with its Chrome integration enabled. The bridge drives the browser of

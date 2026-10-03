@@ -1,9 +1,10 @@
 # Standalone remote agent runtime
 
 This folder is built into a deployable package by `npm run package:remote` at the
-repository root. The remote host needs **only** the resulting package, Node.js
-20 or newer, and a local OpenAI-compatible model server on loopback. It needs
-no provider login or paid API. The main JARVIS host retrieves results over the
+repository root. Installing the package requires root privileges, Node.js 20 or
+newer at `/usr/bin/node`, OpenSSL, and systemd; operation also requires a local
+OpenAI-compatible model server on loopback. It needs no provider login or paid
+API. The main JARVIS host retrieves results over the
 runtime's authenticated HTTPS API; the remote never sends work to a provider.
 It does not need this repository, the bridge, a browser, or frontend dependencies.
 The package includes its own `package.json`, lockfile and first-run installer.
