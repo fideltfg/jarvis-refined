@@ -1,5 +1,7 @@
 # Themes
 
+Themes are a work in progress. Some work better than others. The persona of each is different and can be tempramental. LCARS and Stark(Jarvis) are proving to be the most reliable.
+
 Themes change the assistant's character and the entire browser presentation:
 palette, typography, wake phrase, persona, voice profile, audio, boot sequence,
 and live animation. Built-in themes are stored in `public/themes/`:
@@ -12,6 +14,26 @@ and live animation. Built-in themes are stored in `public/themes/`:
 | `mother` | Green industrial mainframe terminal | “Mother” |
 | `lcars` | LCARS-style computer display | “Computer” |
 | `orin` | Amber operational reasoning console | “ORIN” |
+
+## Screenshots
+
+### Stark
+![Screenshot STARK](../public/themes/stark/stark.png)
+
+### LCARS
+![Screenshot LCARS](../public/themes/lcars/lcars.png)
+
+### HAL
+![Screenshot STARK](../public/themes/hal/hal.png)
+
+### ORIN
+![ORIN THEME](../public/themes/orin/orin.png)
+### WOPR
+> Screenshot Soon.
+
+### Mother
+> Screenshot Soon.
+
 
 Set `VITE_THEME` in `.env.local` and restart the dev server to change the
 default. To preview another theme for the current browser, use a URL such as

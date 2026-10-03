@@ -1,5 +1,5 @@
 # Themes
-
+![Some Themes](../../docs/assets/themes.png)
 A theme is a folder in this directory. Add one and reload the dev page; no
 registry, shared component, or build configuration needs editing. Production
 deployments need a new build to include newly added theme modules and the index.

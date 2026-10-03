@@ -8,6 +8,8 @@ browser handles the microphone, wake phrase, HUD, and speech; the bridge keeps
 credentials private, connects models and MCP tools, and applies safety rules
 before an action runs.
 
+
+![Some Themes](docs/assets/montagex.png)
 ## What you get
 
 | | Capability |
