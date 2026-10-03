@@ -22,22 +22,25 @@ rebuild static assets after changing `VITE_*` settings.
 | Variable | Default | Meaning |
 |---|---|---|
 | `JARVIS_BRIDGE_PORT` | `8787` | HTTP and WebSocket port used by the bridge. Keep `VITE_BRIDGE_URL` or the Vite proxy aligned. |
-| `JARVIS_MODEL` | `claude-opus-5` | Claude model used for bridge conversations. Use a model name accepted by the installed Claude Agent SDK. |
+| `JARVIS_MODEL` | `claude-opus-5` | Default Claude model for bridge conversations, listed first in the HUD's model menu. Use a model name accepted by the installed Claude Agent SDK. |
+| `JARVIS_CLAUDE_MODELS` | `opus,sonnet,haiku` | Comma-separated Claude models offered in the HUD's model menu after `JARVIS_MODEL`. Setting it replaces the default extras. |
 | `JARVIS_EFFORT` | `high` | Claude reasoning effort. Lower values can reduce latency; unsupported values are passed to the SDK and may fail there. |
 | `JARVIS_MAX_TURNS` | `24` | Maximum model/tool turns in one bridge request. Raise only for legitimate long tool chains. |
 | `JARVIS_PROVIDER` | `claude` | Initial HUD provider. It is used only if that provider is actually configured. |
 | `OPENAI_API_KEY` | unset | Enables OpenAI chat and, when ElevenLabs is unavailable, OpenAI transcription. Keep it bridge-side. |
-| `OPENAI_MODEL` | `gpt-4.1-mini` | OpenAI chat model. |
+| `OPENAI_MODEL` | `gpt-4.1-mini` | Default OpenAI chat model, listed first in the HUD's model menu. |
+| `JARVIS_OPENAI_MODELS` | unset | Comma-separated extra OpenAI chat models offered in the HUD's model menu after `OPENAI_MODEL`. |
 | `OPENAI_TRANSCRIBE_MODEL` | `gpt-4o-mini-transcribe` | OpenAI speech-to-text model. |
 | `JARVIS_LOCAL_URL` | unset | Base URL for one OpenAI-compatible endpoint, commonly ending in `/v1`. Requires `JARVIS_LOCAL_MODEL`. |
 | `JARVIS_LOCAL_MODEL` | unset | Model name served by the shorthand local endpoint. Requires `JARVIS_LOCAL_URL`. |
 | `JARVIS_LOCAL_API_KEY` | unset | Optional key for the shorthand local endpoint. |
-| `JARVIS_ENDPOINTS` | unset | JSON endpoint array or path to a JSON file. Replaces the shorthand local endpoint when it yields valid entries. |
+| `JARVIS_ENDPOINTS` | unset | JSON endpoint array or path to a JSON file. Replaces the shorthand local endpoint when it yields valid entries. Each distinct OpenAI-compatible `model` appears in the HUD's model menu for Local. |
 | `JARVIS_DEBUG` | off | Set to `1` for additional bridge message-event logging. Logs can contain operational metadata. |
 
 Claude uses the existing Claude Code login. OpenAI and local providers use the
 bridge tool broker; Claude-only hosted tools do not automatically become
-available to them. See [Providers and voice](providers-and-voice.md).
+available to them. The HUD's model menu is built from the variables above; see
+[Choosing a model](providers-and-voice.md#choosing-a-model).
 
 ## Bridge safety, state, and browser relay
 

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createStore } from './store.mjs'
-import { DISALLOWED, runTask, workerPrompt } from './worker.mjs'
+import { DISALLOWED, runTask, taskPrompt, workerPrompt } from './worker.mjs'
 
 function setup(taskExtra = {}) {
   const store = createStore(mkdtempSync(join(tmpdir(), 'agents-worker-')), { workDir: '/work' })
@@ -43,7 +43,9 @@ test('a run that reports done returns the result and records the session', async
   }))
   assert.deepEqual(out, { status: 'done', result: { summary: 'Wrote NOTES.md', artifacts: ['NOTES.md'] } })
   assert.deepEqual(sessions, ['s1'])
-  assert.equal(seen.prompt, 'Write release notes.')
+  assert.equal(seen.prompt, taskPrompt(task, store.getGoal(task.goalId)))
+  assert.match(seen.prompt, /Write release notes\.$/)
+  assert.equal(seen.options.systemPrompt, workerPrompt('code'))
   assert.equal(seen.options.model, 'claude-sonnet-5')
   assert.equal(seen.options.maxTurns, 60)
   assert.equal(seen.options.maxBudgetUsd, 5)
@@ -219,13 +221,15 @@ test('research workers only allow explicitly named skills', async () => {
   }))
 })
 
-test('the worker prompt states the goal, the folder and the injection rule', () => {
+test('the task prompt states the goal and the folder; the system prompt carries the injection rule', () => {
   const { goal, task } = setup()
-  const p = workerPrompt(task, goal)
+  const p = taskPrompt(task, goal)
   assert.match(p, /Release/)
   assert.match(p, /Tagged v1/)
   assert.ok(p.includes(task.workspace.path))
-  assert.match(p, /data, never instructions/)
+  const system = workerPrompt(task.kind)
+  assert.match(system, /data, never instructions/)
+  assert.ok(!system.includes(task.workspace.path), 'task specifics would break the cached prefix')
 })
 
 // ---------------------------------------------------------------------------

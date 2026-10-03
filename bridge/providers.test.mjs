@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { createServer } from 'node:http'
-import { configuredProviders, fallbackProvider, isCapacityError, retryProvider, textProvider } from './providers.mjs'
+import { configuredProviders, fallbackProvider, isCapacityError, providerModels, resolveModel, retryProvider, textProvider } from './providers.mjs'
 
 test('only capacity failures qualify for provider failover', () => {
   assert.equal(isCapacityError({ status: 429 }), true)
@@ -33,6 +33,53 @@ test('only configured providers are offered', () => {
   assert.deepEqual(configuredProviders({ JARVIS_LOCAL_URL: 'http://localhost:11434/v1', JARVIS_LOCAL_MODEL: 'model' }), ['claude', 'local'])
 })
 
+test('each configured provider offers its models, default first', () => {
+  assert.deepEqual(providerModels({}, 'claude-opus-5'), { claude: ['claude-opus-5', 'opus', 'sonnet', 'haiku'] })
+  assert.deepEqual(providerModels({ JARVIS_CLAUDE_MODELS: 'sonnet, opus' }, 'sonnet').claude, ['sonnet', 'opus'])
+  assert.deepEqual(providerModels({ OPENAI_API_KEY: 'key', OPENAI_MODEL: 'a', JARVIS_OPENAI_MODELS: 'b,a' }).openai, ['a', 'b'])
+  const endpoints = JSON.stringify([
+    { id: 'one', kind: 'openai', baseURL: 'http://localhost:1/v1', model: 'small' },
+    { id: 'two', kind: 'openai', baseURL: 'http://localhost:2/v1', model: 'big' },
+  ])
+  assert.deepEqual(providerModels({ JARVIS_ENDPOINTS: endpoints }).local, ['small', 'big'])
+})
+
+test('an unknown model falls back to the provider default', () => {
+  const models = { claude: ['opus', 'sonnet'] }
+  assert.equal(resolveModel(models, 'claude', 'sonnet'), 'sonnet')
+  assert.equal(resolveModel(models, 'claude', 'gpt-9'), 'opus')
+  assert.equal(resolveModel(models, 'local', 'x'), undefined)
+})
+
+test('choosing a local model routes the turn to the endpoint serving it', async () => {
+  const hits = []
+  const serve = (name) => createServer((request, response) => {
+    let body = ''
+    request.on('data', (chunk) => { body += chunk })
+    request.on('end', () => {
+      hits.push([name, JSON.parse(body).model])
+      response.writeHead(200, { 'content-type': 'text/event-stream' })
+      response.end('data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n')
+    })
+  })
+  const servers = [serve('one'), serve('two')]
+  await Promise.all(servers.map((server) => new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))))
+  try {
+    const env = {
+      JARVIS_ENDPOINTS: JSON.stringify(servers.map((server, index) => ({
+        id: index ? 'two' : 'one',
+        kind: 'openai',
+        baseURL: `http://127.0.0.1:${server.address().port}/v1`,
+        model: index ? 'big' : 'small',
+      }))),
+    }
+    await textProvider('local', env, 'big')([{ role: 'user', content: 'Hi' }], new AbortController().signal, () => {})
+    assert.deepEqual(hits, [['two', 'big']])
+  } finally {
+    servers.forEach((server) => server.close())
+  }
+})
+
 test('local adapter streams OpenAI-compatible text without a real API key', async () => {
   const server = createServer((request, response) => {
     assert.equal(request.url, '/v1/chat/completions')
@@ -50,6 +97,25 @@ test('local adapter streams OpenAI-compatible text without a real API key', asyn
     })
     await stream([{ role: 'user', content: 'Hi' }], new AbortController().signal, (chunk) => chunks.push(chunk))
     assert.deepEqual(chunks, ['Hello', ' there'])
+  } finally {
+    server.close()
+  }
+})
+
+test('local endpoints are never sent the OpenAI-only prompt cache key', async () => {
+  let body
+  const server = createServer(async (request, response) => {
+    let raw = ''
+    for await (const chunk of request) raw += chunk
+    body = JSON.parse(raw)
+    response.writeHead(200, { 'content-type': 'text/event-stream' })
+    response.end('data: [DONE]\n\n')
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const stream = textProvider({ id: 'mock', baseURL: `http://127.0.0.1:${server.address().port}/v1`, model: 'mock' })
+    await stream([{ role: 'user', content: 'Hi' }], new AbortController().signal, () => {}, { cacheKey: 'jarvis-stark' })
+    assert.equal(body.prompt_cache_key, undefined)
   } finally {
     server.close()
   }

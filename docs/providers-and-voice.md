@@ -6,14 +6,53 @@ The bridge can offer three provider types:
 
 | Provider | Setup | Notes |
 |---|---|---|
-| Claude | Claude Code installed and logged in | Default provider; uses the existing Claude Code login. |
+| Claude | Claude Code installed and logged in | Default provider; uses the existing Claude Code login. Default model is `JARVIS_MODEL`. |
 | OpenAI | `OPENAI_API_KEY` on the bridge | Default model is `gpt-4.1-mini`; override with `OPENAI_MODEL`. |
-| Local | Set `JARVIS_LOCAL_URL` and `JARVIS_LOCAL_MODEL` | Uses an OpenAI-compatible API, for example a local server exposing `/v1`. |
+| Local | Set `JARVIS_LOCAL_URL` and `JARVIS_LOCAL_MODEL`, or `JARVIS_ENDPOINTS` for several | Uses an OpenAI-compatible API, for example a local server exposing `/v1`. |
 
 Choose an available provider in the HUD. `JARVIS_PROVIDER` sets the initial
 provider for a new browser; the browser remembers its own selection. Provider
 credentials stay on the bridge except in direct mode, which places the
 Anthropic key in the browser and is intended only for local demos.
+
+### Choosing a model
+
+The **Model** menu beside the provider menu lists the models the selected
+provider can run, with the default first. The bridge builds the list, so it can
+only offer models that are configured on the bridge:
+
+| Provider | Models offered | Configure with |
+|---|---|---|
+| Claude | `JARVIS_MODEL`, then `opus`, `sonnet`, `haiku` | `JARVIS_CLAUDE_MODELS` (comma-separated) replaces the extras. |
+| OpenAI | `OPENAI_MODEL` | `JARVIS_OPENAI_MODELS` (comma-separated) adds more. |
+| Local | Each distinct `model` in the endpoint pool | `JARVIS_LOCAL_MODEL`, or the `model` field of each `JARVIS_ENDPOINTS` entry. |
+
+For example, to offer two Claude models and three OpenAI models:
+
+```bash
+JARVIS_MODEL=claude-opus-5
+JARVIS_CLAUDE_MODELS=sonnet,haiku
+OPENAI_MODEL=gpt-4.1-mini
+JARVIS_OPENAI_MODELS=gpt-4.1,gpt-4o
+```
+
+Changes to these variables take effect when the bridge restarts.
+
+How the choice behaves:
+
+- The browser remembers one model per provider, so switching providers back
+  and forth keeps each choice.
+- The model is sent with every question; there is no separate apply step.
+- Claude switches the model of the running session, so the conversation
+  carries over rather than starting again.
+- Choosing a Local model sends turns only to the endpoints that serve it. If
+  several endpoints serve the same model, the turn can still move between them
+  when one is at capacity.
+- A provider with only one model shows the menu disabled.
+- If a remembered model is no longer offered, the menu falls back to the
+  provider's default.
+- When failover moves a turn to another provider, it uses the model last picked
+  for that provider.
 
 When a provider hits a rate limit or runs out of credits before it has emitted
 text or called a tool, the bridge can retry with another configured provider.

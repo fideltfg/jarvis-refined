@@ -8,7 +8,7 @@ import { Pointer } from './Pointer'
 import { GestureGuide } from './GestureGuide'
 import { AgentBoard } from './AgentBoard'
 import { copy } from '../theme'
-import { providerState, watchProviders, selectProvider, usingBridge } from '../lib/brain'
+import { providerState, watchProviders, selectProvider, selectModel, usingBridge } from '../lib/brain'
 import { activeTheme, activeThemePackage } from '../lib/theme-runtime'
 
 const statusText: Record<Phase, string> = copy.status
@@ -146,7 +146,7 @@ export function Hud() {
   const CustomHud = activeThemePackage().Hud
   const Frame = activeThemePackage().Frame
   const lcarsTheme = activeTheme().id === 'lcars'
-  useEffect(() => watchProviders((available, selected) => setProviders({ available, selected })), [])
+  useEffect(() => watchProviders(() => setProviders(providerState())), [])
   const phase = useStore((s) => s.phase)
   const caption = useStore((s) => s.caption)
   const turns = useStore((s) => s.turns)
@@ -229,6 +229,21 @@ export function Hud() {
                 <option key={provider} value={provider}>
                   {provider === 'claude' ? 'Claude' : provider === 'openai' ? 'OpenAI' : 'Local'}
                 </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {usingBridge && providers.models.length > 0 && (
+          <label className="provider-control">
+            <span>Model</span>
+            <select
+              aria-label="Model"
+              value={providers.model}
+              disabled={providers.models.length < 2 || phase === 'thinking' || phase === 'tooling' || phase === 'speaking'}
+              onChange={(event) => selectModel(event.target.value)}
+            >
+              {providers.models.map((model) => (
+                <option key={model} value={model}>{model}</option>
               ))}
             </select>
           </label>

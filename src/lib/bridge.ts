@@ -49,6 +49,7 @@ type Frame = {
   servers?: Array<string | { name?: string }>
   available?: string[]
   selected?: string
+  models?: Record<string, string[]>
   board?: AgentBoardData | null
   online?: boolean
   agents?: SessionAgent[]
@@ -61,8 +62,43 @@ let availableProviders = ['claude']
 let selectedProvider = localStorage.getItem('jarvis-provider') || 'claude'
 const providerListeners = new Set<(available: string[], selected: string) => void>()
 
+/** What each provider can run, default first, as the bridge reports it. */
+let providerModels: Record<string, string[]> = {}
+
+/** The model picked for each provider, remembered across reloads. An empty
+ *  entry means the provider's default. */
+let chosenModels: Record<string, string> = (() => {
+  try {
+    return JSON.parse(localStorage.getItem('jarvis-models') || '{}')
+  } catch {
+    return {}
+  }
+})()
+
+/** The chosen model if the bridge still offers it, otherwise the default. */
+function modelFor(provider: string) {
+  const models = providerModels[provider] ?? []
+  return models.includes(chosenModels[provider]) ? chosenModels[provider] : (models[0] ?? '')
+}
+
+function notifyProviders() {
+  for (const listener of providerListeners) listener(availableProviders, selectedProvider)
+}
+
 export function providerState() {
-  return { available: availableProviders, selected: selectedProvider }
+  return {
+    available: availableProviders,
+    selected: selectedProvider,
+    models: providerModels[selectedProvider] ?? [],
+    model: modelFor(selectedProvider),
+  }
+}
+
+export function selectModel(model: string) {
+  if (!(providerModels[selectedProvider] ?? []).includes(model)) return
+  chosenModels = { ...chosenModels, [selectedProvider]: model }
+  localStorage.setItem('jarvis-models', JSON.stringify(chosenModels))
+  notifyProviders()
 }
 
 export function watchProviders(fn: (available: string[], selected: string) => void) {
@@ -75,7 +111,7 @@ export function selectProvider(provider: string) {
   if (!availableProviders.includes(provider)) return
   selectedProvider = provider
   localStorage.setItem('jarvis-provider', provider)
-  for (const listener of providerListeners) listener(availableProviders, selectedProvider)
+  notifyProviders()
 }
 
 let socket: WebSocket | null = null
@@ -268,11 +304,12 @@ function dispatch(ws: WebSocket) {
     } else if (msg.type === 'providers' && msg.available && msg.selected) {
       if (msg.ask && msg.ask !== activeAskId) return
       availableProviders = msg.available
+      if (msg.models) providerModels = msg.models
       if (msg.ask || !availableProviders.includes(selectedProvider)) {
         selectedProvider = msg.selected
         localStorage.setItem('jarvis-provider', selectedProvider)
       }
-      for (const listener of providerListeners) listener(availableProviders, selectedProvider)
+      notifyProviders()
     } else if (msg.type === 'panel' && msg.panel) {
       onPanel?.(msg.panel)
     } else if (msg.type === 'agents') {
@@ -614,7 +651,7 @@ export async function ask(
     arm()
 
     try {
-      ws.send(JSON.stringify({ type: 'ask', text: prompt, id, provider: selectedProvider }))
+      ws.send(JSON.stringify({ type: 'ask', text: prompt, id, provider: selectedProvider, model: modelFor(selectedProvider) }))
     } catch (err) {
       // The socket can go into CLOSING between connect() resolving and here.
       fail(err instanceof Error ? err : new Error(String(err)))

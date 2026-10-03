@@ -9,6 +9,36 @@ export function localEndpoints(env = process.env) {
   return listEndpoints(env).filter((endpoint) => endpoint.kind !== 'anthropic' && endpoint.baseURL && endpoint.model)
 }
 
+/**
+ * The Claude models offered beside JARVIS_MODEL. Aliases rather than dated ids,
+ * so the list keeps meaning something as the installed SDK moves on. Override
+ * with JARVIS_CLAUDE_MODELS (comma-separated).
+ */
+const CLAUDE_MODELS = ['opus', 'sonnet', 'haiku']
+
+const csv = (raw) => String(raw ?? '').split(',').map((part) => part.trim()).filter(Boolean)
+const unique = (list) => [...new Set(list.filter(Boolean))]
+
+/**
+ * What each configured provider can be asked to run, default first. Local is
+ * whatever the endpoint pool serves, so picking a model there also picks which
+ * boxes the turn may land on.
+ */
+export function providerModels(env = process.env, claudeDefault = env.JARVIS_MODEL ?? 'claude-opus-5') {
+  const lists = {
+    claude: unique([claudeDefault, ...(csv(env.JARVIS_CLAUDE_MODELS).length ? csv(env.JARVIS_CLAUDE_MODELS) : CLAUDE_MODELS)]),
+    openai: unique([env.OPENAI_MODEL || 'gpt-4.1-mini', ...csv(env.JARVIS_OPENAI_MODELS)]),
+    local: unique(localEndpoints(env).map((endpoint) => endpoint.model)),
+  }
+  return Object.fromEntries(configuredProviders(env).map((provider) => [provider, lists[provider]]))
+}
+
+/** The requested model if the provider offers it, otherwise its default. */
+export function resolveModel(models, provider, requested) {
+  const list = models[provider] ?? []
+  return list.includes(requested) ? requested : list[0]
+}
+
 export function configuredProviders(env = process.env) {
   return PROVIDERS.filter((provider) =>
     provider === 'claude' ||
@@ -21,7 +51,7 @@ export function configuredProviders(env = process.env) {
  * pins the call to that one box; "local" spreads across the pool, so a
  * saturated endpoint hands the turn to the next one instead of failing it.
  */
-function targets(provider, env) {
+function targets(provider, env, model) {
   const of = (endpoint) => ({
     id: endpoint.id,
     baseURL: endpoint.baseURL,
@@ -29,19 +59,23 @@ function targets(provider, env) {
     apiKey: endpointKey(endpoint, env) || 'local',
   })
   if (provider && typeof provider === 'object') return [of(provider)]
-  if (provider === 'local') return localEndpoints(env).map(of)
-  return [{ id: 'openai', baseURL: null, model: env.OPENAI_MODEL || 'gpt-4.1-mini', apiKey: env.OPENAI_API_KEY }]
+  if (provider === 'local') {
+    const pool = localEndpoints(env)
+    const serving = pool.filter((endpoint) => endpoint.model === model)
+    return (serving.length ? serving : pool).map(of)
+  }
+  return [{ id: 'openai', baseURL: null, model: model || env.OPENAI_MODEL || 'gpt-4.1-mini', apiKey: env.OPENAI_API_KEY }]
 }
 
-export function textProvider(provider, env = process.env) {
-  const pool = targets(provider, env)
+export function textProvider(provider, env = process.env, model) {
+  const pool = targets(provider, env, model)
   if (!pool.length) throw new Error('No local endpoint is configured.')
 
   const turn = (target) => oneTurn(new OpenAI({
     apiKey: target.apiKey,
     ...(target.baseURL ? { baseURL: target.baseURL } : {}),
     maxRetries: 0,
-  }), target.model)
+  }), target.model, !target.baseURL)
 
   return async function stream(messages, signal, onText, options = {}) {
     // Words already spoken cannot be unspoken, so once anything has been
@@ -63,9 +97,11 @@ export function textProvider(provider, env = process.env) {
   }
 }
 
-function oneTurn(client, model) {
+function oneTurn(client, model, official = false) {
   return async function stream(messages, signal, onText, options = {}) {
     const tools = options.tools ?? []
+    // Only api.openai.com is known to accept it; local servers may reject it.
+    const cacheKey = official && options.cacheKey ? { prompt_cache_key: options.cacheKey } : {}
     for (let round = 0; round < 12; round += 1) {
       const finalRound = tools.length > 0 && round === 11
       let response
@@ -81,6 +117,7 @@ function oneTurn(client, model) {
             // unless reasoning is explicitly disabled.
             ...(tools.length && !finalRound ? { reasoning_effort: 'none' } : {}),
             stream: !tools.length || finalRound,
+            ...cacheKey,
           }, { signal })
           break
         } catch (error) {

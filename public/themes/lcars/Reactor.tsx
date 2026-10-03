@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { Activity, AudioLines, Camera, ClipboardList, FileText, Mic, MicOff, Search, Send, ShieldCheck, Trash2, UserRound } from 'lucide-react'
-import { providerState, selectProvider, usingBridge, watchProviders } from '../../../src/lib/brain'
+import { providerState, selectProvider, selectModel, usingBridge, watchProviders } from '../../../src/lib/brain'
 import { useStore, type Phase } from '../../../src/store'
 import { AgentBoard } from '../../../src/ui/AgentBoard'
 import { CommandPalette } from '../../../src/ui/CommandPalette'
@@ -115,7 +115,7 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
     return () => window.cancelAnimationFrame(frame)
   }, [])
 
-  useEffect(() => watchProviders((available, selected) => setProviders({ available, selected })), [])
+  useEffect(() => watchProviders(() => setProviders(providerState())), [])
 
   const className = 'character-reactor lcars-reactor'
   const style = {
@@ -320,12 +320,22 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
                 <button type="button" aria-pressed={phase === 'dormant'} onClick={() => window.dispatchEvent(new Event('jarvis:standby'))} disabled={unavailable || phase === 'dormant'}><MicOff size={18} /> Standby</button>
               </div>
               {usingBridge && (
-                <label className="lcars-provider">
-                  <span>RESPONSE ENGINE</span>
-                  <select aria-label="Provider" value={providers.selected} disabled={busy} onChange={(event) => selectProvider(event.target.value)}>
-                    {providers.available.map((provider) => <option value={provider} key={provider}>{provider === 'claude' ? 'Claude' : provider === 'openai' ? 'OpenAI' : 'Local'}</option>)}
-                  </select>
-                </label>
+                <div className="lcars-deck-selects">
+                  <label className="lcars-provider">
+                    <span>RESPONSE ENGINE</span>
+                    <select aria-label="Provider" value={providers.selected} disabled={busy} onChange={(event) => selectProvider(event.target.value)}>
+                      {providers.available.map((provider) => <option value={provider} key={provider}>{provider === 'claude' ? 'Claude' : provider === 'openai' ? 'OpenAI' : 'Local'}</option>)}
+                    </select>
+                  </label>
+                  {providers.models.length > 0 && (
+                    <label className="lcars-provider">
+                      <span>MODEL</span>
+                      <select aria-label="Model" value={providers.model} disabled={busy || providers.models.length < 2} onChange={(event) => selectModel(event.target.value)}>
+                        {providers.models.map((model) => <option value={model} key={model}>{model}</option>)}
+                      </select>
+                    </label>
+                  )}
+                </div>
               )}
               <div className="lcars-deck-switches">
                 <button type="button" data-function-off={!ptt.enabled} data-function-active={ptt.enabled && ptt.held} aria-pressed={ptt.enabled} onClick={() => window.dispatchEvent(new Event('jarvis:toggle-ptt'))} disabled={unavailable} title={ptt.enabled ? `Hold ${ptt.label} to speak` : 'Enable push-to-talk'}><AudioLines size={17} /> Push to talk <b>{ptt.enabled ? 'ON' : 'OFF'}</b></button>

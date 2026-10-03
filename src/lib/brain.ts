@@ -25,6 +25,7 @@ export const usingBridge = BACKEND === 'bridge'
 export const providerState = bridge.providerState
 export const watchProviders = bridge.watchProviders
 export const selectProvider = bridge.selectProvider
+export const selectModel = bridge.selectModel
 
 /** Conversation state lives in the bridge session, so history is only threaded
  *  through on the direct path. */

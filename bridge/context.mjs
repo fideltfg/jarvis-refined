@@ -10,6 +10,17 @@ function readOptional(file) {
   }
 }
 
+/** The frontmatter description, unquoted; the body stays on disk until needed. */
+export function skillDescription(text) {
+  const front = text.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  const line = front?.[1].match(/^description:\s*(.*)$/m)?.[1].trim() ?? ''
+  return line.replace(/^(['"])([\s\S]*)\1$/, '$2').replace(/''/g, "'")
+}
+
+/**
+ * An index, not the skills themselves: inlining every SKILL.md put kilobytes
+ * on every turn of every conversation whether or not a skill was relevant.
+ */
 function installedSkills(root) {
   try {
     return readdirSync(root, { withFileTypes: true })
@@ -17,7 +28,9 @@ function installedSkills(root) {
       .map((entry) => {
         const file = join(root, entry.name, 'SKILL.md')
         const text = readOptional(file)
-        return text ? `### ${entry.name}\n${text}` : ''
+        if (!text) return ''
+        const description = skillDescription(text)
+        return `- ${entry.name}: ${description ? `${description} ` : ''}(${file})`
       })
       .filter(Boolean)
   } catch {
@@ -33,7 +46,7 @@ export function sharedContext() {
   if (preferences) sections.push(`User preferences and instructions:\n${preferences}`)
 
   const skills = installedSkills(join(home, '.claude', 'skills'))
-  if (skills.length) sections.push(`Installed Jarvis skills:\n${skills.join('\n\n')}`)
+  if (skills.length) sections.push(`Installed Jarvis skills (read a skill's file before relying on it):\n${skills.join('\n')}`)
 
   return sections.length
     ? `\n\nShared user context (available with every provider):\n${sections.join('\n\n')}`

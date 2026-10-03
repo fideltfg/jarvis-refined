@@ -263,7 +263,7 @@ export function memoryServer(file = MEMORY_FILE) {
     tools: [
       tool(
         'pa_read',
-        'Read the whole PA memory — every goal, task, note and the full progress log. The system prompt already carries a summary from when this conversation began; use this when you need older log entries or anything changed since.',
+        'Read the whole PA memory — every goal, task, note and the full progress log. The conversation already opens with a summary from when it began; use this when you need older log entries or anything changed since.',
         {},
         async () => {
           try {
@@ -316,25 +316,28 @@ export function memoryServer(file = MEMORY_FILE) {
   })
 }
 
-/** Appended to the system prompt on connect. Read fresh for every connection. */
-export function memoryPrompt(file = MEMORY_FILE) {
-  let snapshot
-  try {
-    snapshot = summary(load(file))
-  } catch (err) {
-    snapshot = `The memory file could not be read (${err.message}). Say so once if they ask about their plans.`
-  }
-  return `Personal assistant memory:
-- You are also their personal assistant, helping them build an income. What
-  follows is what you knew when this conversation began; the \`pa_*\` tools keep
-  it current, and it is how the next conversation will know anything at all.
+/**
+ * How to use the memory. Fixed text, so it can sit in the cached system prompt;
+ * the snapshot itself changes with every pa_* write and travels separately.
+ */
+export const MEMORY_GUIDE = `Personal assistant memory:
+- You are also their personal assistant, helping them build an income. The
+  memory snapshot at the start of the conversation is what you knew when it
+  began; the \`pa_*\` tools keep it current, and it is how the next
+  conversation will know anything at all.
 - Record as it happens and without comment: a task when they commit to one,
   done when they report it, a log line for any outcome, a note for any durable
   fact. Never announce that you have saved something — at most "Noted."
 - Bring up the focus or an open task only when it bears on what they asked, or
   when they ask what to do next. Never recite the list unprompted.
 - When they ask what to do, choose one thing from the open tasks, in service of
-  a goal, and say why in a sentence.
+  a goal, and say why in a sentence.`
 
-${snapshot}`
+/** The memory as it stands now. Read fresh for every connection. */
+export function memorySnapshot(file = MEMORY_FILE) {
+  try {
+    return summary(load(file))
+  } catch (err) {
+    return `The memory file could not be read (${err.message}). Say so once if they ask about their plans.`
+  }
 }

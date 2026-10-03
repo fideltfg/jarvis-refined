@@ -26,6 +26,13 @@
 - Confirm the selected provider is configured on the bridge. Claude requires a
   Claude Code login; OpenAI requires `OPENAI_API_KEY`; Local requires both its
   endpoint URL and model. See [Configuration](configuration.md).
+- If a model is missing from the model menu, or the menu is disabled, the
+  provider has only one model configured. Add more with `JARVIS_CLAUDE_MODELS`,
+  `JARVIS_OPENAI_MODELS`, or further `JARVIS_ENDPOINTS` entries, then restart
+  the bridge. See [Choosing a model](providers-and-voice.md#choosing-a-model).
+- If answers come from a different model than the one picked, check the bridge
+  log: a Claude model the installed SDK rejects is logged as
+  `could not switch to <model>` and the session keeps its previous model.
 - If a browser origin was changed, allow it explicitly with
   `JARVIS_ALLOWED_ORIGINS`.
 

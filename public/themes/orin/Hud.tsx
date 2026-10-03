@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { copy } from '../../../src/theme'
 import { mergeBoard, statusLabel } from '../../../src/lib/board'
-import { decideApproval, providerState, selectProvider, usingBridge, watchProviders } from '../../../src/lib/brain'
+import { decideApproval, providerState, selectProvider, selectModel, usingBridge, watchProviders } from '../../../src/lib/brain'
 import { useStore, type Phase } from '../../../src/store'
 import { CharacterReactor } from '../../../src/ui/CharacterReactor'
 import { OrinWave } from './Wave'
@@ -54,7 +54,7 @@ export function OrinHud() {
     return () => window.clearInterval(timer)
   }, [])
 
-  useEffect(() => watchProviders((available, selected) => setProviders({ available, selected })), [])
+  useEffect(() => watchProviders(() => setProviders(providerState())), [])
 
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -144,6 +144,21 @@ export function OrinHud() {
                   <option key={provider} value={provider}>
                     {provider === 'claude' ? 'Claude' : provider === 'openai' ? 'OpenAI' : 'Local'}
                   </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {usingBridge && providers.models.length > 0 && (
+            <label className="orin-provider">
+              <span>Model</span>
+              <select
+                aria-label="Model"
+                value={providers.model}
+                disabled={providers.models.length < 2 || phase === 'thinking' || phase === 'tooling' || phase === 'speaking'}
+                onChange={(event) => selectModel(event.target.value)}
+              >
+                {providers.models.map((model) => (
+                  <option key={model} value={model}>{model}</option>
                 ))}
               </select>
             </label>

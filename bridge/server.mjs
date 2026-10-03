@@ -23,14 +23,14 @@ import { chromeAvailable, chromeServer, chromeTarget } from './chrome.mjs'
 import { clientAddress, createRelayHub } from './relay.mjs'
 import { visionServer } from './vision.mjs'
 import { SESSION_AGENT_TOOLS, createSessionAgents } from './session-agents.mjs'
-import { load as loadMemory, memoryPrompt, memoryServer, MEMORY_FILE } from './memory.mjs'
+import { load as loadMemory, MEMORY_GUIDE, memoryServer, memorySnapshot, MEMORY_FILE } from './memory.mjs'
 import { homedir, tmpdir } from 'node:os'
 import { readFileSync, realpathSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
 import { probeUrl, renderPage } from './page.mjs'
-import { configuredProviders, retryProvider, textProvider } from './providers.mjs'
+import { configuredProviders, providerModels, resolveModel, retryProvider, textProvider } from './providers.mjs'
 import { sharedContext } from './context.mjs'
 import { createToolBroker } from './tool-broker.mjs'
 import { filesServer } from './files.mjs'
@@ -501,8 +501,9 @@ Using tools:
 - If a tool fails or isn't connected, one plain sentence saying so.
 - If you don't know, say you don't know.`
 
-// The memory is read fresh on every call, which is once per connection — so a
-// reload picks up whatever the last conversation, or a hand edit, left behind.
+// Built once per connection and never touched again, so every turn after the
+// first is a prompt-cache hit. Anything that changes between connections — the
+// memory snapshot above all — stays out of it and rides in the conversation.
 //
 // The character comes from the theme package the browser named, so editing
 // public/themes/<id>/persona.md is how you change who this is. The built-in
@@ -510,7 +511,19 @@ Using tools:
 const personaFor = (theme) => themePersona(theme) || PERSONA_STARK
 
 const systemPromptFor = (theme) =>
-  `${personaFor(theme)}\n\n${TOOLS_PROMPT}\n\n${memoryPrompt()}${sharedContext()}`
+  `${personaFor(theme)}\n\n${TOOLS_PROMPT}\n\n${MEMORY_GUIDE}${sharedContext()}`
+
+const memoryContext = (snapshot) => `Memory snapshot at the start of this conversation:\n${snapshot}`
+
+/**
+ * Bounded history that drops in blocks rather than sliding one turn at a time.
+ * A sliding window changes the first message every turn, which makes the
+ * whole history a cache miss; dropping half at once costs one miss per block.
+ */
+const HISTORY_MAX = 12
+const trimHistory = (list) => {
+  if (list.length > HISTORY_MAX) list.splice(0, list.length - HISTORY_MAX / 2)
+}
 
 /**
  * ElevenLabs credentials, borrowed from the MCP server config.
@@ -1170,14 +1183,21 @@ wss.on('connection', (socket, req) => {
   const requested = new URL(req.url ?? '/', 'http://x').searchParams.get('theme')
   const theme = resolveThemeId(requested)
   console.log(`[jarvis] client connected (${theme})`)
+  const systemPrompt = systemPromptFor(theme)
+  const memoryAtStart = memoryContext(memorySnapshot())
+  let claudePrimed = false
 
   // Answer the HUD straight away rather than making it wait for the agent's
   // first turn. Refined later by the real init message.
   const available = configuredProviders()
   let selectedProvider = available.includes(process.env.JARVIS_PROVIDER)
     ? process.env.JARVIS_PROVIDER : 'claude'
+  // The model each provider runs, chosen per ask from the HUD. Kept here so a
+  // failover onto another provider uses whatever was last picked for it.
+  const models = providerModels(process.env, MODEL)
+  const chosenModel = Object.fromEntries(available.map((provider) => [provider, models[provider][0]]))
   socket.send(JSON.stringify({ type: 'ready', servers: Object.keys(MCP_SERVERS) }))
-  socket.send(JSON.stringify({ type: 'providers', available, selected: selectedProvider }))
+  socket.send(JSON.stringify({ type: 'providers', available, selected: selectedProvider, models }))
 
   /** Resolves the pending user message into the SDK's input generator. */
   let deliver = null
@@ -1258,16 +1278,35 @@ wss.on('connection', (socket, req) => {
   const switchProvider = (provider) => {
     selectedProvider = provider
     currentProvider = provider
-    send({ type: 'providers', available, selected: provider, ask: answering })
+    send({ type: 'providers', available, selected: provider, models, ask: answering })
   }
 
-  const deliverClaude = (text) => {
+  /**
+   * The session outlives a model change: setModel swaps the model under the
+   * running query, so the conversation carries over rather than starting again.
+   * Before the session exists there is nothing to swap, and createClaudeSession
+   * reads chosenModel directly.
+   */
+  let sessionModel = null
+  const deliverClaude = async (text) => {
+    const model = chosenModel.claude
+    if (session && sessionModel !== model) {
+      try {
+        await session.setModel(model)
+        sessionModel = model
+        console.log(`[jarvis] claude model -> ${model}`)
+      } catch (err) {
+        console.warn(`[jarvis] could not switch to ${model}:`, err?.message ?? err)
+      }
+    }
     ensureClaudeSession()
     const context = missedClaude.length
       ? `Recent conversation on another provider:\n${missedClaude.map((m) => `${m.role}: ${m.content}`).join('\n')}\n\nCurrent request: `
       : ''
     missedClaude.length = 0
-    const prompt = context + text
+    const memory = claudePrimed ? '' : `${memoryAtStart}\n\n`
+    claudePrimed = true
+    const prompt = memory + context + text
     if (deliver) {
       const resolve = deliver
       deliver = null
@@ -1284,29 +1323,30 @@ wss.on('connection', (socket, req) => {
     const broker = await toolBrokerPromise
     const messages = [
       { role: 'system', content: broker
-        ? `${systemPromptFor(theme)}\n\nTools are available through the bridge. Use them when needed and never claim an action succeeded until the tool result confirms it.`
-        : `${systemPromptFor(theme)}\n\nProvider limitation: this provider has no access to Jarvis tools, MCP servers, the browser, files, or live data. Do not claim to have taken actions or seen live data.` },
-      ...conversation.slice(-12),
+        ? `${systemPrompt}\n\nTools are available through the bridge. Use them when needed and never claim an action succeeded until the tool result confirms it.\n\n${memoryAtStart}`
+        : `${systemPrompt}\n\nProvider limitation: this provider has no access to Jarvis tools, MCP servers, the browser, files, or live data. Do not claim to have taken actions or seen live data.\n\n${memoryAtStart}` },
+      ...conversation,
       { role: 'user', content: text },
     ]
     try {
-      await textProvider(provider)(messages, controller.signal, (delta) => {
+      await textProvider(provider, process.env, chosenModel[provider])(messages, controller.signal, (delta) => {
         if (controller.signal.aborted || answering !== id) return
         output += delta
         activity = true
         sendTurn({ type: 'text', delta })
       }, broker ? {
+        cacheKey: `jarvis-${theme}`,
         tools: broker.tools(),
         onTool: (name) => {
           activity = true
           sendTurn({ type: 'tool', name })
         },
         callTool: (name, args) => broker.call(name, args, { allow: decideTool }),
-      } : {})
+      } : { cacheKey: `jarvis-${theme}` })
       if (controller.signal.aborted || answering !== id) return
       conversation.push({ role: 'user', content: text }, { role: 'assistant', content: output })
       missedClaude.push({ role: 'user', content: text }, { role: 'assistant', content: output })
-      if (conversation.length > 24) conversation.splice(0, conversation.length - 24)
+      trimHistory(conversation)
       if (missedClaude.length > 12) missedClaude.splice(0, missedClaude.length - 12)
       sendTurn({ type: 'done', text: output })
     } catch (err) {
@@ -1315,7 +1355,7 @@ wss.on('connection', (socket, req) => {
       if (next) {
         tried.add(next)
         switchProvider(next)
-        if (next === 'claude') deliverClaude(text)
+        if (next === 'claude') void deliverClaude(text)
         else void runText(next, text, id)
       } else {
         console.error(`[jarvis] ${provider} turn failed:`, err)
@@ -1475,7 +1515,7 @@ wss.on('connection', (socket, req) => {
       // tuned for a coding agent — verbose, file-oriented, and a large chunk
       // of input tokens on every turn. Replacing it makes the persona stick,
       // keeps answers short enough to speak, and cuts cost per turn.
-      systemPrompt: systemPromptFor(theme),
+      systemPrompt,
       // Run from the home directory so project-scoped MCP servers don't shadow
       // the global ones, and so file tools have a sane root.
       cwd: homedir(),
@@ -1500,7 +1540,7 @@ wss.on('connection', (socket, req) => {
       // Normally your own `/model` preference would decide, but that lives in
       // the settings files `settingSources: []` deliberately stops loading, so
       // without this line nothing in the project has a say at all.
-      model: MODEL,
+      model: chosenModel.claude,
       effort: EFFORT,
       maxTurns: MAX_TURNS,
       permissionMode: 'default',
@@ -1540,6 +1580,7 @@ wss.on('connection', (socket, req) => {
   const ensureClaudeSession = () => {
     if (session) return session
     session = createClaudeSession()
+    sessionModel = chosenModel.claude
     void pumpSession(session)
     return session
   }
@@ -1618,7 +1659,7 @@ wss.on('connection', (socket, req) => {
             // silent. Say what happened instead.
             if (msg.subtype === 'success') {
               conversation.push({ role: 'user', content: lastQuestion }, { role: 'assistant', content: msg.result ?? '' })
-              if (conversation.length > 24) conversation.splice(0, conversation.length - 24)
+              trimHistory(conversation)
               sendTurn({
                 type: 'done',
                 text: msg.result ?? '',
@@ -1730,9 +1771,10 @@ wss.on('connection', (socket, req) => {
         activity = false
         tried.clear()
         const provider = available.includes(msg.provider) ? msg.provider : selectedProvider
+        if (typeof msg.model === 'string') chosenModel[provider] = resolveModel(models, provider, msg.model)
         tried.add(provider)
         switchProvider(provider)
-        if (provider === 'claude') deliverClaude(text)
+        if (provider === 'claude') void deliverClaude(text)
         else void runText(provider, text, id)
       })
     }

@@ -693,27 +693,76 @@
   grid-column: 0 / 0;
 }
 
+/* provider/model dropdowns: same 2-column grid as the deck buttons */
+[data-theme='lcars'] .lcars-deck-selects {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--lc-gap);
+}
+
+/* LCARS bar: red end cap, black gap, then the select as a pill */
 [data-theme='lcars'] .lcars-provider {
+  position: relative;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--lc-tan);
-  font-size: 10px;
-  letter-spacing: 0.14em;
+  align-items: stretch;
+  min-width: 0;
+  min-height: 40px;
+  border-left: 8px solid var(--lc-red);
+  padding-left: 8px;
+  color: #000;
+}
+
+/* menu title, overlaid on the left of the bar */
+[data-theme='lcars'] .lcars-provider > span {
+  position: absolute;
+  top: 50%;
+  left: 24px;
+  transform: translateY(-50%);
+  color: inherit;
+  font: 600 11px 'Antonio', sans-serif;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* down arrow, overlaid on the right of the bar */
+[data-theme='lcars'] .lcars-provider::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  border-top: 7px solid currentColor;
+  border-right: 6px solid transparent;
+  border-left: 6px solid transparent;
+  transform: translateY(-35%);
+  pointer-events: none;
+}
+
+/* title and arrow follow the select's disabled text colour */
+[data-theme='lcars'] .lcars-provider:has(select:disabled) {
+  color: #fff;
 }
 
 [data-theme='lcars'] .lcars-provider select {
-  min-width: 120px;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
   min-height: 40px;
-  padding: 7px 12px;
+  padding: 7px 36px 7px 0; /* right padding clears the arrow */
   border: 0;
   border-radius: 0 999px 999px 0;
-  background: var(--lc-blue);
-  color: #000;
+  appearance: none;
+  -webkit-appearance: none;
   font: 600 13px 'Antonio', sans-serif;
+  text-align: right;
+  text-align-last: right;
+  text-overflow: ellipsis;
   text-transform: uppercase;
   cursor: pointer;
+}
+
+[data-theme='lcars'] .lcars-provider select option {
+  text-align: left;
 }
 
 [data-theme='lcars'] .lcars-deck-history {
@@ -726,7 +775,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 32px;
+  min-height: 40px;
   margin-left: -6px;
   padding: 3px 16px 3px 12px;
   border-radius: 0 999px 999px 0;
@@ -1355,7 +1404,7 @@
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 
-  [data-theme='lcars'] .lcars-deck-switches {
+  [data-theme='lcars'] :is(.lcars-deck-switches, .lcars-deck-selects) {
     grid-template-columns: minmax(0, 1fr);
   }
 }

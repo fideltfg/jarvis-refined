@@ -43,8 +43,11 @@ servers found in the local Claude Code configuration.
 
 Claude-native tools and Anthropic-hosted web search remain Claude-specific.
 OpenAI and local providers need MCP servers for equivalent external services.
-The browser provider menu is available only for providers configured on the
-bridge. See [Providers and voice](providers-and-voice.md) for provider behavior.
+The browser's provider and model menus offer only what is configured on the
+bridge. The browser sends the chosen provider and model with each question; the
+bridge checks both against its own lists and falls back to the provider's
+default model for anything it does not offer. See
+[Providers and voice](providers-and-voice.md) for provider behavior.
 
 ## Browser Experience
 
