@@ -1,5 +1,11 @@
 import './index.css'
 import { bootstrapTheme } from './lib/theme-runtime'
+import { startPerformanceCleanup } from './lib/performance'
+
+if (import.meta.env.DEV) {
+  const stopPerformanceCleanup = startPerformanceCleanup()
+  import.meta.hot?.dispose(stopPerformanceCleanup)
+}
 
 /**
  * Resolve the theme, then start.

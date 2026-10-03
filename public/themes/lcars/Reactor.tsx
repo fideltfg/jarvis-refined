@@ -33,7 +33,8 @@ const WAVE_LAYERS = [
 
 export function Reactor({ inline = false }: { inline?: boolean } = {}) {
   const gridGradientId = useId().replace(/:/g, '')
-  const level = useStore((state) => state.level)
+  // Sample with the chart instead of rebuilding the console at microphone frame rate.
+  const [level, setLevel] = useState(() => useStore.getState().level)
   const phase = useStore((state) => state.phase)
   const activeTool = useStore((state) => state.activeTool)
   const connected = useStore((state) => state.connected)
@@ -96,7 +97,9 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
 
   useEffect(() => {
     const id = window.setInterval(() => {
-      setTrace((samples) => [...samples.slice(1), levelRef.current])
+      const nextLevel = useStore.getState().level
+      setLevel(nextLevel)
+      setTrace((samples) => [...samples.slice(1), nextLevel])
     }, 50)
     return () => window.clearInterval(id)
   }, [])

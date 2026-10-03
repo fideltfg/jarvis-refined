@@ -66,10 +66,6 @@ run `./scripts/install.sh` (add `--readonly` to block actions). See
 - [Background agents](docs/background-agents.md) — persistent goals, scheduling, approvals, and capacity.
 - [Remote agent deployment](docs/remote-agent.md) — package and secure a model worker on another host.
 
-Historical implementation plans live under `docs/superpowers/`; launch planning
-material lives under `docs/marketing/`. They are project records, not operator
-instructions. The guides above are the source of truth.
-
 ## Development commands
 
 | Command | Purpose |

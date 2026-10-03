@@ -36,6 +36,7 @@ const CELL_H = 240
 
 let stream: MediaStream | null = null
 let video: HTMLVideoElement | null = null
+let opening: Promise<HTMLVideoElement> | null = null
 /** How many things currently need the camera. It closes at zero, not before. */
 let holders = 0
 
@@ -65,20 +66,42 @@ export async function holdCamera(): Promise<HTMLVideoElement> {
   diag.holders = holders
   if (video && stream) return video
 
+  // Share pending acquisition so concurrent holders cannot orphan camera streams.
+  if (!opening) {
+    opening = (async () => {
+      let acquired: MediaStream | null = null
+      let el: HTMLVideoElement | null = null
+      try {
+        acquired = await navigator.mediaDevices.getUserMedia({
+          video: { width: 1280, height: 720, facingMode: 'user' },
+        })
+        el = document.createElement('video')
+        el.autoplay = true
+        el.playsInline = true
+        el.muted = true
+        el.srcObject = acquired
+        await el.play()
+        stream = acquired
+        video = el
+        diag.open = true
+        diag.lastError = ''
+        return el
+      } catch (err) {
+        if (el) {
+          el.pause()
+          el.srcObject = null
+        }
+        acquired?.getTracks().forEach((track) => track.stop())
+        diag.lastError = String((err as Error)?.message ?? err)
+        throw err
+      } finally {
+        opening = null
+      }
+    })()
+  }
+
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: 1280, height: 720, facingMode: 'user' },
-    })
-    const el = document.createElement('video')
-    el.autoplay = true
-    el.playsInline = true
-    el.muted = true
-    el.srcObject = stream
-    await el.play()
-    video = el
-    diag.open = true
-    diag.lastError = ''
-    return el
+    return await opening
   } catch (err) {
     // The hold is given back on failure, or the count drifts up for ever and
     // the camera can never be closed.
