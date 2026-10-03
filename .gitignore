@@ -15,6 +15,7 @@ dist-ssr
 # Local planning and marketing drafts; keep them out of the repository.
 docs/marketing/
 docs/superpowers/
+public/themes/lcars2
 
 # Editor directories and files
 .vscode/*

@@ -10,6 +10,16 @@ before an action runs.
 
 
 ![Some Themes](docs/assets/montagex.png)
+
+> [!WARNING]
+> **Jarvis acts on what it hears.** Indirect audible conversation, such as
+> other people talking, a TV, or a call, can be taken as a command. That could
+> lead to Jarvis deleting your work or spending all your tokens.
+>
+> - Use push-to-talk, or mute the microphone when not in use, unless you are in
+>   a secluded, quiet area.
+> - Use device-local voice profiles [Press P] to reduce Jarvis listening to other people.
+
 ## What you get
 
 | | Capability |
@@ -51,6 +61,7 @@ run `./scripts/install.sh` (add `--readonly` to block actions). See
 - [Getting started](docs/getting-started.md) — requirements, installation, first run, and controls.
 - [Configuration reference](docs/configuration.md) — every supported environment variable and endpoint field.
 - [Deployment guide](docs/deployment.md) — local, LAN/HTTPS, production build, and service choices.
+- [Securing for production](docs/securing-production.md) — dedicated user, read-only code, systemd limits, and backups to prevent data loss.
 - [Troubleshooting](docs/troubleshooting.md) — microphone, audio, provider, bridge, theme, and worker checks.
 
 ### Understand and extend

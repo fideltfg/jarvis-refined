@@ -3,6 +3,8 @@
 A theme is a folder in this directory. Add one and reload the dev page; no
 registry, shared component, or build configuration needs editing. Production
 deployments need a new build to include newly added theme modules and the index.
+Vite discovers folders containing `theme.json` and generates the theme index;
+do not create or edit an index file yourself.
 
 ```text
 public/themes/my-theme/

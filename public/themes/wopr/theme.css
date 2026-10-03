@@ -300,3 +300,6 @@
   .classic-boot *,
   [data-theme='wopr'] .hud * { animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
 }
+
+[data-theme='wopr'] .session-history { background: rgba(9, 7, 0, 0.96); color: #ffc35b; letter-spacing: 0.06em; text-shadow: 0 0 6px rgba(255, 176, 0, 0.4); }
+[data-theme='wopr'] .session-history .sh-head { text-transform: uppercase; }

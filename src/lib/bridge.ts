@@ -1,4 +1,5 @@
 import type { AskHandlers } from './anthropic'
+import type { Attachment } from './attachments'
 import type { AgentBoardData, Blade, Panel, SessionAgent } from '../store'
 import type { AgentEvent } from './announce'
 import { BRIDGE_WS_URL, THEME } from '../config'
@@ -498,6 +499,7 @@ let pending: { finish: (fallback?: string) => void; fail?: (err: Error) => void 
 export async function ask(
   prompt: string,
   handlers: AskHandlers,
+  attachments: readonly Attachment[] = [],
 ): Promise<{ text: string; tools: string[] }> {
   /**
    * A new question supersedes the one in flight.
@@ -651,7 +653,16 @@ export async function ask(
     arm()
 
     try {
-      ws.send(JSON.stringify({ type: 'ask', text: prompt, id, provider: selectedProvider, model: modelFor(selectedProvider) }))
+      ws.send(JSON.stringify({
+        type: 'ask',
+        text: prompt,
+        id,
+        provider: selectedProvider,
+        model: modelFor(selectedProvider),
+        ...(attachments.length && {
+          attachments: attachments.map(({ name, mimeType, data }) => ({ name, mimeType, data })),
+        }),
+      }))
     } catch (err) {
       // The socket can go into CLOSING between connect() resolving and here.
       fail(err instanceof Error ? err : new Error(String(err)))

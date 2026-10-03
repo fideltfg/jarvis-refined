@@ -31,6 +31,8 @@ import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
 import { probeUrl, renderPage } from './page.mjs'
 import { configuredProviders, providerModels, resolveModel, retryProvider, textProvider } from './providers.mjs'
+import { AttachmentError, claudeContent, describeAttachments, isMultimodalRejection, parseAttachments, providerContent } from './attachments.mjs'
+import { describeFile } from './describe.mjs'
 import { sharedContext } from './context.mjs'
 import { createToolBroker } from './tool-broker.mjs'
 import { filesServer } from './files.mjs'
@@ -1206,15 +1208,15 @@ wss.on('connection', (socket, req) => {
 
   async function* userMessages() {
     while (!closed) {
-      const text =
+      const content =
         inbox.shift() ??
         (await new Promise((resolve) => {
           deliver = resolve
         }))
-      if (closed || text == null) return
+      if (closed || content == null) return
       yield {
         type: 'user',
-        message: { role: 'user', content: text },
+        message: { role: 'user', content },
         parent_tool_use_id: null,
       }
     }
@@ -1266,6 +1268,8 @@ wss.on('connection', (socket, req) => {
   const sendTurn = (msg) => send({ ...msg, ask: answering })
   let currentProvider = selectedProvider
   let lastQuestion = ''
+  let lastAttachments = []
+  const visionless = new Set()
   let activity = false
   let activeController = null
   const tried = new Set()
@@ -1288,7 +1292,7 @@ wss.on('connection', (socket, req) => {
    * reads chosenModel directly.
    */
   let sessionModel = null
-  const deliverClaude = async (text) => {
+  const deliverClaude = async (text, attachments = []) => {
     const model = chosenModel.claude
     if (session && sessionModel !== model) {
       try {
@@ -1306,7 +1310,7 @@ wss.on('connection', (socket, req) => {
     missedClaude.length = 0
     const memory = claudePrimed ? '' : `${memoryAtStart}\n\n`
     claudePrimed = true
-    const prompt = memory + context + text
+    const prompt = claudeContent(memory + context + text, attachments)
     if (deliver) {
       const resolve = deliver
       deliver = null
@@ -1316,20 +1320,32 @@ wss.on('connection', (socket, req) => {
     }
   }
 
-  const runText = async (provider, text, id) => {
+  const runText = async (provider, text, id, attachments = []) => {
     const controller = new AbortController()
     activeController = controller
     let output = ''
     const broker = await toolBrokerPromise
-    const messages = [
-      { role: 'system', content: broker
-        ? `${systemPrompt}\n\nTools are available through the bridge. Use them when needed and never claim an action succeeded until the tool result confirms it.\n\n${memoryAtStart}`
-        : `${systemPrompt}\n\nProvider limitation: this provider has no access to Jarvis tools, MCP servers, the browser, files, or live data. Do not claim to have taken actions or seen live data.\n\n${memoryAtStart}` },
-      ...conversation,
-      { role: 'user', content: text },
-    ]
+    const model = chosenModel[provider]
+    const blind = visionless.has(`${provider}:${model}`)
     try {
-      await textProvider(provider, process.env, chosenModel[provider])(messages, controller.signal, (delta) => {
+      const content = await providerContent(text, attachments, {
+        vision: !blind,
+        // Only api.openai.com is known to take PDF file parts; local servers get the text layer.
+        nativePdf: provider === 'openai' && !blind,
+        describe: (file) => {
+          sendTurn({ type: 'tool', name: `reading ${file.name}` })
+          return describeFile(file, { available, exclude: provider })
+        },
+      })
+      if (controller.signal.aborted || answering !== id) return
+      const messages = [
+        { role: 'system', content: broker
+          ? `${systemPrompt}\n\nTools are available through the bridge. Use them when needed and never claim an action succeeded until the tool result confirms it.\n\n${memoryAtStart}`
+          : `${systemPrompt}\n\nProvider limitation: this provider has no access to Jarvis tools, MCP servers, the browser, files, or live data. Do not claim to have taken actions or seen live data.\n\n${memoryAtStart}` },
+        ...conversation,
+        { role: 'user', content },
+      ]
+      await textProvider(provider, process.env, model)(messages, controller.signal, (delta) => {
         if (controller.signal.aborted || answering !== id) return
         output += delta
         activity = true
@@ -1344,19 +1360,26 @@ wss.on('connection', (socket, req) => {
         callTool: (name, args) => broker.call(name, args, { allow: decideTool }),
       } : { cacheKey: `jarvis-${theme}` })
       if (controller.signal.aborted || answering !== id) return
-      conversation.push({ role: 'user', content: text }, { role: 'assistant', content: output })
-      missedClaude.push({ role: 'user', content: text }, { role: 'assistant', content: output })
+      const asked = describeAttachments(text, attachments)
+      conversation.push({ role: 'user', content: asked }, { role: 'assistant', content: output })
+      missedClaude.push({ role: 'user', content: asked }, { role: 'assistant', content: output })
       trimHistory(conversation)
       if (missedClaude.length > 12) missedClaude.splice(0, missedClaude.length - 12)
       sendTurn({ type: 'done', text: output })
     } catch (err) {
       if (controller.signal.aborted || answering !== id) return
+      if (!blind && !activity && attachments.some((file) => file.kind !== 'text') && isMultimodalRejection(err)) {
+        // Remembered so later turns skip the failing request; the retry reads the files as text.
+        visionless.add(`${provider}:${model}`)
+        void runText(provider, text, id, attachments)
+        return
+      }
       const next = retryProvider(provider, available, tried, err, activity)
       if (next) {
         tried.add(next)
         switchProvider(next)
-        if (next === 'claude') void deliverClaude(text)
-        else void runText(next, text, id)
+        if (next === 'claude') void deliverClaude(text, attachments)
+        else void runText(next, text, id, attachments)
       } else {
         console.error(`[jarvis] ${provider} turn failed:`, err)
         sendTurn({ type: 'error', message: activity
@@ -1658,7 +1681,7 @@ wss.on('connection', (socket, req) => {
             // nothing to say — the HUD stops spinning and JARVIS stands there
             // silent. Say what happened instead.
             if (msg.subtype === 'success') {
-              conversation.push({ role: 'user', content: lastQuestion }, { role: 'assistant', content: msg.result ?? '' })
+              conversation.push({ role: 'user', content: describeAttachments(lastQuestion, lastAttachments) }, { role: 'assistant', content: msg.result ?? '' })
               trimHistory(conversation)
               sendTurn({
                 type: 'done',
@@ -1677,7 +1700,7 @@ wss.on('connection', (socket, req) => {
               if (next) {
                 tried.add(next)
                 switchProvider(next)
-                void runText(next, lastQuestion, answering)
+                void runText(next, lastQuestion, answering, lastAttachments)
               } else {
                 sendTurn({ type: 'error', message: RESULT_FAILURES[msg.subtype] ?? RESULT_FAILURES.default })
               }
@@ -1713,7 +1736,7 @@ wss.on('connection', (socket, req) => {
         available.splice(available.indexOf('claude'), 1)
         tried.add(next)
         switchProvider(next)
-        if (answering) void runText(next, lastQuestion, answering)
+        if (answering) void runText(next, lastQuestion, answering, lastAttachments)
       } else {
         sendTurn({ type: 'error', message: String(err?.message ?? err) })
       }
@@ -1764,18 +1787,27 @@ wss.on('connection', (socket, req) => {
        */
       const text = msg.text
       const id = typeof msg.id === 'string' ? msg.id : null
+      let attachments
+      try {
+        attachments = parseAttachments(msg.attachments)
+      } catch (err) {
+        if (!(err instanceof AttachmentError)) throw err
+        send({ type: 'error', message: err.message, ask: id })
+        return
+      }
       void settling.then(() => {
         activeController?.abort()
         answering = id
         lastQuestion = text
+        lastAttachments = attachments
         activity = false
         tried.clear()
         const provider = available.includes(msg.provider) ? msg.provider : selectedProvider
         if (typeof msg.model === 'string') chosenModel[provider] = resolveModel(models, provider, msg.model)
         tried.add(provider)
         switchProvider(provider)
-        if (provider === 'claude') void deliverClaude(text)
-        else void runText(provider, text, id)
+        if (provider === 'claude') void deliverClaude(text, attachments)
+        else void runText(provider, text, id, attachments)
       })
     }
 

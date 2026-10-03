@@ -156,3 +156,6 @@
   .classic-boot *,
   [data-theme='mother'] .hud * { animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
 }
+
+[data-theme='mother'] .session-history { background: rgba(2, 7, 2, 0.96); color: #b9dc8f; text-shadow: 0 0 6px rgba(116, 255, 87, 0.35); }
+[data-theme='mother'] .session-history .sh-turn-jarvis .sh-text p { color: #d9e8b7; }

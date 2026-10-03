@@ -4,6 +4,8 @@ import { mergeBoard, statusLabel } from '../../../src/lib/board'
 import { decideApproval, providerState, selectProvider, selectModel, usingBridge, watchProviders } from '../../../src/lib/brain'
 import { useStore, type Phase } from '../../../src/store'
 import { CharacterReactor } from '../../../src/ui/CharacterReactor'
+import { AttachmentNames, AttachmentTray } from '../../../src/ui/AttachmentTray'
+import { useAttachments } from '../../../src/ui/useAttachments'
 import { OrinWave } from './Wave'
 
 const MODES: { id: 'standby' | 'listening' | 'processing' | 'responding'; label: string }[] = [
@@ -39,6 +41,8 @@ export function OrinHud() {
   const error = useStore((state) => state.error)
   const ptt = useStore((state) => state.ptt)
   const clearScreen = useStore((state) => state.clearScreen)
+  const historyOpen = useStore((state) => state.historyOpen)
+  const toggleHistory = useStore((state) => state.toggleHistory)
   const agents = useMemo(
     () => mergeBoard(agentsOnline ? board : null, sessionAgents),
     [agentsOnline, board, sessionAgents],
@@ -48,6 +52,7 @@ export function OrinHud() {
   const unavailable = phase === 'offline' || phase === 'boot'
   const lastAssistantTurn = [...turns].reverse().find((turn) => turn.role === 'jarvis')
   const headline = caption || lastAssistantTurn?.text || 'Awaiting your instruction.'
+  const files = useAttachments(!unavailable)
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000)
@@ -59,9 +64,10 @@ export function OrinHud() {
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const command = draft.trim()
-    if (!command || unavailable) return
-    window.dispatchEvent(new CustomEvent('jarvis:command', { detail: command }))
+    if ((!command && !files.attachments.length) || files.reading || unavailable) return
+    window.dispatchEvent(new CustomEvent('jarvis:command', { detail: { text: command, attachments: files.attachments } }))
     setDraft('')
+    files.clear()
   }
 
   return (
@@ -173,21 +179,27 @@ export function OrinHud() {
         )}
         <OrinWave />
         <p className="orin-utterance" aria-live="polite">{headline}</p>
-        <form className="orin-command" onSubmit={submit}>
+        <AttachmentTray attachments={files.attachments} onRemove={files.remove} />
+        <form className="orin-command" data-dragging={files.dragging} onSubmit={submit}>
           <label className="orin-sr-only" htmlFor="orin-command-input">Command</label>
+          <input {...files.pickerProps} />
+          <button className="orin-attach" type="button" aria-label="Attach files" title="Attach files (or paste / drop them)" disabled={unavailable} onClick={files.openPicker}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5l-8.5 8.5a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8" /></svg>
+          </button>
           <input
             id="orin-command-input"
             type="text"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder={unavailable ? 'Initialize ORIN to send a command' : 'Speak or type a command'}
+            onPaste={files.onPaste}
+            placeholder={unavailable ? 'Initialize ORIN to send a command' : files.dragging ? 'Drop files to attach' : 'Speak or type a command'}
             autoComplete="off"
             disabled={unavailable}
           />
           <button className="orin-listen" type="button" aria-label="Start listening" title="Start listening" disabled={unavailable} onClick={() => sendEvent('jarvis:listen')}>
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>
           </button>
-          <button className="orin-send" type="submit" aria-label="Send command" title="Send command" disabled={unavailable || !draft.trim()}>
+          <button className="orin-send" type="submit" aria-label="Send command" title="Send command" disabled={unavailable || files.reading || (!draft.trim() && !files.attachments.length)}>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
           </button>
         </form>
@@ -228,6 +240,7 @@ export function OrinHud() {
             <h2>Session log</h2>
             <div className="orin-session-actions">
               <span>{turns.length} entries</span>
+              <button type="button" aria-pressed={historyOpen} onClick={toggleHistory} title="Review past chat sessions (Shift+H)">History</button>
               <button type="button" disabled={!turns.length} onClick={() => clearScreen('transcript')}>Clear</button>
             </div>
           </header>
@@ -236,6 +249,7 @@ export function OrinHud() {
               <article className={`orin-log-entry orin-log-${turn.role}`} key={turn.id}>
                 <header><span>{turn.role === 'user' ? 'YOU' : 'ORIN'}</span><span>{turn.tools?.length ? `${turn.tools.length} tools` : ''}</span></header>
                 <p>{turn.text || (turn.role === 'jarvis' ? 'Responding…' : '')}</p>
+                <AttachmentNames attachments={turn.attachments} />
               </article>
             ))}
           </div>

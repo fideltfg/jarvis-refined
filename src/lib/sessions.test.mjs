@@ -1,0 +1,161 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+
+import {
+  MAX_SESSIONS,
+  STORAGE_KEY,
+  createSessionHistory,
+  loadSessions,
+  recordTurns,
+  saveSessions,
+  sessionTitle,
+  upsertSession,
+} from './sessions.ts'
+
+function storage({ quota = Infinity } = {}) {
+  const map = new Map()
+  globalThis.localStorage = {
+    getItem: (key) => (map.has(key) ? map.get(key) : null),
+    setItem: (key, value) => {
+      if (String(value).length > quota) throw new Error('QuotaExceededError')
+      map.set(key, String(value))
+    },
+    removeItem: (key) => map.delete(key),
+  }
+  return map
+}
+
+function fakeStore(turns = []) {
+  let state = { turns }
+  const listeners = new Set()
+  return {
+    getState: () => state,
+    subscribe: (listener) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    setTurns: (next) => {
+      const previous = state
+      state = { turns: next }
+      listeners.forEach((listener) => listener(state, previous))
+    },
+  }
+}
+
+const session = (id, updatedAt, turns = [{ id: `${id}-t`, role: 'user', text: id, at: updatedAt }]) =>
+  ({ id, startedAt: updatedAt, updatedAt, turns })
+
+test('recordTurns appends new turns, updates streamed text in place and keeps first-seen time', () => {
+  const empty = session('s', 1, [])
+  const first = recordTurns(empty, [{ id: 'a', role: 'user', text: 'hi' }], 10)
+  const streamed = recordTurns(first, [{ id: 'a', role: 'user', text: 'hi' }, { id: 'b', role: 'jarvis', text: 'Hel' }], 20)
+  const done = recordTurns(streamed, [{ id: 'b', role: 'jarvis', text: 'Hello', tools: ['search'] }], 30)
+  assert.deepEqual(done.turns.map(({ id, text, at }) => [id, text, at]), [['a', 'hi', 10], ['b', 'Hello', 20]])
+  assert.deepEqual(done.turns[1].tools, ['search'])
+  assert.equal(done.updatedAt, 30)
+  assert.equal(recordTurns(done, [{ id: 'b', role: 'jarvis', text: 'Hello', tools: ['search'] }], 40), done)
+})
+
+test('turns trimmed from the live store stay in the recorded session', () => {
+  const recorded = recordTurns(session('s', 1, []), [{ id: 'a', role: 'user', text: '1' }, { id: 'b', role: 'jarvis', text: '2' }], 5)
+  const next = recordTurns(recorded, [{ id: 'b', role: 'jarvis', text: '2' }, { id: 'c', role: 'user', text: '3' }], 6)
+  assert.deepEqual(next.turns.map((turn) => turn.id), ['a', 'b', 'c'])
+})
+
+test('upsertSession sorts newest first, caps the list and drops empty sessions', () => {
+  let list = []
+  for (let i = 0; i < MAX_SESSIONS + 5; i++) list = upsertSession(list, session(`s${i}`, i))
+  assert.equal(list.length, MAX_SESSIONS)
+  assert.equal(list[0].id, `s${MAX_SESSIONS + 4}`)
+  assert.equal(upsertSession(list, session('s0', 999, [])).some((entry) => entry.id === 's0'), false)
+})
+
+test('sessionTitle uses the first thing the user said', () => {
+  assert.equal(sessionTitle(session('s', 1, [{ id: 'a', role: 'jarvis', text: 'Ready.', at: 1 }, { id: 'b', role: 'user', text: '  what\nis the weather ', at: 2 }])), 'what is the weather')
+  assert.equal(sessionTitle(session('s', 1, [{ id: 'a', role: 'user', text: 'x'.repeat(80), at: 1 }])).length, 60)
+  assert.equal(sessionTitle(session('s', 1, [{ id: 'a', role: 'user', text: '', at: 1 }])), 'Untitled session')
+})
+
+test('loading ignores corrupt or malformed storage', () => {
+  const map = storage()
+  map.set(STORAGE_KEY, '{ nope')
+  assert.deepEqual(loadSessions(), [])
+  map.set(STORAGE_KEY, JSON.stringify([null, { id: 1 }, session('ok', 5), session('bad-turns', 6, [{ id: 'x' }])]))
+  assert.deepEqual(loadSessions().map((entry) => entry.id), ['ok'])
+})
+
+test('saving drops the oldest sessions when storage is full', () => {
+  const map = storage({ quota: 260 })
+  saveSessions([session('new', 3), session('mid', 2), session('old', 1)])
+  const saved = JSON.parse(map.get(STORAGE_KEY))
+  assert.ok(saved.length >= 1 && saved.length < 3)
+  assert.equal(saved[0].id, 'new')
+})
+
+test('the recorder persists the live session, debounced, and splits on a cleared transcript', () => {
+  const map = storage()
+  map.set(STORAGE_KEY, JSON.stringify([session('past', 1)]))
+  const timers = []
+  const originalSet = globalThis.setTimeout
+  const originalClear = globalThis.clearTimeout
+  globalThis.setTimeout = (callback) => { timers.push(callback); return timers.length }
+  globalThis.clearTimeout = () => {}
+  try {
+    let clock = 100
+    const store = fakeStore()
+    const history = createSessionHistory(store, { now: () => clock })
+    let notified = 0
+    history.subscribe(() => notified++)
+
+    store.setTurns([{ id: 'a', role: 'user', text: 'hello' }])
+    clock = 110
+    store.setTurns([{ id: 'a', role: 'user', text: 'hello' }, { id: 'b', role: 'jarvis', text: 'Hi' }])
+    assert.equal(timers.length, 1, 'streamed updates share one pending save')
+    assert.equal(notified, 2)
+    const first = history.getSnapshot()
+    assert.deepEqual(first.sessions.map((entry) => entry.id), [first.currentId, 'past'])
+
+    timers[0]()
+    assert.equal(JSON.parse(map.get(STORAGE_KEY)).length, 2)
+
+    clock = 120
+    store.setTurns([])
+    const second = history.getSnapshot()
+    assert.notEqual(second.currentId, first.currentId)
+    assert.equal(second.sessions.length, 2, 'the new session is hidden until it has turns')
+
+    history.remove('past')
+    assert.deepEqual(history.getSnapshot().sessions.map((entry) => entry.id), [first.currentId])
+    history.clearPast()
+    assert.deepEqual(history.getSnapshot().sessions, [])
+    history.stop()
+  } finally {
+    globalThis.setTimeout = originalSet
+    globalThis.clearTimeout = originalClear
+  }
+})
+
+test('two tabs saving keep each other\'s sessions', () => {
+  const map = storage()
+  const first = fakeStore()
+  const second = fakeStore()
+  const a = createSessionHistory(first, { now: () => 1 })
+  const b = createSessionHistory(second, { now: () => 2 })
+  first.setTurns([{ id: 'a', role: 'user', text: 'from tab one' }])
+  second.setTurns([{ id: 'b', role: 'user', text: 'from tab two' }])
+  a.flush()
+  b.flush()
+  assert.equal(JSON.parse(map.get(STORAGE_KEY)).length, 2)
+  a.stop()
+  b.stop()
+})
+
+test('the live session cannot be deleted while it is on screen', () => {
+  storage()
+  const store = fakeStore([{ id: 'a', role: 'user', text: 'keep me' }])
+  const history = createSessionHistory(store, { now: () => 1 })
+  history.remove(history.getSnapshot().currentId)
+  history.clearPast()
+  assert.equal(history.getSnapshot().sessions.length, 1)
+  history.stop()
+})

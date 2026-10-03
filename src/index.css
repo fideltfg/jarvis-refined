@@ -2368,3 +2368,212 @@ kbd {
   width: 100%;
   max-height: min(40vh, 360px);
 }
+
+/* ── Session history ─────────────────────────────────────────────────────
+   Past conversations. Font and accent are inherited so each theme's
+   typeface and interface colour carry through without per-theme rules. */
+.session-history {
+  display: flex;
+  flex-direction: column;
+  width: min(56rem, 100%);
+  height: min(36rem, calc(100dvh - 2rem));
+  overflow: hidden;
+  font-family: inherit;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--accent) 30%, #e4ecec);
+  background: rgba(2, 8, 12, 0.94);
+  border: 1px solid var(--accent, #19d8d2);
+  border-radius: 2px;
+  box-shadow: 0 0 28px color-mix(in srgb, var(--accent) 18%, transparent);
+  backdrop-filter: blur(6px);
+}
+.sh-head,
+.sh-detail-head,
+.sh-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+  padding: 0.6rem 0.9rem;
+}
+.sh-head {
+  letter-spacing: 0.22em;
+  color: var(--accent);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.sh-count { margin-left: auto; font-size: 0.72rem; opacity: 0.7; }
+.sh-close {
+  padding: 0 4px;
+  font: inherit;
+  line-height: 1;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  opacity: 0.75;
+}
+.sh-close:hover { opacity: 1; }
+.sh-body {
+  display: grid;
+  grid-template-columns: minmax(12rem, 17rem) minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.sh-list {
+  margin: 0;
+  padding: 0.4rem;
+  overflow-y: auto;
+  list-style: none;
+  border-right: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.sh-session {
+  display: block;
+  width: 100%;
+  margin-bottom: 0.25rem;
+  padding: 0.5rem 0.55rem;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.sh-session strong {
+  display: block;
+  overflow: hidden;
+  font-weight: 500;
+  color: var(--accent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sh-session small { display: block; font-size: 0.7rem; opacity: 0.65; }
+.sh-session:hover,
+.sh-session:focus-visible,
+.sh-session[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  outline: none;
+}
+.sh-detail { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.sh-detail-head {
+  justify-content: space-between;
+  font-size: 0.72rem;
+  opacity: 0.85;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.sh-transcript { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0.6rem 0.9rem; }
+.sh-turn {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.15rem 0.6rem;
+  margin-bottom: 0.75rem;
+}
+.sh-who {
+  font-size: 0.7rem;
+  letter-spacing: 0.16em;
+  color: var(--accent);
+}
+.sh-turn-user .sh-who { opacity: 0.7; }
+.sh-time { justify-self: end; font-size: 0.68rem; opacity: 0.5; }
+.sh-text { grid-column: 1 / -1; min-width: 0; }
+.sh-text p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sh-turn-user .sh-text p { opacity: 0.8; }
+.sh-tools { display: block; margin-top: 0.2rem; font-size: 0.68rem; opacity: 0.55; }
+.sh-empty { margin: 0; padding: 1.2rem 0.9rem; opacity: 0.65; }
+.sh-foot {
+  justify-content: space-between;
+  font-size: 0.7rem;
+  opacity: 0.85;
+  border-top: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.sh-action {
+  padding: 0.15rem 0.6rem;
+  font: inherit;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 2px;
+  cursor: pointer;
+}
+.sh-action:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+
+@media (max-width: 640px) {
+  .sh-body { grid-template-columns: 1fr; grid-template-rows: minmax(6rem, 35%) 1fr; }
+  .sh-list { border-right: 0; border-bottom: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); }
+}
+
+.session-history-inline {
+  width: 100%;
+  height: auto;
+  box-shadow: none;
+}
+
+/* Composer attachments. Colours follow the theme through currentColor. */
+.attachment-tray,
+.attachment-names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 3px 4px 3px 3px;
+  border: 1px solid color-mix(in srgb, currentColor 40%, transparent);
+  border-radius: 4px;
+  font-size: 11px;
+}
+.attachment-chip img {
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 2px;
+}
+.attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attachment-kind {
+  flex: 0 0 auto;
+  padding: 1px 4px;
+  border: 1px solid color-mix(in srgb, currentColor 40%, transparent);
+  border-radius: 2px;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+.attachment-chip button {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.attachment-names li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-dragging='true'] {
+  outline: 2px dashed currentColor;
+  outline-offset: 4px;
+}

@@ -3,6 +3,7 @@ import { Scene } from './scene/Scene'
 import { Hud } from './ui/Hud'
 import { CommandPalette } from './ui/CommandPalette'
 import { Timeline } from './ui/Timeline'
+import { SessionHistory } from './ui/SessionHistory'
 import { Launcher } from './ui/Launcher'
 import { ThemeBoot } from './ui/ThemeBoot'
 import { Ignition } from './ui/Ignition'
@@ -43,6 +44,7 @@ import { startAnalyser, micLevel } from './lib/audio'
 import { probeCapabilities } from './lib/capabilities'
 import { env } from './config'
 import { loadPtt, savePtt, bindingLabel, isReservedKey, type PttBinding } from './lib/ptt'
+import { attachmentMeta, describeAttachments, type Attachment } from './lib/attachments'
 
 /**
  * The conversation.
@@ -135,7 +137,7 @@ export default function App() {
 
   // -- one turn -------------------------------------------------------------
 
-  const respond = async (said: string): Promise<void> => {
+  const respond = async (said: string, attachments: Attachment[] = []): Promise<void> => {
     const mine = ++turn.current
     const stale = () => mine !== turn.current
 
@@ -146,7 +148,12 @@ export default function App() {
     s.clearPanels()
     s.clearBlades()
     s.setCaption('')
-    s.pushTurn({ id: newId(), role: 'user', text: said })
+    s.pushTurn({
+      id: newId(),
+      role: 'user',
+      text: said,
+      ...(attachments.length && { attachments: attachments.map(attachmentMeta) }),
+    })
     s.setPhase('thinking')
     sfx.play('ack')
 
@@ -193,14 +200,14 @@ export default function App() {
             spk.say(forTool(name))
           }
         },
-      })
+      }, attachments)
 
       if (stale()) return
 
       // The bridge keeps conversation state in its own session, so history is
       // only threaded through on the direct path.
       if (!usingBridge) {
-        history.current.push({ role: 'user', content: said })
+        history.current.push({ role: 'user', content: describeAttachments(said, attachments) })
         history.current.push({ role: 'assistant', content: text || '…' })
         if (history.current.length > 16) {
           history.current = history.current.slice(-16)
@@ -845,6 +852,13 @@ export default function App() {
         return
       }
 
+      // Shift+H opens the session history.
+      if (e.key === 'H' && e.shiftKey && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault()
+        store.getState().toggleHistory()
+        return
+      }
+
       // T speaks a fixed line, bypassing the wake word, the recogniser and the
       // model entirely. When "I can't hear him" is the report, this is the one
       // keypress that separates a broken voice engine from a broken voice loop
@@ -898,15 +912,22 @@ export default function App() {
     }
 
     const onOrinCommand = (event: Event) => {
-      const said = String((event as CustomEvent<string>).detail ?? '').trim()
+      // Detail is the typed text, or { text, attachments } from a composer with files.
+      const detail = (event as CustomEvent<string | { text?: string; attachments?: Attachment[] }>).detail
+      const said = String((typeof detail === 'string' ? detail : detail?.text) ?? '').trim()
+      const attachments = typeof detail === 'object' && Array.isArray(detail?.attachments) ? detail.attachments : []
       const phase = store.getState().phase
-      if (!said || phase === 'offline' || phase === 'boot') return
+      if ((!said && !attachments.length) || phase === 'offline' || phase === 'boot') return
       store.getState().setError(null)
-      void respond(said)
+      void respond(said, attachments)
     }
     const onOrinListen = () => {
       const phase = store.getState().phase
-      if (phase === 'offline' || phase === 'boot') return
+      if (phase === 'offline') {
+        void powerOn()
+        return
+      }
+      if (phase === 'boot') return
       if (phase === 'dormant') onWake('')
       else onSpeechStart()
     }
@@ -995,10 +1016,11 @@ export default function App() {
       <Hud />
       {activeTheme().id !== 'lcars' && <CommandPalette />}
       {activeTheme().id !== 'lcars' && <Timeline />}
+      {activeTheme().id !== 'lcars' && <SessionHistory />}
       {activeTheme().id !== 'lcars' && <Launcher />}
       <ThemeBoot />
       {activeTheme().id !== 'lcars' && <Diagnostics />}
-      <Ignition onStart={() => void powerOn()} />
+      {activeTheme().id !== 'lcars2' && <Ignition onStart={() => void powerOn()} />}
       <Enrol />
     </>
   )

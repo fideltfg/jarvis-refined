@@ -1,6 +1,7 @@
 import { BACKEND } from '../config'
 import * as direct from './anthropic'
 import * as bridge from './bridge'
+import { anthropicContent, type Attachment } from './attachments'
 import type { AskHandlers, Msg } from './anthropic'
 import type { AgentBoardData, Blade, Panel, SessionAgent } from '../store'
 import type { AgentEvent } from './announce'
@@ -33,10 +34,11 @@ export async function ask(
   prompt: string,
   history: Msg[],
   handlers: AskHandlers,
+  attachments: readonly Attachment[] = [],
 ): Promise<{ text: string; tools: string[] }> {
   return usingBridge
-    ? bridge.ask(prompt, handlers)
-    : direct.ask([...history, { role: 'user', content: prompt }], handlers)
+    ? bridge.ask(prompt, handlers, attachments)
+    : direct.ask([...history, { role: 'user', content: anthropicContent(prompt, attachments) }], handlers)
 }
 
 export async function warm(): Promise<void> {

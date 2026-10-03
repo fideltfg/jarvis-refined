@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { themePhaseColor } from './theme'
 import type { AgentBoardData, SessionAgent } from './lib/board'
 import { endTools, startTool, type ToolEvent } from './lib/timeline'
+import type { AttachmentMeta } from './lib/attachments'
 
 export type Phase =
   | 'offline'   // waiting for the click that unlocks audio
@@ -77,6 +78,7 @@ export type Turn = {
   text: string
   /** Tool names invoked while producing this turn, for the HUD readout. */
   tools?: string[]
+  attachments?: AttachmentMeta[]
 }
 
 /**
@@ -229,12 +231,13 @@ function defined<T extends object>(patch: T | undefined): Partial<T> {
  */
 const MAX_ORBITS = 8
 
-export type CommandWindow = 'agents' | 'diagnostics' | 'palette' | 'timeline' | 'status' | 'voice'
+export type CommandWindow = 'agents' | 'diagnostics' | 'history' | 'palette' | 'timeline' | 'status' | 'voice'
 
 const commandWindowState = (commandWindow: CommandWindow | null) => ({
   commandWindow,
   boardOpen: commandWindow === 'agents',
   timelineOpen: commandWindow === 'timeline',
+  historyOpen: commandWindow === 'history',
   enrolling: commandWindow === 'voice',
 })
 
@@ -253,6 +256,8 @@ type State = {
   toolEvents: ToolEvent[]
   /** True while the tool-activity timeline is on screen. */
   timelineOpen: boolean
+  /** True while the session history window is on screen. */
+  historyOpen: boolean
   error: string | null
   connected: string[]
   /** Name of the speech-synthesis voice in use, shown in the HUD. */
@@ -311,6 +316,7 @@ type State = {
   setCaption: (c: string) => void
   setActiveTool: (t: string | null) => void
   toggleTimeline: () => void
+  toggleHistory: () => void
   clearToolEvents: () => void
   setError: (e: string | null) => void
   setConnected: (c: string[]) => void
@@ -337,6 +343,7 @@ export const useStore = create<State>((set) => ({
   activeTool: null,
   toolEvents: [],
   timelineOpen: false,
+  historyOpen: false,
   error: null,
   connected: [],
   voice: '',
@@ -444,6 +451,9 @@ export const useStore = create<State>((set) => ({
   toggleTimeline: () => set((s) => s.exclusiveCommandWindows
     ? commandWindowState(s.timelineOpen ? null : 'timeline')
     : { timelineOpen: !s.timelineOpen }),
+  toggleHistory: () => set((s) => s.exclusiveCommandWindows
+    ? commandWindowState(s.historyOpen ? null : 'history')
+    : { historyOpen: !s.historyOpen }),
   clearToolEvents: () => set({ toolEvents: [] }),
   setError: (error) => set({ error }),
   setConnected: (connected) => set({ connected }),

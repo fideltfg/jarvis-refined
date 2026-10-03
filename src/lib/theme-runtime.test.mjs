@@ -9,6 +9,42 @@ const root = fileURLToPath(new URL('../', import.meta.url))
 const project = fileURLToPath(new URL('../../', import.meta.url))
 const themes = join(project, 'public/themes')
 
+test('LCARS uses only its approved palette in styles, graphics and manifest', async () => {
+  const palette = {
+    blue: '#37a6d1',
+    'bright-blue': '#41c4f7',
+    'dark-blue': '#1c3c55',
+    'dark-gray': '#2f3749',
+    'ghost-gray': '#d2d5df',
+    'light-gray': '#9ea5ba',
+    'light-orange-red': '#ff6753',
+    'medium-dark-blue': '#2a7193',
+    'medium-dark-gray': '#52596e',
+    'orange-red': '#e7442a',
+    'pale-orange-red': '#ff977b',
+    'primary-gray': '#6d748c',
+    starlight: '#f3f4f7',
+    black: '#000',
+    white: '#fff',
+  }
+  const normalize = (color) => color.length === 4
+    ? `#${[...color.slice(1)].map((digit) => digit + digit).join('')}`
+    : color.toLowerCase()
+  const allowed = new Set(Object.values(palette).map(normalize))
+  const folder = join(themes, 'lcars')
+  const css = await readFile(join(folder, 'theme.css'), 'utf8')
+  for (const [name, color] of Object.entries(palette)) {
+    assert.match(css, new RegExp(`--${name}:\\s*${color};`))
+  }
+  for (const file of (await readdir(folder)).filter((name) => /\.(css|tsx|json)$/.test(name))) {
+    const source = await readFile(join(folder, file), 'utf8')
+    for (const [color] of source.matchAll(/#[\da-f]{3,8}\b/gi)) {
+      assert.ok(allowed.has(normalize(color)), `${file} uses an unapproved color: ${color}`)
+    }
+    assert.doesNotMatch(source, /color-mix\(|rgba?\(|hsla?\(/i, `${file} mixes colors outside the palette`)
+  }
+})
+
 async function withTheme(manifest, module, check) {
   const folder = await mkdtemp(join(themes, 'test-theme-'))
   const id = basename(folder)

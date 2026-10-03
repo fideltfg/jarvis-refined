@@ -23,6 +23,7 @@ export function CommandPalette({ inline = false }: { inline?: boolean } = {}) {
     { id: 'ptt', label: 'Toggle push to talk', detail: 'Enable or disable push-to-talk', keywords: 'mic keyboard k', run: () => window.dispatchEvent(new CustomEvent('jarvis:toggle-ptt')) },
     { id: 'agents', label: 'Toggle agent board', detail: 'Show or hide agent tasks and progress', keywords: 'tasks workers a', run: () => useStore.getState().toggleBoard() },
     { id: 'timeline', label: 'Toggle tool timeline', detail: 'Show what tools have run and for how long', keywords: 'tools activity history duration shift t', run: () => useStore.getState().toggleTimeline() },
+    { id: 'history', label: 'Toggle session history', detail: 'Review past chat sessions and their transcripts', keywords: 'sessions conversations transcript log chat history shift h', run: () => useStore.getState().toggleHistory() },
     { id: 'hands', label: 'Toggle hand controls', detail: 'Enable or disable camera-based gestures', keywords: 'camera gestures g', run: () => window.dispatchEvent(new CustomEvent('jarvis:toggle-hands')) },
     { id: 'voice-profile', label: 'Open voice profile', detail: 'Enroll, re-record, or remove the voice profile', keywords: 'privacy voice p', run: () => window.dispatchEvent(new CustomEvent('jarvis:voice-profile')) },
     { id: 'diagnostics', label: 'Toggle diagnostics', detail: 'Show voice input and audio output diagnostics', keywords: 'debug d', run: () => window.dispatchEvent(new CustomEvent('jarvis:toggle-diagnostics')) },

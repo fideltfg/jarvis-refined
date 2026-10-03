@@ -1,11 +1,14 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { Activity, AudioLines, Camera, ClipboardList, FileText, Mic, MicOff, Search, Send, ShieldCheck, Trash2, UserRound } from 'lucide-react'
+import { Activity, AudioLines, Camera, ClipboardList, FileText, History, Mic, MicOff, Paperclip, Search, Send, ShieldCheck, Trash2, UserRound } from 'lucide-react'
 import { providerState, selectProvider, selectModel, usingBridge, watchProviders } from '../../../src/lib/brain'
 import { useStore, type Phase } from '../../../src/store'
 import { AgentBoard } from '../../../src/ui/AgentBoard'
 import { CommandPalette } from '../../../src/ui/CommandPalette'
 import { Timeline } from '../../../src/ui/Timeline'
+import { SessionHistory } from '../../../src/ui/SessionHistory'
 import { Diagnostics } from '../../../src/ui/Diagnostics'
+import { AttachmentNames, AttachmentTray } from '../../../src/ui/AttachmentTray'
+import { useAttachments } from '../../../src/ui/useAttachments'
 import StatusReport from './StatusReport'
 
 const PHASE_LABELS: Record<Phase, string> = {
@@ -51,6 +54,8 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
   const toggleBoard = useStore((state) => state.toggleBoard)
   const timelineOpen = useStore((state) => state.timelineOpen)
   const toggleTimeline = useStore((state) => state.toggleTimeline)
+  const historyOpen = useStore((state) => state.historyOpen)
+  const toggleHistory = useStore((state) => state.toggleHistory)
   const toolCalls = useStore((state) => state.toolEvents.length)
   const clearScreen = useStore((state) => state.clearScreen)
   const reactor = useStore((state) => state.ui.reactor)
@@ -64,11 +69,17 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
   const commandPaletteOpen = commandWindow === 'palette'
   const levelRef = useRef(level)
   const gridLevelRef = useRef(level)
+  const transcriptRef = useRef<HTMLDivElement>(null)
   levelRef.current = level
 
   useEffect(() => {
+    const transcript = transcriptRef.current
+    if (transcript) transcript.scrollTop = transcript.scrollHeight
+  }, [turns, commandWindow, caption, error])
+
+  useEffect(() => {
     const state = useStore.getState()
-    state.setCommandWindow(state.enrolling ? 'voice' : state.timelineOpen ? 'timeline' : state.boardOpen ? 'agents' : null)
+    state.setCommandWindow(state.enrolling ? 'voice' : state.timelineOpen ? 'timeline' : state.historyOpen ? 'history' : state.boardOpen ? 'agents' : null)
     useStore.setState({ exclusiveCommandWindows: true })
     return () => { useStore.setState({ exclusiveCommandWindows: false }) }
   }, [])
@@ -129,6 +140,7 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
   const gridLevel = Math.max(0, Math.min(1, gridLevelRef.current))
   const unavailable = phase === 'offline' || phase === 'boot'
   const busy = phase === 'thinking' || phase === 'tooling' || phase === 'speaking'
+  const files = useAttachments(!unavailable && !busy)
   const waveTime = performance.now() * 0.001
   const gridCenterX = 240
   const gridCenterY = 68
@@ -228,11 +240,11 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
               <svg className="lcars-wave" viewBox="0 0 480 150" preserveAspectRatio="none" role="presentation">
                 <defs>
                   <linearGradient id={gridGradientId} gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="240" y2="0" spreadMethod="repeat" gradientTransform={`translate(${-gridGradientOffset} 0)`}>
-                    <stop offset="0%" stopColor="#35eaff" />
-                    <stop offset="27%" stopColor="#168bff" />
-                    <stop offset="54%" stopColor="#a568ff" />
-                    <stop offset="80%" stopColor="#1abaff" />
-                    <stop offset="100%" stopColor="#35eaff" />
+                    <stop offset="0%" stopColor="var(--bright-blue)" />
+                    <stop offset="27%" stopColor="var(--blue)" />
+                    <stop offset="54%" stopColor="var(--light-gray)" />
+                    <stop offset="80%" stopColor="var(--medium-dark-blue)" />
+                    <stop offset="100%" stopColor="var(--bright-blue)" />
                   </linearGradient>
                 </defs>
                 <g className="lcars-wave-warp-grid" style={{ stroke: `url(#${gridGradientId})` }}>
@@ -282,7 +294,10 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
                 <div className="lcars-system-row" key={system.name}>
                   <i className={`lcars-system-indicator tone-${system.tone}${system.on ? ' is-on' : ''}`} />
                   <span className="lcars-system-name">{system.name}</span>
-                  <b title={system.state}>{system.state}</b>
+                  <b
+                    title={system.state}
+                    data-status={system.state === 'OFFLINE' || system.state === 'NOT CONNECTED' ? 'offline' : !system.on ? 'standby' : system.state === 'ACTIVE' || system.state === 'TRACKING' || system.name === 'TOOL CHANNEL' ? 'active' : 'ready'}
+                  >{system.state}</b>
                   {system.level !== undefined && <span className="lcars-system-meter"><i style={{ width: `${Math.max(3, system.level * 100)}%` }} /></span>}
                 </div>
               ))}
@@ -349,15 +364,19 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
                 <button type="button" data-command-window="status" aria-pressed={statusReportOpen} onClick={() => setCommandWindow(statusReportOpen ? null : 'status')} title="Open status report"><FileText size={17} /> Status report</button>
                 <button type="button" data-command-window="palette" aria-pressed={commandPaletteOpen} onClick={() => window.dispatchEvent(new Event('jarvis:toggle-command-palette'))} title="Toggle command palette"><Search size={17} /> Command palette</button>
                 <button type="button" data-command-window="timeline" aria-pressed={timelineOpen} onClick={toggleTimeline} title="Show what tools have run and for how long"><Activity size={17} /> Tool timeline <b>{toolCalls}</b></button>
+                <button type="button" data-command-window="history" aria-pressed={historyOpen} onClick={toggleHistory} title="Review past chat sessions (Shift+H)"><History size={17} /> Session history</button>
               </div>
             </div>
             <section className="lcars-deck-history" aria-label="Recent conversation">
-              <header><span>SESSION LOG</span><button type="button" onClick={() => clearScreen('transcript')} disabled={!turns.length} title="Clear conversation log" aria-label="Clear conversation log"><Trash2 size={16} /></button></header>
-              <div className="lcars-deck-transcript" aria-live="polite">
+              <header><span>SESSION LOG</span></header>
+              <div ref={transcriptRef} className="lcars-deck-transcript" aria-live="polite">
                 {turns.length ? turns.slice(-8).map((turn) => (
                   <article key={turn.id} className={`lcars-deck-turn lcars-deck-turn-${turn.role}`}>
                     <span>{turn.role === 'user' ? 'YOU' : 'COMPUTER'}</span>
-                    <p>{turn.text || 'Responding...'}</p>
+                    <div className="lcars-deck-turn-body">
+                      <p>{turn.text || (turn.attachments?.length ? '' : 'Responding...')}</p>
+                      <AttachmentNames attachments={turn.attachments} />
+                    </div>
                   </article>
                 )) : <p className="lcars-deck-empty">No exchanges yet.</p>}
               </div>
@@ -365,18 +384,43 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
               <AgentBoard />
               <CommandPalette inline />
               <Timeline inline />
+              <SessionHistory inline />
               <Diagnostics inline />
               {statusReportOpen && <StatusReport onClose={() => setCommandWindow(null)} />}
             </section>
           </div>
-          <form className="lcars-command-form" onSubmit={(event) => {
+          <form className="lcars-command-form" data-dragging={files.dragging} onSubmit={(event) => {
             event.preventDefault()
-            if (!command.trim() || unavailable || busy) return
-            window.dispatchEvent(new CustomEvent('jarvis:command', { detail: command.trim() }))
+            if ((!command.trim() && !files.attachments.length) || files.reading || unavailable || busy) return
+            window.dispatchEvent(new CustomEvent('jarvis:command', { detail: { text: command.trim(), attachments: files.attachments } }))
             setCommand('')
+            files.clear()
           }}>
-            <input aria-label="Command" placeholder={unavailable ? 'Computer starting...' : 'Ask the computer'} value={command} onChange={(event) => setCommand(event.target.value)} disabled={unavailable || busy} autoComplete="off" />
-            <button type="submit" data-function-error={Boolean(error)} disabled={!command.trim() || unavailable || busy} title="Send command"><Send size={18} /> Send</button>
+            <AttachmentTray attachments={files.attachments} onRemove={files.remove} />
+            <input {...files.pickerProps} />
+            <button type="button" className="lcars-attach" onClick={files.openPicker} disabled={unavailable || busy} title="Attach files (or paste / drop them)" aria-label="Attach files"><Paperclip size={18} /></button>
+            <textarea
+              aria-label="Command"
+              placeholder={unavailable ? 'Computer starting...' : files.dragging ? 'Drop files to attach' : 'Ask the computer (Ctrl+Enter for a new line)'}
+              value={command}
+              rows={Math.min(6, command.split('\n').length)}
+              onChange={(event) => setCommand(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' || event.nativeEvent.isComposing || event.shiftKey) return
+                event.preventDefault()
+                if (event.ctrlKey || event.metaKey) {
+                  const field = event.currentTarget
+                  field.setRangeText('\n', field.selectionStart, field.selectionEnd, 'end')
+                  setCommand(field.value)
+                } else {
+                  event.currentTarget.form?.requestSubmit()
+                }
+              }}
+              onPaste={files.onPaste}
+              disabled={unavailable || busy}
+              autoComplete="off"
+            />
+            <button type="submit" data-function-error={Boolean(error)} disabled={(!command.trim() && !files.attachments.length) || files.reading || unavailable || busy} title="Send command"><Send size={18} /> Send</button>
           </form>
         </section>
       </main>

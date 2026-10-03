@@ -15,6 +15,22 @@ and live animation. Built-in themes are stored in `public/themes/`:
 | `lcars` | LCARS-style computer display | “Computer” |
 | `orin` | Amber operational reasoning console | “ORIN” |
 
+## Add a Theme
+
+Themes are drop-in folders under `public/themes/`. Create
+`public/themes/my-theme/theme.json` with at least a name:
+
+```json
+{ "name": "My Theme" }
+```
+
+The app supplies defaults for anything you leave out. Add optional `theme.css`,
+`persona.md`, audio files, or a `theme.tsx` module for custom components. The
+folder name (`my-theme`) is the theme ID; no app-code registry or index file
+needs updating. In development, reload the page after adding the folder. Try it
+at `http://localhost:5173/?theme=my-theme`; that choice is remembered by the
+browser. Production deployments need a new build to include the theme.
+
 ## Screenshots
 
 ### Stark

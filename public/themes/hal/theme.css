@@ -228,3 +228,5 @@
   .classic-boot *,
   [data-theme='hal'] .hud * { animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
 }
+
+[data-theme='hal'] .session-history { background: rgba(8, 0, 0, 0.95); color: #e8d6d4; letter-spacing: 0.04em; }
