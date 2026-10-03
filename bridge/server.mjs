@@ -1695,6 +1695,11 @@ wss.on('connection', (socket, req) => {
       return
     }
 
+    if (msg.type === 'ping') {
+      send({ type: 'pong' })
+      return
+    }
+
     if (msg.type === 'agent_decide' && agentApi && typeof msg.id === 'string' &&
         ['approve', 'deny'].includes(msg.decision)) {
       void agentApi.decide(msg.id, msg.decision).catch((err) => {

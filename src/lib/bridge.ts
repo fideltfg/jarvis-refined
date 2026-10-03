@@ -208,22 +208,38 @@ let firstReady = deferred()
 
 let everConnected = false
 
-/** Backoff for the automatic re-dial. It gives up after the last delay rather
- *  than retrying forever — a bridge that has been down for half a minute is
- *  usually one you stopped on purpose, and the next ask() re-dials anyway. */
+/** Backoff for the automatic re-dial, capped while the bridge is unavailable. */
 const RECONNECT_DELAYS = [500, 1000, 2000, 4000, 8000, 8000]
 let attempt = 0
 let reconnectTimer = 0
+let probeConnection: (() => void) | null = null
+const HEARTBEAT_INTERVAL_MS = 30_000
+const HEARTBEAT_TIMEOUT_MS = 10_000
 
 function scheduleReconnect() {
-  if (attempt >= RECONNECT_DELAYS.length) return
-  const delay = RECONNECT_DELAYS[attempt]
+  const delay = RECONNECT_DELAYS[Math.min(attempt, RECONNECT_DELAYS.length - 1)]
   attempt += 1
   clearTimeout(reconnectTimer)
   reconnectTimer = window.setTimeout(() => {
-    void connect().catch(() => {})
+    void connect().catch(() => scheduleReconnect())
   }, delay)
 }
+
+function resumeConnection() {
+  if (!everConnected) return
+  if (socket?.readyState === WebSocket.OPEN) {
+    probeConnection?.()
+  } else {
+    clearTimeout(reconnectTimer)
+    void connect().catch(() => scheduleReconnect())
+  }
+}
+
+window.addEventListener('online', resumeConnection)
+window.addEventListener('focus', resumeConnection)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') resumeConnection()
+})
 
 /**
  * One message listener per socket, owning everything that isn't part of a
@@ -308,6 +324,48 @@ function connect(): Promise<WebSocket> {
   connecting = new Promise<WebSocket>((resolve, reject) => {
     const ws = new WebSocket(socketUrl())
     let settled = false
+    let heartbeatTimer = 0
+    let heartbeatDeadline = 0
+
+    const loseConnection = () => {
+      clearTimeout(heartbeatTimer)
+      clearTimeout(heartbeatDeadline)
+      if (socket !== ws) return
+      socket = null
+      probeConnection = null
+      pending?.fail?.(new Error('The bridge disconnected mid-answer — that session is gone.'))
+      onConnection?.('lost')
+      scheduleReconnect()
+    }
+
+    const probe = () => {
+      if (socket !== ws || ws.readyState !== WebSocket.OPEN) return
+      clearTimeout(heartbeatTimer)
+      clearTimeout(heartbeatDeadline)
+      heartbeatDeadline = window.setTimeout(() => {
+        loseConnection()
+        ws.close()
+      }, HEARTBEAT_TIMEOUT_MS)
+      try {
+        ws.send(JSON.stringify({ type: 'ping' }))
+      } catch {
+        loseConnection()
+        ws.close()
+      }
+    }
+
+    ws.addEventListener('message', (event: MessageEvent) => {
+      let frame: Frame
+      try {
+        frame = JSON.parse(event.data as string)
+      } catch {
+        return
+      }
+      if (frame.type !== 'pong' || socket !== ws) return
+      clearTimeout(heartbeatDeadline)
+      clearTimeout(heartbeatTimer)
+      heartbeatTimer = window.setTimeout(probe, HEARTBEAT_INTERVAL_MS)
+    })
 
     /**
      * Every terminal path runs through here, and clearing `connecting` is the
@@ -332,6 +390,9 @@ function connect(): Promise<WebSocket> {
     ws.onopen = () => {
       socket = ws
       attempt = 0
+      clearTimeout(reconnectTimer)
+      probeConnection = probe
+      heartbeatTimer = window.setTimeout(probe, HEARTBEAT_INTERVAL_MS)
       dispatch(ws)
       settle(null)
       onConnection?.(everConnected ? 'reconnected' : 'open')
@@ -364,11 +425,7 @@ function connect(): Promise<WebSocket> {
       // A close before open is just a failed dial; after open it's a lost
       // session, and the two want different handling.
       settle(new Error('The bridge closed the connection.'))
-      if (socket === ws) {
-        socket = null
-        onConnection?.('lost')
-        scheduleReconnect()
-      }
+      loseConnection()
     }
   })
 
@@ -399,7 +456,7 @@ export async function warmBridge(): Promise<void> {
 const IDLE_TIMEOUT_MS = 120_000
 
 /** The turn in flight, so a barge-in can settle it locally. */
-let pending: { finish: (fallback?: string) => void } | null = null
+let pending: { finish: (fallback?: string) => void; fail?: (err: Error) => void } | null = null
 
 export async function ask(
   prompt: string,
@@ -492,18 +549,19 @@ export async function ask(
     }
 
     const onMessage = (e: MessageEvent) => {
-      // Any frame at all is proof of life, including ones this turn ignores.
-      arm()
-
       let msg: Frame
       try {
         msg = JSON.parse(e.data as string)
       } catch {
+        arm()
         // A frame we can't read is not a reason to abandon the turn. It used
         // to be: the parse threw inside the listener, nothing settled the
         // promise, and App's `busy` flag stayed true for the life of the page.
         return
       }
+
+      if (msg.type === 'pong') return
+      arm()
 
       /**
        * Somebody else's answer.
@@ -549,7 +607,7 @@ export async function ask(
       fail(new Error('The connection to the bridge failed.'))
     }
 
-    pending = { finish }
+    pending = { finish, fail }
     ws.addEventListener('message', onMessage)
     ws.addEventListener('close', onClose)
     ws.addEventListener('error', onError)
