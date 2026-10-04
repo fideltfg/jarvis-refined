@@ -22,6 +22,8 @@ Security. When work is committed, move its entries under a dated heading.
 
 ### Changed
 
+- Push-to-talk mutes Jarvis's microphone input between presses, without changing
+  the system microphone or affecting other applications.
 - Session recall ranks search results by relevance, ignores filler words, and
   matches on any search word rather than requiring all of them.
 - Reading a long past conversation shows its opening and closing turns, with an

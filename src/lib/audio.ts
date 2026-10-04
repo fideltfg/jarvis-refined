@@ -8,6 +8,13 @@ let stream: MediaStream | null = null
 let ctx: AudioContext | null = null
 let analyser: AnalyserNode | null = null
 let buf: Uint8Array | null = null
+let muted = false
+
+/** Silence Jarvis's shared audio tracks, not the system microphone or other apps. */
+export function setMicMuted(on: boolean): void {
+  muted = on
+  for (const track of stream?.getAudioTracks() ?? []) track.enabled = !on
+}
 
 export async function getMic(): Promise<MediaStream> {
   if (stream) return stream
@@ -18,6 +25,7 @@ export async function getMic(): Promise<MediaStream> {
       autoGainControl: true,
     },
   })
+  setMicMuted(muted)
   return stream
 }
 
@@ -35,7 +43,7 @@ export async function startAnalyser(): Promise<void> {
 
 /** 0..1 loudness. Returns 0 before the analyser is up. */
 export function micLevel(): number {
-  if (!analyser || !buf) return 0
+  if (muted || !analyser || !buf) return 0
   analyser.getByteFrequencyData(buf as Uint8Array<ArrayBuffer>)
   let sum = 0
   // Skip the lowest bins — they're mostly rumble and mains hum.

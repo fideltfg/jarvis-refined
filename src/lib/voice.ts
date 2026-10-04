@@ -1,5 +1,5 @@
 import { BRIDGE_HTTP_URL } from '../config'
-import { getMic } from './audio'
+import { getMic, setMicMuted } from './audio'
 import { speakingNow, speakingSince } from './tts'
 import { OVERRIDE, cutsThrough, isEcho } from './echo'
 import { startVad, type Vad } from './vad'
@@ -409,6 +409,9 @@ if (typeof window !== 'undefined') {
  * rather than surfacing later as an unexplained deafness, whichever engine runs.
  */
 export async function startVoice(h: VoiceHandlers, opts: VoiceOptions = {}): Promise<Voice> {
+  let ptt = !!opts.pushToTalk
+  let stopped = false
+  setMicMuted(ptt)
   try {
     await getMic()
   } catch (err) {
@@ -442,8 +445,29 @@ export async function startVoice(h: VoiceHandlers, opts: VoiceOptions = {}): Pro
   diag.gate = enrolled ? 'on' : 'off'
   if (enrolled) warmSpeaker()
 
-  diag.ptt = !!opts.pushToTalk
-  return useServer ? startServerVoice(h, diag.ptt) : startBrowserVoice(h, diag.ptt)
+  diag.ptt = ptt
+  const engine = await (useServer ? startServerVoice(h, ptt) : startBrowserVoice(h, ptt))
+  return {
+    stop: () => {
+      stopped = true
+      engine.stop()
+      setMicMuted(true)
+    },
+    live: () => engine.live(),
+    setPushToTalk: (on) => {
+      if (stopped || on === ptt) return
+      ptt = on
+      setMicMuted(on)
+      engine.setPushToTalk(on)
+    },
+    hold: (down) => {
+      if (!ptt || stopped) return
+      // Open input before capture starts; finish the recording before muting it.
+      if (down) setMicMuted(false)
+      engine.hold(down)
+      if (!down) setMicMuted(true)
+    },
+  }
 }
 
 /** Local VAD plus transcription through the configured bridge provider. */
