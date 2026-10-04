@@ -56,6 +56,16 @@ test('timing cleanup runs only in development and is disposed during hot reload'
 test('LCARS batches microphone levels into its bounded chart cadence', async () => {
   const source = await readFile(new URL('../../public/themes/lcars/Reactor.tsx', import.meta.url), 'utf8')
   assert.doesNotMatch(source, /useStore\(\(state\) => state\.level\)/)
-  assert.match(source, /const nextLevel = useStore\.getState\(\)\.level\s*setLevel\(nextLevel\)\s*setTrace\(\(samples\) => \[\.\.\.samples\.slice\(1\), nextLevel\]\)\s*\}, 50\)/)
+  assert.match(source, /const SAMPLE_MS = 50\b/)
+  assert.match(source, /const nextLevel = useStore\.getState\(\)\.level\s*setLevel\(nextLevel\)\s*setTrace\(\(samples\) => \[\.\.\.samples\.slice\(1\), nextLevel\]\)\s*\}, SAMPLE_MS\)/)
   assert.match(source, /return \(\) => window\.clearInterval\(id\)/)
+})
+
+test('LCARS chart ticks re-render only the signal panel, not the whole console', async () => {
+  const source = await readFile(new URL('../../public/themes/lcars/Reactor.tsx', import.meta.url), 'utf8')
+  const start = source.indexOf('export function Reactor(')
+  const end = source.indexOf('\n}\n', start)
+  const console = source.slice(start, end)
+  assert.doesNotMatch(console, /setTrace|setLevel/)
+  assert.match(console, /<SignalPanel phase=\{phase\} \/>/)
 })

@@ -212,6 +212,13 @@ function Rig() {
 }
 
 export function Scene() {
+  const pkg = activeThemePackage()
+  const hasOrbits = useStore((s) => s.ui.orbits.length > 0)
+  // A theme that draws its own reactor in the DOM leaves this canvas empty
+  // except for orbiting objects. Rendering bloom, aberration, noise and
+  // vignette over an empty full-screen canvas at 60fps is several GPU passes a
+  // frame for nothing, so the canvas only exists while there is something on it.
+  if (pkg.Reactor && !pkg.Scene && !hasOrbits) return null
   return (
     <Canvas
       className="scene"

@@ -68,6 +68,10 @@ const AWAIT_SPEECH_MS = 14000
  *  again to continue a thought. */
 const FOLLOW_UP_MS = 11000
 
+/** Smallest level change worth a store write — well under anything a meter or
+ *  the orb can show. */
+const LEVEL_EPSILON = 0.005
+
 /** crypto.randomUUID needs a secure context, which a LAN address over plain
  *  http is not. Not worth failing a whole turn over an id. */
 const newId = () =>
@@ -755,7 +759,11 @@ export default function App() {
         st.phase === 'speaking' && speaker.current
           ? speaker.current.level()
           : micLevel()
-      st.setLevel(lvl)
+      // Every store write runs every subscriber's selector, so changes too
+      // small to see are dropped rather than broadcast sixty times a second.
+      if (Math.abs(lvl - st.level) >= LEVEL_EPSILON || (lvl === 0 && st.level !== 0)) {
+        st.setLevel(lvl)
+      }
       raf = requestAnimationFrame(pump)
     }
     pump()

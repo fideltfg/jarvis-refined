@@ -1,11 +1,14 @@
 import './index.css'
 import { bootstrapTheme } from './lib/theme-runtime'
-import { startPerformanceCleanup } from './lib/performance'
+import { startFreezeMonitor, startPerformanceCleanup } from './lib/performance'
 
 if (import.meta.env.DEV) {
   const stopPerformanceCleanup = startPerformanceCleanup()
   import.meta.hot?.dispose(stopPerformanceCleanup)
 }
+
+const stopFreezeMonitor = startFreezeMonitor()
+import.meta.hot?.dispose(stopFreezeMonitor)
 
 /**
  * Resolve the theme, then start.
