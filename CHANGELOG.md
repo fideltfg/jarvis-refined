@@ -11,6 +11,8 @@ Security. When work is committed, move its entries under a dated heading.
 
 ### Added
 
+- Confirmation prompts before deleting an individual session or clearing all
+  past sessions.
 - Development diagnostics identify the scripts responsible for long UI freezes.
 
 ### Fixed

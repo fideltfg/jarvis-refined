@@ -159,3 +159,23 @@ test('the live session cannot be deleted while it is on screen', () => {
   assert.equal(history.getSnapshot().sessions.length, 1)
   history.stop()
 })
+
+test('removing one past session preserves the others and stays deleted after a live save', () => {
+  storage()
+  saveSessions([session('keep', 2), session('delete', 1)])
+  const store = fakeStore([{ id: 'live-turn', role: 'user', text: 'current conversation' }])
+  const saved = []
+  const history = createSessionHistory(store, { now: () => 10, onSave: (sessions) => saved.push(sessions) })
+  try {
+    const currentId = history.getSnapshot().currentId
+    history.remove('delete')
+    assert.deepEqual(history.getSnapshot().sessions.map((entry) => entry.id), [currentId, 'keep'])
+    assert.deepEqual(loadSessions().map((entry) => entry.id), [currentId, 'keep'])
+    assert.deepEqual(saved.at(-1).map((entry) => entry.id), [currentId, 'keep'])
+    store.setTurns([{ id: 'live-turn', role: 'user', text: 'updated conversation' }])
+    history.flush()
+    assert.deepEqual(loadSessions().map((entry) => entry.id), [currentId, 'keep'])
+  } finally {
+    history.stop()
+  }
+})

@@ -74,7 +74,12 @@ export function SessionHistory({ inline = false }: { inline?: boolean } = {}) {
               <div className="sh-detail-head">
                 <span title={sessionTitle(selected)}>{dateTime.format(selected.startedAt)} – {clock.format(selected.updatedAt)}</span>
                 {selected.id !== currentId && (
-                  <button type="button" className="sh-action" onClick={() => sessionHistory.remove(selected.id)}>Delete</button>
+                  <button type="button" className="sh-action" onClick={() => {
+                    // Leave persisted history untouched unless deletion is confirmed.
+                    if (window.confirm(`Delete session "${sessionTitle(selected)}"? This cannot be undone.`)) {
+                      sessionHistory.remove(selected.id)
+                    }
+                  }}>Delete</button>
                 )}
               </div>
               <div className="sh-transcript" role="log" aria-label="Session transcript">
@@ -100,7 +105,11 @@ export function SessionHistory({ inline = false }: { inline?: boolean } = {}) {
       {hasPast && (
         <footer className="sh-foot">
           <span>Stored on this device only.</span>
-          <button type="button" className="sh-action" onClick={() => sessionHistory.clearPast()}>Clear past sessions</button>
+          <button type="button" className="sh-action" onClick={() => {
+            if (window.confirm('Delete all past sessions? This cannot be undone. The current session will be kept.')) {
+              sessionHistory.clearPast()
+            }
+          }}>Clear past sessions</button>
         </footer>
       )}
     </section>
