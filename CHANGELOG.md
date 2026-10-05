@@ -7,6 +7,42 @@ The project is not yet versioned, so entries are grouped by date.
 Each entry goes under **Unreleased** in one of: Added, Changed, Fixed, Removed,
 Security. When work is committed, move its entries under a dated heading.
 
+## 2026-10-05
+
+### Added
+
+- Small Windows repair installers update the shared setup helpers without
+  replacing application archives or the existing uninstaller. The deployment
+  guide tracks fixes and verification needed for the next full installer build.
+- A production launcher serves the built interface and local bridge without
+  running the development server, with read-only actions by default.
+- Release packaging builds an isolated WSL application payload without local
+  environment files, and the Linux service installer supports production builds.
+- Windows installer sources provision a dedicated WSL distro, resume setup after
+  reboot, register per-user startup and browser-relay tasks, and retain WSL data
+  on uninstall. Windows release validation is still required.
+- Windows installers can be compiled on Linux using an isolated Wine container
+  and a checksum-pinned Inno Setup compiler.
+- The README has a Requirements section listing the runtime, browser, model
+  provider and optional speech credentials needed before installing.
+
+### Fixed
+
+- Windows setup shows WSL provisioning progress as it happens, with credentials
+  redacted, instead of appearing frozen during long steps.
+- Windows setup relaunches into native 64-bit PowerShell so WSL remains
+  accessible when setup or shortcuts start from a 32-bit process.
+- WSL provisioning explicitly selects Jarvis's own systemd bus instead of
+  inheriting another user's session address during service setup and lifecycle commands.
+- Windows provisioning gives Jarvis ownership of its config and systemd
+  directories, including repairing directories created by earlier previews.
+- Windows setup reports the failing provisioning step and saves redacted logs,
+  and WSL availability checks handle native errors before requesting setup.
+- Windows release packaging works when temporary build files and the output
+  directory are on different filesystems.
+- Kokoro speech uses a quantized CPU model in a background worker to avoid UI
+  freezes and competition with the interface's graphics rendering.
+
 ## 2026-10-04
 
 ### Added

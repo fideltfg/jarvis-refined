@@ -1,0 +1,48 @@
+name: Windows Installer Sources
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'deploy/windows/**'
+      - 'scripts/*windows*'
+      - 'scripts/serve*'
+      - 'public/jarvis-relay.mjs'
+      - 'package*.json'
+      - '.github/workflows/windows-installer.yml'
+  pull_request:
+    paths:
+      - 'deploy/windows/**'
+      - 'scripts/*windows*'
+      - 'scripts/serve*'
+      - 'public/jarvis-relay.mjs'
+      - 'package*.json'
+      - '.github/workflows/windows-installer.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  source-checks:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: node --test scripts/windows-installer.test.mjs scripts/package-windows.test.mjs
+      - name: Compile Inno Setup with non-deployable syntax fixtures
+        shell: pwsh
+        run: |
+          $payload = Join-Path $env:RUNNER_TEMP 'jarvis-installer-syntax'
+          New-Item -ItemType Directory -Path $payload | Out-Null
+          Copy-Item deploy/windows -Destination (Join-Path $payload 'installer') -Recurse
+          foreach ($name in @('app.tar.gz', 'rootfs.tar', 'node-linux.tar.xz', 'node-windows.zip', 'manifest.json', 'jarvis-relay.mjs', 'relay-launcher.mjs')) {
+            New-Item -ItemType File -Path (Join-Path $payload $name) | Out-Null
+          }
+          $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          if (-not (Test-Path $compiler)) { throw 'Inno Setup compiler missing from the Windows runner.' }
+          & $compiler "/DPayloadDir=$payload" deploy/windows/jarvis.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed.' }

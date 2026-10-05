@@ -80,7 +80,10 @@ recognition availability and behavior depend on the browser.
 ## Speech Output
 
 Kokoro is the default text-to-speech engine and runs in the browser using
-WebGPU. Its model is downloaded and cached by the browser on first use. Each
+single-threaded CPU/WASM inference in a background worker, keeping speech off
+the UI thread and away from the graphics renderer's GPU. Its quantized model
+is downloaded and cached by the browser on first use. Generation speed depends
+on your CPU. Each
 theme selects its own base voice and processing profile. If Kokoro is
 unavailable, the app can use the operating-system speech voice. Set
 `VITE_TTS_ENGINE=system` to choose browser speech synthesis directly.

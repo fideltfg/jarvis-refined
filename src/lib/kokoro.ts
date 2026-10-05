@@ -6,21 +6,21 @@
  * voice from over a decade ago. It is the honest ceiling of the built-in API
  * and it sounds like a satnav.
  *
- * Kokoro is an 82M-parameter TTS model that runs on WebGPU via ONNX. No cloud,
+ * Kokoro is an 82M-parameter TTS model that runs in a CPU worker via ONNX. No cloud,
  * no API key, nothing leaves the machine — but it sounds like a person. It
  * carries a broad voice catalog, so each theme can have its own identity.
  *
- * The cost is a one-time ~330MB model download, cached by the browser
+ * The cost is a one-time ~90MB model download, cached by the browser
  * afterwards. It's fetched during the boot sequence so the first "Hey Jarvis"
  * isn't waiting on it, and anything that goes wrong falls back to Daniel.
  */
 
 import { KOKORO_VOICE } from '../config'
 import { activeTheme, type VoiceProfileShape } from './theme-runtime'
-import ortJsepModuleUrl from '../../node_modules/@huggingface/transformers/dist/ort-wasm-simd-threaded.jsep.mjs?url'
-import ortJsepWasmUrl from '../../node_modules/@huggingface/transformers/dist/ort-wasm-simd-threaded.jsep.wasm?url'
+import type { KokoroRequest, KokoroResponse } from './kokoro.worker'
 
 type Kokoro = {
+  voices: Record<string, unknown>
   generate: (
     text: string,
     opts: { voice: string; speed?: number },
@@ -30,6 +30,57 @@ type Kokoro = {
 let model: Kokoro | null = null
 let loading: Promise<Kokoro | null> | null = null
 let failed = false
+let worker: Worker | null = null
+let nextId = 0
+const pending = new Map<number, {
+  resolve: (response: KokoroResponse) => void
+  reject: (error: Error) => void
+}>()
+
+function stopWorker(error: Error) {
+  worker?.terminate()
+  worker = null
+  model = null
+  for (const request of pending.values()) request.reject(error)
+  pending.clear()
+}
+
+function request(message: Omit<KokoroRequest, 'id'>): Promise<KokoroResponse> {
+  if (!worker) {
+    worker = new Worker(new URL('./kokoro.worker.ts', import.meta.url), { type: 'module' })
+    worker.onmessage = ({ data }: MessageEvent<KokoroResponse>) => {
+      if (data.type === 'progress') {
+        progress = data.progress
+        return
+      }
+      const callback = pending.get(data.id)
+      if (!callback) return
+      pending.delete(data.id)
+      if (data.type === 'error') callback.reject(new Error(data.error))
+      else callback.resolve(data)
+    }
+    worker.onerror = (event) => {
+      lastError = event.message || 'Kokoro worker failed'
+      failed = true
+      stopWorker(new Error(lastError))
+    }
+    worker.onmessageerror = () => {
+      lastError = 'Unable to read Kokoro worker response'
+      failed = true
+      stopWorker(new Error(lastError))
+    }
+  }
+  const id = ++nextId
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject })
+    try {
+      worker!.postMessage({ ...message, id })
+    } catch (error) {
+      pending.delete(id)
+      reject(error)
+    }
+  })
+}
 
 /** 0..1 while the model downloads, for the boot readout. */
 let progress = 0
@@ -96,33 +147,23 @@ export async function load(): Promise<Kokoro | null> {
 
   loading = (async () => {
     try {
-      const { KokoroTTS, env: kokoroEnv } = await import('kokoro-js')
-      kokoroEnv.wasmPaths = {
-        mjs: ortJsepModuleUrl,
-        wasm: ortJsepWasmUrl,
-      }
-      const tts = await KokoroTTS.from_pretrained(
-        'onnx-community/Kokoro-82M-v1.0-ONNX',
-        {
-          // fp32 is larger than q8, but maps cleanly to WebGPU. Quantised ops
-          // can fall back to CPU and become slower than real-time speech.
-          dtype: 'fp32',
-          device: 'webgpu',
-          // The callback is a union across several event shapes; only the
-          // download-progress one carries a percentage.
-          progress_callback: (p: unknown) => {
-            const pct = (p as { progress?: number })?.progress
-            if (typeof pct === 'number') progress = pct / 100
-          },
-        },
-      )
+      const response = await request({ type: 'load' })
+      if (response.type !== 'ready') throw new Error('Unexpected Kokoro load response')
       progress = 1
-      model = tts as unknown as Kokoro
+      model = {
+        voices: Object.fromEntries(response.voices.map((name) => [name, true])),
+        generate: async (text: string, opts: { voice: string; speed?: number }) => {
+          const generated = await request({ type: 'generate', text, ...opts })
+          if (generated.type !== 'audio') throw new Error('Unexpected Kokoro audio response')
+          return { toBlob: () => generated.audio }
+        },
+      }
       return model
     } catch (err) {
       console.warn('[jarvis] kokoro unavailable, using the system voice:', err)
       lastError = String((err as Error)?.message ?? err)
       failed = true
+      stopWorker(new Error(lastError))
       return null
     } finally {
       loading = null
@@ -153,6 +194,7 @@ export async function speak(text: string): Promise<string | null> {
       // Nothing else sets this on the generation path, so without it tts.ts
       // keeps routing every sentence here and every sentence keeps throwing.
       failed = true
+      stopWorker(new Error(lastError))
       console.warn(
         `[jarvis] kokoro failed ${failures} times running — the system voice from here on.`,
       )
@@ -163,6 +205,6 @@ export async function speak(text: string): Promise<string | null> {
 
 /** Voice ids this build of the model actually carries. */
 export async function availableVoices(): Promise<string[]> {
-  const tts = (await load()) as unknown as { voices?: Record<string, unknown> } | null
+  const tts = await load()
   return tts?.voices ? Object.keys(tts.voices) : []
 }

@@ -35,11 +35,25 @@ before an action runs.
 | **Change character** | JARVIS, HAL, WOPR, Mother, and LCARS themes—or add a theme without changing app code. |
 | **Keep work moving** | Optional persistent goals, approvals, worker pools, and secure remote workers. |
 
-## Quick start
+## Requirements
 
-You need Node.js 20+ and Chrome or Edge. Claude users should install Claude Code
-and sign in once; OpenAI and local-model users can configure their provider
-instead.
+- **Node.js 20 or newer** and npm.
+- **Chrome or Edge** in a normal browser window, with WebGL and microphone
+  access. Embedded IDE previews often block the microphone.
+- **One model provider:**
+  - **Claude:** install Claude Code, run `claude`, and sign in once. The bridge
+    reuses that login; no separate Anthropic key is needed.
+  - **OpenAI:** set `OPENAI_API_KEY` in `.env.local`.
+  - **Local:** run an OpenAI-compatible server and set `JARVIS_LOCAL_URL` and
+    `JARVIS_LOCAL_MODEL`.
+- **Optional:** ElevenLabs or OpenAI keys for cloud speech and transcription,
+  and a Picovoice access key for the offline Porcupine wake word. Browser
+  recognition and local Kokoro speech work without them.
+
+See [Getting started](docs/getting-started.md) and the
+[Configuration reference](docs/configuration.md) for details.
+
+## Quick start
 
 ```bash
 npm install

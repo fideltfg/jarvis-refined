@@ -11,6 +11,7 @@
   "scripts": {
     "start": "node scripts/start.mjs --writes",
     "start:readonly": "node scripts/start.mjs",
+    "start:production": "node scripts/serve.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
@@ -21,8 +22,9 @@
     "agents:token": "node scripts/agents-token.mjs",
     "relay:token": "node scripts/relay-token.mjs",
     "setup": "node scripts/setup.mjs",
-    "test": "node --test bridge/*.test.mjs agents/*.test.mjs src/lib/*.test.mjs",
+    "test": "node --test bridge/*.test.mjs agents/*.test.mjs src/lib/*.test.mjs scripts/*.test.mjs",
     "package:remote": "node scripts/package-remote.mjs",
+    "package:windows": "node scripts/package-windows.mjs",
     "issue:remote": "node scripts/issue-remote.mjs"
   },
   "dependencies": {

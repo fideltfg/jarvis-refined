@@ -15,6 +15,9 @@ needs.
 
 ## Same-machine development
 
+For the WSL-backed Windows installer implementation and its remaining release
+gates, see [Windows installer development](windows-installation.md).
+
 ```bash
 npm install
 npm run start:readonly
@@ -65,6 +68,13 @@ Direct mode (`VITE_BACKEND=direct`) can produce a frontend-only deployment, but
 its Anthropic key and any direct-mode MCP tokens are readable by every visitor.
 It is suitable only for a private, local demonstration. Bridge mode is the
 recommended deployment because secrets stay server-side.
+
+`npm run start:production` serves an existing `dist/` build and launches the bridge
+without Vite, read-only by default. Pass `-- --writes` to enable actions. Build
+with `VITE_BRIDGE_URL=/bridge` to use its same-origin HTTP/WebSocket proxy.
+Non-loopback binding requires both TLS settings. To install a packaged build
+as Linux services, use `scripts/install.sh --production --readonly`; omitting
+`--readonly` enables writes, just as with the development service installer.
 
 ## Background-agent service
 

@@ -134,10 +134,9 @@ export const USE_ELEVENLABS = activeTheme().voice.engine === null && flag(
  *
  *   'kokoro' — an 82M-parameter neural TTS running entirely in the browser via
  *     ONNX. Four proper British male voices and far better sound, nothing
- *     leaving the machine. MEASURED ON THIS MACHINE at q8/WebGPU it generates
- *     about 2.2x slower than realtime at q8 because quantised operations can
- *     fall back to CPU. The fp32 WebGPU path in kokoro.ts trades a larger first
- *     download for substantially better generation speed.
+ *     leaving the machine. A quantised q8 model runs on a single CPU thread
+ *     in a background worker so speech does not block the UI or contend with
+ *     the renderer's GPU. Generation speed depends on the machine's CPU.
  */
 export const TTS_ENGINE: 'kokoro' | 'system' = choice(
   'VITE_TTS_ENGINE',

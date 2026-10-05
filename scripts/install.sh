@@ -3,7 +3,7 @@
 # (jarvis-agents.service) as systemd user units that start at boot.
 # Re-runnable. On any failure it rolls back what this run changed and reports.
 #
-#   scripts/install.sh [--readonly]
+#   scripts/install.sh [--readonly] [--production]
 #
 # Host-specific settings (LAN host, TLS, origins, ports) live in
 # ~/.config/jarvis/service.env; secrets stay in ~/.config/jarvis/secrets.env.
@@ -13,9 +13,11 @@ umask 077
 usage() { sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; }
 
 MODE=--writes
+LAUNCHER=scripts/start.mjs
 for arg in "$@"; do
   case "$arg" in
     --readonly) MODE= ;;
+    --production) LAUNCHER=scripts/serve.mjs ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $arg" >&2; usage >&2; exit 2 ;;
   esac
@@ -140,7 +142,11 @@ ok 'linger enabled (user services start at boot without a login)'
 
 # ---- dependencies --------------------------------------------------------------
 step 'Dependencies'
-if [[ ! -f $REPO/node_modules/.package-lock.json || $REPO/package-lock.json -nt $REPO/node_modules/.package-lock.json ]]; then
+if [[ $LAUNCHER == scripts/serve.mjs ]]; then
+  [[ -f $REPO/dist/index.html && -f $REPO/scripts/serve.mjs && -d $REPO/node_modules/ws && -d $REPO/node_modules/@anthropic-ai/claude-agent-sdk ]] \
+    || die 'production mode requires a built release with runtime dependencies.'
+  ok 'using packaged frontend and runtime dependencies'
+elif [[ ! -f $REPO/node_modules/.package-lock.json || $REPO/package-lock.json -nt $REPO/node_modules/.package-lock.json ]]; then
   (cd "$REPO" && PATH="$NODE_DIR:$PATH" "$NPM" ci --no-audit --no-fund) || die 'npm ci failed (see output above).'
   ok 'installed from package-lock.json'
 else
@@ -232,7 +238,7 @@ Environment=PATH=$NODE_DIR:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=NO_COLOR=1
 EnvironmentFile=-%h/.config/jarvis/secrets.env
 EnvironmentFile=-%h/.config/jarvis/service.env
-ExecStart="$NODE" scripts/start.mjs${MODE:+ $MODE}
+ExecStart="$NODE" $LAUNCHER${MODE:+ $MODE}
 Restart=on-failure
 RestartSec=5
 KillMode=mixed

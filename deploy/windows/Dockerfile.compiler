@@ -1,0 +1,18 @@
+FROM ubuntu:24.04
+
+ARG INNO_VERSION=7.1.0
+ARG INNO_SHA256=0362a383ed217d4c4239b5933866dd96d3eb2102737da92f80f6057a4b40df2f
+ENV DEBIAN_FRONTEND=noninteractive WINEDEBUG=-all WINEARCH=win64 WINEPREFIX=/opt/wine
+
+RUN dpkg --add-architecture i386 && apt-get update && apt-get install -y --no-install-recommends \
+    wine64 wine32:i386 fonts-wine xvfb xauth curl ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN curl --fail --location \
+    "https://github.com/jrsoftware/issrc/releases/download/is-7_1_0/innosetup-${INNO_VERSION}-x64.exe" \
+    --output /tmp/inno.exe && \
+    printf '%s  %s\n' "$INNO_SHA256" /tmp/inno.exe | sha256sum --check --status && \
+    (xvfb-run -a /usr/lib/wine/wine64 /tmp/inno.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- '/DIR=C:\InnoSetup' '/LOG=Z:\tmp\inno.log' || \
+    { cat /tmp/inno.log; exit 1; }) && \
+    rm /tmp/inno.exe
+
+WORKDIR /work
+ENTRYPOINT ["/usr/lib/wine/wine64", "C:\\InnoSetup\\ISCC.exe"]

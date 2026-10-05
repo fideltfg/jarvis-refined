@@ -40,6 +40,7 @@ function themeIndex(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), themeIndex()],
+  worker: { format: 'es' },
   server: {
     // Honour PORT so a second instance can run alongside the first. The bridge
     // only accepts sockets from localhost:5173-5199, so stay inside that range

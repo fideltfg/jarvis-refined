@@ -15,7 +15,8 @@
 - Confirm the browser audio is not muted and the session was initialized by a
   user click.
 - Kokoro may need to download its model on first use. Try
-  `VITE_TTS_ENGINE=system` if WebGPU or model loading is unavailable.
+  `VITE_TTS_ENGINE=system` if model loading is unavailable or your CPU generates
+  speech too slowly. Kokoro does not require WebGPU.
 - Use **D** to see whether a response was produced and whether playback started.
 
 ## Bridge or Provider Unavailable
