@@ -7,6 +7,46 @@ The project is not yet versioned, so entries are grouped by date.
 Each entry goes under **Unreleased** in one of: Added, Changed, Fixed, Removed,
 Security. When work is committed, move its entries under a dated heading.
 
+## Unreleased
+
+## 2026-10-06
+
+### Added
+
+- Local UniFiGuard beta planning and feedback triage helpers prepare supervised
+  readiness workflows without starting agents or publishing external changes.
+- A step-by-step Windows setup tutorial covers WSL2, Ubuntu, both Node runtimes,
+  provider login, diagnostics and backups for full installer 0.0.11, which
+  includes the cumulative setup fixes without a separate repair installer.
+- JARVIS can delegate software marketing research, positioning and draft copy to
+  a dedicated background worker that keeps deliverables in its workspace and
+  does not publish or contact prospects.
+- A planning document describes how JARVIS could become a hosted subscription
+  service where subscribers connect their own AI provider keys as paid
+  integrations, with plans for agents, storage and custom skills.
+- A competitive research report maps rival agents, voice assistants and
+  hosting services, and recommends a market niche for the hosted service.
+
+### Changed
+
+- The LCARS theme uses an ultrawide workspace with diagnostics in a side rail,
+  the current session log in the center, and separate command windows on the
+  right. Controls align with the session log, while command windows extend
+  upward to fill the right column. Standard desktop and mobile layouts are
+  unchanged.
+- Windows setup now requires users to install current WSL2, the dedicated
+  Ubuntu-24.04 distro, and Node.js 22+ for both Windows and Ubuntu before
+  running the installer. The installer bundles the Jarvis application but no
+  longer installs WSL or Node.js.
+
+### Fixed
+
+- Windows setup reads the dedicated Ubuntu requirement from the prerequisite
+  list correctly, fixing the missing `linuxDistribution` property failure after
+  prerequisite checks pass.
+- Windows setup checks all external prerequisites before installing or
+  replacing application files and reports the missing requirement directly.
+
 ## 2026-10-05
 
 ### Added
@@ -23,11 +63,21 @@ Security. When work is committed, move its entries under a dated heading.
   on uninstall. Windows release validation is still required.
 - Windows installers can be compiled on Linux using an isolated Wine container
   and a checksum-pinned Inno Setup compiler.
+- The current full Windows installer is kept in the persistent workspace
+  Downloads folder rather than the disposable frontend `dist/` directory.
 - The README has a Requirements section listing the runtime, browser, model
   provider and optional speech credentials needed before installing.
 
 ### Fixed
 
+- The Windows installer resumes after reboot, keeps setup output and progress
+  in the wizard, hides background consoles and stores writable runtime files
+  outside Program Files, and installs application files under the standard
+  Program Files directory.
+- Windows Node runtime checks use version output rather than inline JavaScript,
+  avoiding argument-quoting changes in Windows PowerShell 5.1.
+- Windows Node runtime validation avoids inline JavaScript quoting that Windows
+  PowerShell 5.1 strips when invoking native executables.
 - Windows setup shows WSL provisioning progress as it happens, with credentials
   redacted, instead of appearing frozen during long steps.
 - Windows setup relaunches into native 64-bit PowerShell so WSL remains

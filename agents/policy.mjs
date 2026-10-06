@@ -289,7 +289,7 @@ export function judge(toolName, input = {}, ctx) {
       return deny('credentials', 'That folder contains credentials. Search inside your working folder or a project folder instead.')
     }
     if (WRITE_TOOLS.has(name) && !inside(workspace, real)) {
-      if (kind === 'research' || kind === 'admin') {
+      if (kind === 'research' || kind === 'marketing' || kind === 'admin') {
         return deny('workspace', `A ${kind} task may only write inside its own folder, ${workspace}.`)
       }
       if (exists(real)) return approval('destruction', `overwrite ${real}`, `${name} on a file outside the workspace`)

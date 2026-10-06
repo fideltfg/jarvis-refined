@@ -39,7 +39,7 @@ jobs:
           $payload = Join-Path $env:RUNNER_TEMP 'jarvis-installer-syntax'
           New-Item -ItemType Directory -Path $payload | Out-Null
           Copy-Item deploy/windows -Destination (Join-Path $payload 'installer') -Recurse
-          foreach ($name in @('app.tar.gz', 'rootfs.tar', 'node-linux.tar.xz', 'node-windows.zip', 'manifest.json', 'jarvis-relay.mjs', 'relay-launcher.mjs')) {
+          foreach ($name in @('app.tar.gz', 'manifest.json', 'jarvis-relay.mjs', 'relay-launcher.mjs')) {
             New-Item -ItemType File -Path (Join-Path $payload $name) | Out-Null
           }
           $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'

@@ -166,6 +166,15 @@ test('an endpoint naming no kinds takes anything', () => {
   assert.ok(p.acquire({ model: 'rigel', kind: 'admin' }))
 })
 
+test('marketing tasks stay on a local tool-enabled endpoint', () => {
+  const endpoints = [
+    { id: 'remote', kind: 'remote', concurrency: 1, kinds: [], weight: 1 },
+    { ...CLOUD, kinds: [], weight: 1 },
+  ]
+  assert.equal(createPool({ endpoints }).acquire({ kind: 'marketing' }).endpoint.id, 'cloud')
+  assert.equal(createPool({ endpoints: [endpoints[0]] }).acquire({ kind: 'marketing' }), null)
+})
+
 // -- health -----------------------------------------------------------------
 
 test('an unhealthy endpoint is skipped and reported as such', () => {

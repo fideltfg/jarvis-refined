@@ -136,7 +136,7 @@ name, never embedded in the JSON.
 | `baseURL` | required except `anthropic` | Endpoint base URL; include `/v1` when the server expects it. `remote` requires HTTPS. |
 | `model` | required for `openai` | Model name understood by that endpoint. |
 | `concurrency` | `1` | Positive integer capacity advertised to the scheduler. |
-| `kinds` | all locally; `research`,`ops` remotely | Optional task allow-list: `code`, `research`, `ops`, `admin`. Remote entries are always reduced to travel-safe kinds. |
+| `kinds` | all locally; `research`,`ops` remotely | Optional task allow-list: `code`, `research`, `marketing`, `ops`, `admin`. Remote entries are always reduced to travel-safe kinds. |
 | `apiKeyEnv` | unset | Name of the process environment variable containing the credential. |
 | `weight` | `1` | Tie-break preference between equally loaded eligible endpoints. |
 | `label` | `id` | Human-readable name displayed on the board. |

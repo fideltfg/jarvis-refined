@@ -1658,6 +1658,102 @@
   }
 }
 
+@media (min-width: 1800px) and (min-aspect-ratio: 21/9) {
+  [data-theme='lcars'] .lcars-reactor-console {
+    display: grid;
+    grid-template-columns: clamp(360px, 20vw, 480px) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 14px 24px;
+    width: auto;
+    padding: 10px 28px;
+  }
+
+  [data-theme='lcars'] .lcars-reactor-heading {
+    grid-column: 1 / -1;
+  }
+
+  [data-theme='lcars'] .lcars-reactor-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(180px, 0.75fr) minmax(min-content, 1fr);
+    gap: 16px;
+    min-height: 0;
+    padding-right: 24px;
+    border-right: 1px solid var(--lc-violet);
+    overflow-y: auto;
+  }
+
+  [data-theme='lcars'] .lcars-control-deck {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+    gap: 12px 24px;
+    min-height: 0;
+    padding-bottom: 12px;
+  }
+
+  [data-theme='lcars'] .lcars-deck-heading {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  [data-theme='lcars'] .lcars-deck-body {
+    display: contents;
+  }
+
+  [data-theme='lcars'] .lcars-deck-operations {
+    display: grid;
+    grid-column: 1;
+    grid-row: 2;
+    grid-template-columns: minmax(120px, 0.5fr) minmax(0, 2fr);
+    align-content: start;
+    gap: 10px;
+    width: 100%;
+    max-height: 40dvh;
+    overflow-y: auto;
+  }
+
+  [data-theme='lcars'] .lcars-deck-switches {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  [data-theme='lcars'] .lcars-deck-history {
+    display: contents;
+  }
+
+  [data-theme='lcars'] .lcars-deck-history>header {
+    grid-column: 1;
+    grid-row: 3;
+    margin-left: 0;
+  }
+
+  [data-theme='lcars'] .lcars-deck-history::before {
+    content: 'COMMAND WINDOW';
+    grid-column: 2;
+    grid-row: 1;
+    display: flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 8px 12px;
+    box-sizing: border-box;
+    border-radius: 0 999px 999px 0;
+    background: var(--lc-violet);
+    color: var(--lc-orange);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  [data-theme='lcars'] .lcars-deck-transcript {
+    grid-column: 1;
+    grid-row: 4;
+  }
+
+  [data-theme='lcars'] .lcars-deck-feedback {
+    grid-column: 1;
+    grid-row: 5;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
 
   [data-theme='lcars'] .lcars-core-orbit-a,
@@ -3185,6 +3281,19 @@
   overflow-y: auto;
   box-sizing: border-box;
   background: #000;
+}
+
+@media (min-width: 1800px) and (min-aspect-ratio: 21/9) {
+  [data-theme='lcars'] .lcars-deck-history > :is(.agent-board, .command-palette-inline, .timeline-inline, .session-history-inline, .diag, .lcars-report-window) {
+    position: relative;
+    grid-column: 2;
+    grid-row: 2 / -1;
+    inset: auto;
+    width: 100%;
+    min-width: 0;
+    height: auto;
+    max-height: none;
+  }
 }
 
 @media (max-width: 700px) {

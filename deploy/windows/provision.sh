@@ -13,6 +13,7 @@ run_as_owner() {
   local owner_uid
   owner_uid=$(id -u "$OWNER")
   runuser -u "$OWNER" -- env HOME="/home/$OWNER" USER="$OWNER" \
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     XDG_RUNTIME_DIR="/run/user/$owner_uid" \
     DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$owner_uid/bus" "$@"
 }
@@ -20,11 +21,16 @@ run_as_owner() {
 case "$ACTION" in
   prepare)
     source /etc/os-release
-    [[ $ID == ubuntu && $VERSION_ID == 24.04 ]] || { echo 'Use an Ubuntu 24.04 x64 rootfs.' >&2; exit 1; }
+    [[ $ID == ubuntu && $VERSION_ID == 24.04 ]] || { echo 'Use the dedicated Ubuntu 24.04 WSL distro.' >&2; exit 1; }
     [[ $(uname -m) == x86_64 ]] || exit 1
+    NODE=$(command -v node || true)
+    [[ -n $NODE ]] || { echo 'Node.js 22+ must be installed system-wide in this WSL distro before Jarvis.' >&2; exit 1; }
+    NODE_VERSION=$($NODE --version)
+    NODE_MAJOR=${NODE_VERSION#v}; NODE_MAJOR=${NODE_MAJOR%%.*}
+    [[ $NODE_MAJOR =~ ^[0-9]+$ && $NODE_MAJOR -ge 22 ]] || { echo "Node.js 22+ required in WSL; found $NODE_VERSION." >&2; exit 1; }
     export DEBIAN_FRONTEND=noninteractive
     apt-get update
-    apt-get install -y ca-certificates xz-utils openssl git sudo systemd dbus-user-session
+    apt-get install -y ca-certificates openssl git sudo systemd dbus-user-session
     id "$OWNER" >/dev/null 2>&1 || useradd --create-home --shell /bin/bash "$OWNER"
     install -d -m 0755 "$BASE" "$BASE/releases"
     printf 'jarvis-refined-wsl-v1\n' > "$MARKER"
@@ -41,16 +47,14 @@ case "$ACTION" in
     printf '%s  %s\n' "$HASH" "$PAYLOAD/app.tar.gz" | sha256sum --check --status
     RELEASE="$BASE/releases/$HASH"
     PREVIOUS=$(readlink "$BASE/current" || true)
-    PREVIOUS_NODE=$(readlink /usr/local/bin/node || true)
     rollback() {
       local code=$?
       if [[ $code != 0 ]]; then
         if [[ -n $PREVIOUS ]]; then
           ln -sfn "$PREVIOUS" "$BASE/current"
-          [[ -z $PREVIOUS_NODE ]] || ln -sfn "$PREVIOUS_NODE" /usr/local/bin/node
           run_as_owner systemctl --user restart jarvis-agents jarvis || true
         else
-          rm -f "$BASE/current" /usr/local/bin/node /usr/local/bin/npm
+          rm -f "$BASE/current"
         fi
       fi
       exit "$code"
@@ -60,19 +64,17 @@ case "$ACTION" in
       STAGE=$(mktemp -d "$BASE/releases/.staging-XXXXXX")
       echo 'Extracting the application release (this can take several minutes)...'
       tar -xzf "$PAYLOAD/app.tar.gz" -C "$STAGE"
-      mkdir "$STAGE/node"
-      echo 'Extracting the Linux Node runtime...'
-      tar -xJf "$PAYLOAD/node-linux.tar.xz" --strip-components=1 -C "$STAGE/node"
-      "$STAGE/node/bin/node" -e 'if(process.platform!=="linux"||process.arch!=="x64"||+process.versions.node.split(".")[0]<22)process.exit(1)'
-      [[ -f $STAGE/dist/index.html && -d $STAGE/node_modules/ws ]] || exit 1
+      NODE=$(command -v node || true)
+      [[ -n $NODE && -f $STAGE/dist/index.html && -d $STAGE/node_modules/ws ]] || exit 1
+      NODE_VERSION=$($NODE --version)
+      NODE_MAJOR=${NODE_VERSION#v}; NODE_MAJOR=${NODE_MAJOR%%.*}
+      [[ $NODE_MAJOR =~ ^[0-9]+$ && $NODE_MAJOR -ge 22 ]] || { echo "Node.js 22+ required in WSL; found $NODE_VERSION." >&2; exit 1; }
       chmod -R u+rwX,go+rX,go-w "$STAGE"
       touch "$STAGE/.complete"
       if [[ -e $RELEASE ]]; then echo 'An incomplete release already exists; inspect it before retrying.' >&2; exit 1; fi
       mv "$STAGE" "$RELEASE"
     fi
     ln -sfn "$RELEASE" "$BASE/current"
-    ln -sfn "$RELEASE/node/bin/node" /usr/local/bin/node
-    ln -sfn "$RELEASE/node/bin/npm" /usr/local/bin/npm
     echo 'Starting the Jarvis user service manager...'
     loginctl enable-linger "$OWNER"
     UID_NUMBER=$(id -u "$OWNER")

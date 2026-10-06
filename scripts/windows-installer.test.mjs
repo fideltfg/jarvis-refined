@@ -72,6 +72,140 @@ test('PowerShell can parse the installer bootstrap', { skip: process.platform !=
   assert.equal(result.status, 0, result.stdout + result.stderr)
 })
 
+test('legacy inbox WSL usage output fails the prerequisite check before installation', {
+  skip: process.platform !== 'win32' && !process.env.JARVIS_TEST_PWSH,
+}, () => {
+  const bootstrap = readFileSync('deploy/windows/bootstrap.ps1', 'utf8')
+  assert.match(bootstrap, /if \(\$Action -eq 'CheckPrerequisites'\)/)
+  assert.doesNotMatch(bootstrap, /--install', '--no-distribution/)
+  const command = `
+    $ast=[System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'deploy/windows/bootstrap.ps1'),[ref]$null,[ref]$null)
+    $helper=$ast.EndBlock.Statements | Where-Object {$_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -eq 'Test-WslVersionSupport'}
+    Invoke-Expression $helper.Extent.Text
+    $legacy=[pscustomobject]@{ExitCode=0;Output='Usage: wsl.exe [Argument]' + [Environment]::NewLine + 'Arguments: --install --status'}
+    $modern=[pscustomobject]@{ExitCode=0;Output='WSL version: 2.6.0' + [Environment]::NewLine + 'Kernel version: 6.6.0'}
+    if(Test-WslVersionSupport $legacy){throw 'Legacy usage text was treated as version support'}
+    if(-not (Test-WslVersionSupport $modern)){throw 'Modern WSL version output was rejected'}
+    $failed=[pscustomobject]@{ExitCode=1;Output=''}
+    if(Test-WslVersionSupport $failed){throw 'Failed WSL probe was treated as supported'}
+    $check=$ast.EndBlock.Statements | Where-Object {$_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -eq 'Test-InstallPrerequisites'}
+    Invoke-Expression $check.Extent.Text
+    function Set-SetupStep {param([string]$Name)}
+    function Get-WslResult {param([string[]]$Arguments);return [pscustomobject]@{ExitCode=0;Output='Usage: wsl.exe [Argument]'}}
+    $rejected=$false
+    try { Test-InstallPrerequisites } catch { $rejected=$_.Exception.Message -match 'Current WSL is required before installing Jarvis' }
+    if(-not $rejected){throw 'Prerequisite check did not explain how to update inbox WSL'}
+  `
+  const result = spawnSync(process.env.JARVIS_TEST_PWSH || 'powershell.exe', ['-NoProfile', '-Command', command], { encoding: 'utf8' })
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+})
+
+test('Ubuntu prerequisite must be registered as WSL2', {
+  skip: process.platform !== 'win32' && !process.env.JARVIS_TEST_PWSH,
+}, () => {
+  const command = `
+    $ErrorActionPreference='Stop'
+    $ast=[System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'deploy/windows/bootstrap.ps1'),[ref]$null,[ref]$null)
+    $helper=$ast.EndBlock.Statements | Where-Object {$_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -eq 'Test-WslDistributionV2'}
+    Invoke-Expression $helper.Extent.Text
+    $Distro='Ubuntu-24.04'
+    function Get-WslResult { param([string[]]$Arguments); return [pscustomobject]@{ExitCode=0;Output=$script:MockOutput} }
+    $script:MockOutput="NAME STATE VERSION"+[Environment]::NewLine+"Ubuntu-24.04 Stopped 2"
+    if(-not (Test-WslDistributionV2)){throw 'WSL2 distro was rejected'}
+    $script:MockOutput="NAME STATE VERSION"+[Environment]::NewLine+"Ubuntu-24.04 Stopped 1"
+    if(Test-WslDistributionV2){throw 'WSL1 distro was accepted'}
+  `
+  const result = spawnSync(process.env.JARVIS_TEST_PWSH || 'powershell.exe', ['-NoProfile', '-Command', command], { encoding: 'utf8' })
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+})
+
+test('prerequisite preflight accepts ready runtimes and rejects missing Linux Node', {
+  skip: process.platform !== 'win32' && !process.env.JARVIS_TEST_PWSH,
+}, () => {
+  const command = `
+    $ErrorActionPreference='Stop'
+    $ast=[System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'deploy/windows/bootstrap.ps1'),[ref]$null,[ref]$null)
+    foreach($name in @('Get-NodeMajorVersion','Test-WslVersionSupport','Get-WslDistributionNames','Test-WslDistributionExists','Test-WslDistributionV2','Test-InstallPrerequisites')){
+      $helper=$ast.EndBlock.Statements | Where-Object {$_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -eq $name}
+      Invoke-Expression $helper.Extent.Text
+    }
+    $Distro='Ubuntu-24.04'; $Wsl='wsl.exe'
+    $script:MockWslVersion='WSL version: 2.6.0'
+    $script:MockDistroVersion='2'; $script:MockLinuxNode='v24.21.0'
+    function Set-SetupStep { param([string]$Name) }
+    function Get-Command { param([string]$Name,[string]$ErrorAction); if($Name -eq 'node.exe'){return [pscustomobject]@{Source=$env:JARVIS_TEST_NATIVE}} }
+    function Get-WslResult {
+      param([string[]]$Arguments)
+      if($Arguments -contains 'node'){return [pscustomobject]@{ExitCode=0;Output=$script:MockLinuxNode}}
+      if($Arguments -contains '--verbose'){
+        $output="NAME STATE VERSION"+[Environment]::NewLine+"Ubuntu-24.04 Stopped $script:MockDistroVersion"
+        return [pscustomobject]@{ExitCode=0;Output=$output}
+      }
+      if($Arguments -contains '--quiet'){return [pscustomobject]@{ExitCode=0;Output='Ubuntu-24.04'}}
+      return [pscustomobject]@{ExitCode=0;Output=$script:MockWslVersion}
+    }
+    if((Test-InstallPrerequisites) -ne $env:JARVIS_TEST_NATIVE){throw 'Ready prerequisites returned the wrong Windows Node path'}
+    $script:MockLinuxNode='v20.19.0'; $rejected=$false
+    try { Test-InstallPrerequisites } catch { $rejected=$_.Exception.Message -match 'Node.js 22 or newer must be installed system-wide' }
+    if(-not $rejected){throw 'Missing Linux Node was not rejected'}
+  `
+  const result = spawnSync(process.env.JARVIS_TEST_PWSH || 'powershell.exe', ['-NoProfile', '-Command', command], {
+    encoding: 'utf8', env: { ...process.env, JARVIS_TEST_NATIVE: process.execPath },
+  })
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+})
+
+test('install reads the distribution prerequisite from the manifest array under strict mode', {
+  skip: process.platform !== 'win32' && !process.env.JARVIS_TEST_PWSH,
+}, () => {
+  const command = `
+    $ErrorActionPreference='Stop'
+    Set-StrictMode -Version Latest
+    $ast=[System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'deploy/windows/bootstrap.ps1'),[ref]$null,[ref]$null)
+    $lookup=$ast.FindAll({param($entry) $entry -is [System.Management.Automation.Language.AssignmentStatementAst] -and $entry.Left.Extent.Text -eq '$distributionPrerequisites'},$true)
+    $validation=$ast.FindAll({param($entry) $entry -is [System.Management.Automation.Language.IfStatementAst] -and $entry.Extent.Text.StartsWith('if ($distributionPrerequisites.Count')},$true)
+    if($lookup.Count -ne 1 -or $validation.Count -ne 1){throw 'Missing manifest array validation'}
+    $Distro='Ubuntu-24.04'
+    $manifest='{"prerequisites":[{"id":"wsl","minimumVersion":2},{"id":"linuxDistribution","name":"Ubuntu-24.04","dedicated":true},{"id":"windowsNode","minimumMajor":22},{"id":"linuxNode","minimumMajor":22}]}' | ConvertFrom-Json
+    Invoke-Expression $lookup[0].Extent.Text
+    Invoke-Expression $validation[0].Extent.Text
+    foreach($prerequisites in @('[]','[{"id":"linuxDistribution","name":"OtherDistro"}]','[{"id":"linuxDistribution","name":"Ubuntu-24.04"},{"id":"linuxDistribution","name":"Ubuntu-24.04"}]')){
+      $manifest=('{"prerequisites":'+$prerequisites+'}') | ConvertFrom-Json
+      $rejected=$false
+      try { Invoke-Expression $lookup[0].Extent.Text; Invoke-Expression $validation[0].Extent.Text } catch { $rejected=$_.Exception.Message -eq 'The installer prerequisite distribution is not supported.' }
+      if(-not $rejected){throw 'Invalid distribution manifest was not rejected clearly'}
+    }
+  `
+  const result = spawnSync(process.env.JARVIS_TEST_PWSH || 'powershell.exe', ['-NoProfile', '-Command', command], { encoding: 'utf8' })
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+})
+
+test('full installer uses Program Files and exposes hidden relay/runtime actions', () => {
+  const installer = readFileSync('deploy/windows/jarvis.iss', 'utf8')
+  const bootstrap = readFileSync('deploy/windows/bootstrap.ps1', 'utf8')
+  assert.match(installer, /DefaultDirName=\{autopf\}\\JarvisRefined/)
+  assert.match(installer, /PrivilegesRequired=admin/)
+  assert.match(installer, /UsePreviousAppDir=no/)
+  assert.match(installer, /ExecAsOriginalUser\([^]*ewNoWait/)
+  assert.match(installer, /InstallLogMemo\.Lines\.Add/)
+  assert.match(installer, /WizardForm\.ProgressGauge\.Position/)
+  assert.match(installer, /{commonappdata}\\JarvisRefined.*users-modify/)
+  assert.match(installer, /ExecAsOriginalUser\(/)
+  assert.match(installer, /RunInstallForOriginalUser/)
+  assert.match(installer, /TNewMemo/)
+  assert.match(installer, /-Action CheckPrerequisites/)
+  assert.match(installer, /ExecAsOriginalUser\([^]*CheckPrerequisites/)
+  assert.doesNotMatch(installer, /rootfs\.tar|node-linux\.tar\.xz|node-windows\.zip/)
+  assert.match(bootstrap, /ValidateSet\([^\r\n]*'Relay'/)
+  assert.match(bootstrap, /Test-InstallPrerequisites/)
+  assert.match(bootstrap, /\$state\.windowsNodePath/)
+  assert.match(bootstrap, /-WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput/)
+  assert.match(bootstrap, /Register-UserTask -Suffix Runtime/)
+  assert.match(bootstrap, /Register-UserTask -Suffix Relay/)
+  assert.match(bootstrap, /Install-\$SessionId\.result/)
+  assert.doesNotMatch(bootstrap, /HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce/)
+})
+
 test('bootstrap resolves the native system directory for both PowerShell architectures', {
   skip: process.platform !== 'win32' && !process.env.JARVIS_TEST_PWSH,
 }, () => {
@@ -89,6 +223,36 @@ test('bootstrap resolves the native system directory for both PowerShell archite
     if($outer.Body.Statements[0].Extent.Text -notmatch 'Is64BitProcess'){throw 'Architecture handoff must happen before acquiring the install lock'}
   `
   const result = spawnSync(process.env.JARVIS_TEST_PWSH || 'powershell.exe', ['-NoProfile', '-Command', command], { encoding: 'utf8' })
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+})
+
+test('Windows Node runtime validation uses PowerShell-safe version arguments', {
+  skip: process.platform !== 'win32' && !process.env.JARVIS_TEST_PWSH,
+}, () => {
+  const command = `
+    $ErrorActionPreference='Stop'
+    $ast=[System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'deploy/windows/bootstrap.ps1'),[ref]$null,[ref]$null)
+    $check=$ast.EndBlock.Statements | Where-Object {$_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -eq 'Test-InstallPrerequisites'}
+    $prerequisites=$check.Extent.Text
+    if($prerequisites.Contains(' -e ')){throw 'Node check embeds script quotes in a native argument'}
+    if(-not $prerequisites.Contains('--version')){throw 'Prerequisite check must use Node --version'}
+    if($prerequisites -notmatch 'Ubuntu-24[.]04'){throw 'The dedicated Ubuntu prerequisite is not checked'}
+    if($prerequisites -notmatch 'node.*--version'){throw 'The Linux Node prerequisite is not checked'}
+    $node=$env:JARVIS_TEST_NATIVE
+    $nodeVersionOutput=& $node --version
+    $nodeVersionExitCode=$LASTEXITCODE
+    $nodeVersion=($nodeVersionOutput | Out-String).Trim()
+    $nodeMajor=0
+    if($nodeVersion.StartsWith('v')){$nodeVersionParts=$nodeVersion.Substring(1).Split('.');[void][int]::TryParse($nodeVersionParts[0],[ref]$nodeMajor)}
+    if($nodeVersionExitCode -ne 0 -or $nodeMajor -lt 22){throw "Supported Node runtime was rejected: [$nodeVersion], exit $nodeVersionExitCode, major $nodeMajor"}
+    $oldOutput='v20.19.0'; $oldExit=0; $oldMajor=0
+    if($oldOutput.StartsWith('v')){$oldParts=$oldOutput.Substring(1).Split('.');[void][int]::TryParse($oldParts[0],[ref]$oldMajor)}
+    if($oldExit -ne 0 -or $oldMajor -lt 22){$rejected=$true}else{$rejected=$false}
+    if(-not $rejected){throw 'Old Node runtime was accepted'}
+  `
+  const result = spawnSync(process.env.JARVIS_TEST_PWSH || 'powershell.exe', ['-NoProfile', '-Command', command], {
+    encoding: 'utf8', env: { ...process.env, JARVIS_TEST_NATIVE: process.execPath },
+  })
   assert.equal(result.status, 0, result.stdout + result.stderr)
 })
 
@@ -212,6 +376,7 @@ test('setup failure persists its step and redacted detail for the installer dial
       if($definition -is [System.Management.Automation.Language.FunctionDefinitionAst]) {Invoke-Expression $definition.Extent.Text}
     }
     function Protect-File {param([string]$Path)}
+    function Remove-SetupResumeTask {}
     $DataDir=$env:JARVIS_TEST_LOG_ROOT; $Action='Install'
     $LogFile=Join-Path $DataDir 'Install.log'; $ErrorFile=Join-Path $DataDir 'Install-error.txt'
     $outer=$ast.EndBlock.Statements | Where-Object {$_ -is [System.Management.Automation.Language.TryStatementAst]} | Select-Object -First 1

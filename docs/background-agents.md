@@ -74,8 +74,10 @@ plans tasks, schedules workers against the available capacity, tracks progress,
 and reviews task results. Goals can be paused, resumed, updated with new
 information, or abandoned. Recurring goals can be scheduled with an interval.
 
-Worker categories are `code`, `research`, `ops`, and `admin`. Workers have
-per-task turn, time, and spending limits. Work is persisted under
+Worker categories are `code`, `research`, `marketing`, `ops`, and `admin`.
+Marketing workers research software positioning and draft evidence-based
+campaign materials in their task workspace; they cannot publish or contact
+prospects. Workers have per-task turn, time, and spending limits. Work is persisted under
 `~/.config/jarvis/agents`; task workspaces use `~/.jarvis-work` by default.
 Completed task workspaces can be removed with JARVIS's `cleanup` agent tool.
 

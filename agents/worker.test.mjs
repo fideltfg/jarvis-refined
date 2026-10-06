@@ -10,7 +10,7 @@ import { DISALLOWED, runTask, taskPrompt, workerPrompt } from './worker.mjs'
 function setup(taskExtra = {}) {
   const store = createStore(mkdtempSync(join(tmpdir(), 'agents-worker-')), { workDir: '/work' })
   const goal = store.newGoal({ title: 'Release', outcome: 'Tagged v1' })
-  const task = { ...store.newTask({ goalId: goal.id, title: 'Write notes', brief: 'Write release notes.', kind: 'code' }), ...taskExtra }
+  const task = { ...store.newTask({ goalId: goal.id, title: 'Write notes', brief: 'Write release notes.', kind: taskExtra.kind ?? 'code' }), ...taskExtra }
   return { store, goal, task }
 }
 
@@ -195,13 +195,35 @@ test('other errors propagate for the scheduler to classify', async () => {
   )
 })
 
-test('research and admin tasks lose the shell', () => {
+test('research, marketing, ops and admin tasks lose the shell', () => {
   assert.ok(DISALLOWED.research.includes('Bash'))
   assert.ok(DISALLOWED.research.includes('Skill'))
+  assert.ok(DISALLOWED.marketing.includes('Bash'))
+  assert.ok(DISALLOWED.marketing.includes('Skill'))
   assert.ok(DISALLOWED.admin.includes('Bash'))
   assert.ok(DISALLOWED.ops.includes('Bash'))
   assert.ok(!DISALLOWED.code.includes('Bash'))
   for (const kind of Object.keys(DISALLOWED)) assert.ok(DISALLOWED[kind].includes('Task'))
+})
+
+test('marketing tasks get the marketing prompt and can only write in their workspace', async () => {
+  const { store, task } = setup({ kind: 'marketing' })
+  let seen
+  await runTask(task, deps(store, {
+    queryFn: fake(async function* ({ options }) {
+      seen = options
+      const gate = options.hooks.PreToolUse[0].hooks[0]
+      const inside = await gate({ tool_name: 'Write', tool_input: { file_path: `${task.workspace.path}/launch.md` } })
+      const outside = await gate({ tool_name: 'Write', tool_input: { file_path: '/tmp/launch.md' } })
+      assert.equal(inside.hookSpecificOutput.permissionDecision, 'allow')
+      assert.equal(outside.hookSpecificOutput.permissionDecision, 'deny')
+      options.mcpServers.agent.onReport({ status: 'done', summary: 'Drafted launch copy.' })
+      yield { type: 'result', subtype: 'success' }
+    }),
+  }))
+  assert.match(seen.systemPrompt, /evidence-based software marketing/)
+  assert.ok(seen.disallowedTools.includes('Bash'))
+  assert.equal(task.budget.maxMinutes, 20)
 })
 
 test('research workers only allow explicitly named skills', async () => {

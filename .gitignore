@@ -30,3 +30,7 @@ public/themes/lcars2
 
 # Copied out of node_modules by scripts/start.mjs — 34MB of build output.
 public/mediapipe/
+docs/windows-setup.md
+docs/windows-installation.md
+.github/workflows/windows-installer.yml
+scripts/windows-installer.test.mjs

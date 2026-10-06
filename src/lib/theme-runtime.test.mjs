@@ -45,6 +45,26 @@ test('LCARS uses only its approved palette in styles, graphics and manifest', as
   }
 })
 
+test('LCARS ultrawide layout separates diagnostics, session log and command windows', async () => {
+  const css = await readFile(join(themes, 'lcars/theme.css'), 'utf8')
+  const ultrawide = css.split('@media (min-width: 1800px) and (min-aspect-ratio: 21/9) {')[1]?.split('@media')[0]
+  assert.ok(ultrawide, 'ultrawide styles must not affect standard desktop or mobile layouts')
+  assert.match(ultrawide, /\.lcars-reactor-console \{[^}]*display: grid;[^}]*grid-template-columns: clamp\(360px, 20vw, 480px\) minmax\(0, 1fr\);[^}]*grid-template-rows: auto minmax\(0, 1fr\);/)
+  assert.match(ultrawide, /\.lcars-reactor-grid \{[^}]*grid-template-columns: minmax\(0, 1fr\);[^}]*min-height: 0;[^}]*overflow-y: auto;/)
+  assert.match(ultrawide, /\.lcars-control-deck \{[^}]*display: grid;[^}]*grid-template-columns: minmax\(0, 0\.9fr\) minmax\(0, 1\.1fr\);[^}]*grid-template-rows: auto auto auto minmax\(0, 1fr\) auto;[^}]*min-height: 0;/)
+  assert.match(ultrawide, /\.lcars-deck-body \{\s*display: contents;/)
+  assert.match(ultrawide, /\.lcars-deck-switches \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/)
+  assert.match(ultrawide, /\.lcars-deck-operations \{[^}]*grid-column: 1;[^}]*grid-row: 2;/)
+  assert.match(ultrawide, /\.lcars-deck-history \{\s*display: contents;/)
+  assert.match(ultrawide, /\.lcars-deck-transcript \{[^}]*grid-column: 1;[^}]*grid-row: 4;/)
+  const commandWindowStyles = css.split('@media (min-width: 1800px) and (min-aspect-ratio: 21/9) {')[2]?.split('@media')[0]
+  assert.ok(commandWindowStyles)
+  for (const panel of ['agent-board', 'command-palette-inline', 'timeline-inline', 'session-history-inline', 'diag', 'lcars-report-window']) {
+    assert.ok(commandWindowStyles.includes(`.${panel}`))
+  }
+  assert.match(commandWindowStyles, /position: relative;\s*grid-column: 2;\s*grid-row: 2 \/ -1;\s*inset: auto;/)
+})
+
 async function withTheme(manifest, module, check) {
   const folder = await mkdtemp(join(themes, 'test-theme-'))
   const id = basename(folder)

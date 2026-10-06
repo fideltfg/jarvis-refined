@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createStore } from './store.mjs'
-import { createActions, createCoordinator, sdkModel, snapshot } from './coordinator.mjs'
+import { COORDINATOR_PROMPT, createActions, createCoordinator, sdkModel, snapshot } from './coordinator.mjs'
 
 function setup(goalExtra = {}) {
   const store = createStore(mkdtempSync(join(tmpdir(), 'agents-coord-')), { workDir: '/work' })
@@ -19,12 +19,15 @@ test('plan_tasks creates tasks and resolves dependencies by key', () => {
   const msg = a.plan_tasks({ tasks: [
     { key: 'ci', title: 'Add CI', brief: 'Add a CI workflow.', kind: 'code', repo: tmpdir() },
     { key: 'notes', title: 'Release notes', brief: 'Write notes.', kind: 'research', dependsOn: ['ci'] },
+    { key: 'launch', title: 'Launch messaging', brief: 'Draft launch messaging.', kind: 'marketing' },
   ] })
   assert.match(msg, /^Created /)
-  const [ci, notes] = store.listTasks({ goalId: goal.id }).sort((x, y) => x.created.localeCompare(y.created))
+  const [ci, notes, launch] = store.listTasks({ goalId: goal.id }).sort((x, y) => x.created.localeCompare(y.created))
   assert.deepEqual(notes.dependsOn, [ci.id])
   assert.equal(ci.workspace.repo, tmpdir())
-  assert.equal(store.readEvents().filter((e) => e.type === 'task_queued').length, 2)
+  assert.equal(launch.kind, 'marketing')
+  assert.equal(store.readEvents().filter((e) => e.type === 'task_queued').length, 3)
+  assert.match(COORDINATOR_PROMPT, /marketing: software positioning/)
 })
 
 test('plan_tasks refuses bad input without creating anything', () => {

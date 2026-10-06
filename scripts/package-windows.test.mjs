@@ -3,7 +3,17 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
-import { publishRelease, releaseEnvironment, releaseFilter, sha256, verifyArtifact } from './package-windows.mjs'
+import { packageWindows, publishRelease, releaseEnvironment, releaseFilter,
+  windowsPrerequisites } from './package-windows.mjs'
+
+test('Windows release declares WSL, a dedicated Ubuntu distro and Node as prerequisites', () => {
+  assert.deepEqual(windowsPrerequisites, [
+    { id: 'wsl', minimumVersion: 2 },
+    { id: 'linuxDistribution', name: 'Ubuntu-24.04', dedicated: true },
+    { id: 'windowsNode', minimumMajor: 22 },
+    { id: 'linuxNode', minimumMajor: 22 },
+  ])
+})
 
 test('release publication works across filesystems without overwriting existing output', (context) => {
   const source = mkdtempSync(join(tmpdir(), 'jarvis-publish-'))
@@ -35,13 +45,8 @@ test('release source copying excludes environment files, private keys and tests'
   }
 })
 
-test('prerequisite archives require explicit matching SHA-256 values', async (context) => {
-  const directory = mkdtempSync(join(tmpdir(), 'jarvis-artifact-'))
-  context.after(() => rmSync(directory, { recursive: true, force: true }))
-  const file = join(directory, 'rootfs.tar')
-  writeFileSync(file, 'known bytes')
-  const hash = await sha256(file)
-  assert.equal(await verifyArtifact(file, hash.toUpperCase()), hash)
-  await assert.rejects(verifyArtifact(file, '0'.repeat(64)), /Checksum mismatch/)
-  await assert.rejects(verifyArtifact(file, undefined), /explicit SHA-256/)
+test('Windows package accepts only the application payload output option', async () => {
+  await assert.rejects(packageWindows(['--rootfs', 'ubuntu.tar']), /Unknown option: --rootfs/)
+  await assert.rejects(packageWindows(['--linux-node', 'node.tar.xz']), /Unknown option: --linux-node/)
+  await assert.rejects(packageWindows(['--windows-node', 'node.zip']), /Unknown option: --windows-node/)
 })

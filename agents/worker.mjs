@@ -74,6 +74,7 @@ const NO_EDIT = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']
 export const DISALLOWED = {
   code: [...NO_SPAWN],
   research: [...NO_SPAWN, ...NO_SHELL, 'NotebookEdit', 'Skill'],
+  marketing: [...NO_SPAWN, ...NO_SHELL, 'NotebookEdit', 'Skill'],
   ops: [...NO_SPAWN, ...NO_SHELL, 'NotebookEdit'],
   admin: [...NO_SPAWN, ...NO_SHELL, ...NO_EDIT],
 }
@@ -81,6 +82,7 @@ export const DISALLOWED = {
 const KIND_GUIDE = {
   code: "You are in a git worktree on your own branch. Commit your work with clear messages and run the project's tests before reporting done. Push your branch and open a pull request when the brief asks for it or the goal plainly needs it. Never push to main or master.",
   research: 'Research with web search and fetch. Write your findings as Markdown files in your working folder and name them in your final report.',
+  marketing: 'Create evidence-based software marketing strategy and copy. Verify market claims with credible sources, distinguish facts from assumptions, and never invent product capabilities, customer proof, benchmarks or outcomes. Prioritize practical recommendations and save requested deliverables in your working folder. Do not publish, send campaigns or contact prospects.',
   ops: 'You operate services through the tools provided. Read state before changing it, and record what you changed in your report.',
   admin: "You act on the user's behalf through their services and their signed-in Chrome. Be conservative with anything sent in their name.",
 }
