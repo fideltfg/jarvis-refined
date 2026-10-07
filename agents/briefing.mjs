@@ -3,16 +3,27 @@
  * The spoken form is one short sentence per goal — detail lives on the board.
  */
 
+import { scheduleModels } from './text-query.mjs'
+
 const VISIBLE = ['active', 'paused']
 const byPriority = (a, b) => a.priority - b.priority || a.created.localeCompare(b.created)
 const count = (n, word) => `${n === 1 ? 'One' : n} ${word}${n === 1 ? '' : 's'}`
 
 export function boardOf(store, running = new Set(), { history = false } = {}) {
   const tasks = store.listTasks().filter((t) => history || !t.archived).sort((a, b) => a.created.localeCompare(b.created))
-  const progress = history ? new Map(store.readEvents({ limit: 5000 })
-    .filter((event) => event.type === 'task_progress').map((event) => [event.taskId, event])) : null
+  const events = store.readEvents({ limit: 5000 })
+  const progress = history ? new Map(events.filter((event) => event.type === 'task_progress').map((event) => [event.taskId, event])) : null
+  const awaitingResponse = new Map()
+  for (const event of events) {
+    if (event.type === 'goal_paused') {
+      awaitingResponse.set(event.goalId, event.data?.awaitingResponse === true || Boolean(event.data?.reason && event.data.reason !== 'repeated plan'))
+    } else if (event.type === 'goal_changed' && ['pause', 'resume', 'abandon'].includes(event.data?.action) || event.type === 'goal_done') {
+      awaitingResponse.set(event.goalId, false)
+    }
+  }
   const latestScheduled = new Set(store.listSchedules().filter((schedule) => schedule.status !== 'deleted').map((schedule) => schedule.lastGoalId))
   return {
+    scheduleModels: scheduleModels(),
     schedules: store.listSchedules().filter((schedule) => schedule.status !== 'deleted').map((schedule) => {
       const goal = schedule.lastGoalId && store.getGoal(schedule.lastGoalId)
       const latest = goal ? store.listTasks({ goalId: goal.id }).sort((first, second) => second.updated.localeCompare(first.updated))[0] : null
@@ -24,6 +35,7 @@ export function boardOf(store, running = new Set(), { history = false } = {}) {
       .sort(byPriority)
       .map((g) => ({
         ...g,
+        awaitingResponse: g.status === 'paused' && awaitingResponse.get(g.id) === true,
         tasks: tasks
           .filter((t) => t.goalId === g.id)
           .map((t) => ({
@@ -33,6 +45,7 @@ export function boardOf(store, running = new Set(), { history = false } = {}) {
             status: t.status,
             attempts: t.attempts,
             summary: t.result?.summary ?? t.failure?.detail ?? null,
+            awaitingResponse: t.status === 'blocked' && ['credential', 'decision'].includes(t.failure?.blocker),
             // The board sorts every kind of agent on one timeline, so a task
             // has to carry the same stamps a subagent does.
             created: t.created,

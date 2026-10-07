@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import https from 'node:https'
@@ -96,6 +96,26 @@ async function setup({ pool = null, host = '127.0.0.1', tls = null } = {}) {
 
 test('the API refuses to start without a token', () => {
   assert.throws(() => createApi({ token: '' }), /JARVIS_AGENTS_TOKEN/)
+})
+
+test('saved reports require authentication and use only the selected task workspace', async () => {
+  const instance = await setup()
+  const workspace = mkdtempSync(join(tmpdir(), 'agents-api-reports-'))
+  try {
+    const goal = instance.store.newGoal({ title: 'Reports', outcome: 'Recall' })
+    const task = instance.store.newTask({ goalId: goal.id, title: 'Research', brief: 'Read only' })
+    instance.store.saveTask({ ...task, status: 'done', archived: true, workspace: { path: workspace }, result: { summary: 'Finished' } })
+    mkdirSync(join(workspace, 'reports'))
+    writeFileSync(join(workspace, 'reports', 'latest.md'), '# Finished')
+    const path = `/tasks/${task.id}/reports`
+    assert.equal((await instance.call('GET', path, null, 'wrong')).status, 401)
+    assert.deepEqual(await (await instance.call('GET', path)).json(), { result: { summary: 'Finished' }, failure: null, files: ['reports/latest.md'] })
+    assert.deepEqual(await (await instance.call('GET', `${path}?file=reports/latest.md`)).json(), { file: 'reports/latest.md', content: '# Finished' })
+    assert.equal((await instance.call('GET', `${path}?file=${encodeURIComponent('/etc/passwd')}`)).status, 400)
+    assert.equal((await instance.call('GET', '/tasks/t_missing/reports')).status, 404)
+    assert.equal(instance.calls.plan.length, 0)
+    assert.equal(instance.calls.redirect.length, 0)
+  } finally { await instance.api.close(); rmSync(workspace, { recursive: true, force: true }) }
 })
 
 test('public goal creation cannot supply internal occurrence identity', async () => {
@@ -194,6 +214,12 @@ test('goal changes: pause, resume, abandon and new information', async () => {
     await s.call('POST', `/goals/${g.id}`, { info: 'Use the beta branch' })
     await new Promise((r) => setImmediate(r))
     assert.deepEqual(s.calls.redirect.at(-1), [g.id, 'Use the beta branch'])
+    await s.call('POST', `/goals/${g.id}`, { action: 'pause' })
+    const before = s.calls.redirect.length
+    const resumed = await (await s.call('POST', `/goals/${g.id}`, { action: 'resume', info: 'Repository: /repo. Revise and retry the blocked inventory.' })).json()
+    assert.equal(resumed.status, 'active')
+    assert.equal(s.calls.redirect.length, before + 1)
+    assert.deepEqual(s.calls.redirect.at(-1), [g.id, 'Repository: /repo. Revise and retry the blocked inventory.'])
     assert.equal((await (await s.call('POST', `/goals/${g.id}`, { action: 'abandon' })).json()).status, 'abandoned')
     assert.deepEqual(s.calls.cancel, [t.id])
     assert.equal((await s.call('POST', `/goals/${g.id}`, { action: 'explode' })).status, 400)
@@ -303,6 +329,27 @@ test('history-inclusive board API returns completed goals and archived task resu
   } finally {
     await setupState.api.close()
   }
+})
+
+test('the board marks explicit user-response blockers, but not ordinary pauses or blockers', async () => {
+  const instance = await setup()
+  try {
+    const escalated = instance.store.newGoal({ title: 'Needs a decision', outcome: 'Choose a repo' })
+    instance.store.saveGoal({ ...escalated, status: 'paused' })
+    instance.store.appendEvent({ type: 'goal_paused', goalId: escalated.id, data: { reason: 'Which repo?' } })
+    const credential = instance.store.newTask({ goalId: escalated.id, title: 'Needs credentials', brief: 'Ask for a token' })
+    instance.store.saveTask({ ...credential, status: 'blocked', failure: { blocker: 'credential', need: ['API token'] } })
+    const upstream = instance.store.newTask({ goalId: escalated.id, title: 'Wait for upstream', brief: 'Wait' })
+    instance.store.saveTask({ ...upstream, status: 'blocked', failure: { blocker: 'upstream', need: ['Release'] } })
+    const manual = instance.store.newGoal({ title: 'Manually paused', outcome: 'Continue later' })
+    await instance.call('POST', `/goals/${manual.id}`, { action: 'pause' })
+    const board = await (await instance.call('GET', '/board')).json()
+    const goals = new Map(board.goals.map((goal) => [goal.id, goal]))
+    assert.equal(goals.get(escalated.id).awaitingResponse, true)
+    assert.equal(goals.get(manual.id).awaitingResponse, false)
+    assert.equal(goals.get(escalated.id).tasks.find((task) => task.id === credential.id).awaitingResponse, true)
+    assert.equal(goals.get(escalated.id).tasks.find((task) => task.id === upstream.id).awaitingResponse, false)
+  } finally { await instance.api.close() }
 })
 
 test('GET /endpoints reports the pool, its width and what is busy', async () => {

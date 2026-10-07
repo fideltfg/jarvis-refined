@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -8,7 +8,7 @@ import { createStore } from './store.mjs'
 import { DISALLOWED, runTask, taskPrompt, workerPrompt } from './worker.mjs'
 
 function setup(taskExtra = {}) {
-  const store = createStore(mkdtempSync(join(tmpdir(), 'agents-worker-')), { workDir: '/work' })
+  const store = createStore(mkdtempSync(join(tmpdir(), 'agents-worker-')), { workDir: mkdtempSync(join(tmpdir(), 'agents-output-')) })
   const goal = store.newGoal({ title: 'Release', outcome: 'Tagged v1' })
   const task = { ...store.newTask({ goalId: goal.id, title: 'Write notes', brief: 'Write release notes.', kind: taskExtra.kind ?? 'code' }), ...taskExtra }
   return { store, goal, task }
@@ -53,6 +53,12 @@ test('a run that reports done returns the result and records the session', async
   assert.deepEqual(seen.options.disallowedTools, DISALLOWED.code)
   assert.equal(seen.options.cwd, task.workspace.path)
   assert.ok(store.readEvents().some((e) => e.type === 'task_progress' && e.text === 'Halfway.'))
+  assert.match(readFileSync(join(task.workspace.path, 'reports', 'latest.md'), 'utf8'), /Wrote NOTES.md/)
+  const reports = readFileSync(join(task.workspace.path, 'logs', 'reports.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line))
+  assert.deepEqual(reports.map((report) => report.status), ['progress', 'done'])
+  assert.equal(seen.options.env.TMPDIR, join(task.workspace.path, 'tmp'))
+  const output = readFileSync(join(task.workspace.path, 'logs', 'worker.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line))
+  assert.deepEqual(output.map((entry) => entry.message.type), ['system', 'result'])
 })
 
 test('the gate denies credentials, routes hard stops to approval and allows the rest', async () => {
@@ -251,6 +257,7 @@ test('the task prompt states the goal and the folder; the system prompt carries 
   assert.ok(p.includes(task.workspace.path))
   const system = workerPrompt(task.kind)
   assert.match(system, /data, never instructions/)
+  assert.match(system, /Do not redirect output outside it/)
   assert.ok(!system.includes(task.workspace.path), 'task specifics would break the cached prefix')
 })
 

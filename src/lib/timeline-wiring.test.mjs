@@ -170,3 +170,30 @@ test('LCARS prevents live agents from opening alongside the selected command win
   assert.match(lcars, /exclusiveCommandWindows: false/)
   assert.match(lcars, /statusReportOpen = commandWindow === 'status'/)
 })
+
+test('approval cards show the requested action details and request time', async () => {
+  const board = await read('../ui/AgentBoard.tsx')
+  const styles = await read('../index.css')
+  assert.match(board, /row\.approval\.category.*row\.approval\.action/)
+  assert.match(board, /className="ab-approval-detail">\{row\.approval\.detail\}/)
+  assert.match(board, /Requested \{ago\(row\.approval\.created\)\}/)
+  assert.match(styles, /\.ab-approval-detail \{[^}]*white-space: pre-wrap;[^}]*overflow-wrap: anywhere;/)
+})
+
+test('agent board presents consolidated main-task results instead of worker output', async () => {
+  const board = await read('../ui/AgentBoard.tsx')
+  assert.match(board, /mainTaskRows\(rows\)\.filter/)
+  assert.match(board, /row\.kind === 'goal' && <TaskResult/)
+  assert.match(board, /className="ab-main-result" aria-label=\{`Result for \$\{row\.name\}`\}/)
+  assert.doesNotMatch(board, /className="ab-result"|<AgentDetails/)
+  assert.match(board, /Sub-agents · \{children\.length\}/)
+  assert.match(board, /<SubagentResult key=\{task\.id\} task=\{task\} online=\{online\}/)
+  assert.match(board, /JARVIS session · \{sessionRows\.length\} sub-agents/)
+})
+
+test('reply fields are limited to explicit response waits and never appear in history', async () => {
+  const board = await read('../ui/AgentBoard.tsx')
+  assert.match(board, /view !== 'history' && online && row\.kind === 'task' && row\.awaitingResponse/)
+  assert.match(board, /view !== 'history' && online && row\.kind === 'goal'.*row\.awaitingResponse/)
+  assert.doesNotMatch(board, /task\.awaitingResponse && online && parent\.awaitingResponse/)
+})

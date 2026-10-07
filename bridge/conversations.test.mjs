@@ -134,7 +134,12 @@ test('the real bridge resumes after restart and falls back to dialogue if the na
             if (closed) return;
             history.push(input.message.content);
             writeFileSync(pathFor(id), JSON.stringify(history));
-            const answer = JSON.stringify({ resume: options.resume || null, history });
+            const gate = options.hooks.PreToolUse[0].hooks[0];
+            const denied = await gate({ tool_name: 'Write', tool_input: { file_path: join(process.env.HOME, 'loose-report.md') } });
+            const delegated = await gate({ tool_name: 'Agent', tool_input: { prompt: 'Research a topic.' } });
+            const answer = JSON.stringify({ resume: options.resume || null, history, cwd: options.cwd, tmp: options.env.TMPDIR,
+              denied: denied.hookSpecificOutput.permissionDecision,
+              delegated: delegated.hookSpecificOutput.updatedInput.prompt });
             yield { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: answer } } };
             yield { type: 'result', subtype: 'success', result: answer };
           }
@@ -216,11 +221,19 @@ test('the real bridge resumes after restart and falls back to dialogue if the na
       await start()
       const first = await connect()
       first.socket.send(JSON.stringify({ type: 'ask', id: 'first', provider: 'claude', text: 'Remember cobalt.' }))
-      await first.wait((frame) => frame.type === 'done' && frame.ask === 'first')
+      const firstAnswer = JSON.parse((await first.wait((frame) => frame.type === 'done' && frame.ask === 'first')).text)
+      const outputDirectory = join(directory, '.jarvis-work', 'sessions', first.metadata.id)
+      assert.equal(firstAnswer.cwd, outputDirectory)
+      assert.equal(firstAnswer.tmp, join(outputDirectory, 'tmp'))
+      assert.equal(firstAnswer.denied, 'deny')
+      assert.match(firstAnswer.delegated, /OUTPUT ORGANIZATION/)
+      assert.match(readFileSync(join(outputDirectory, 'reports', 'latest.md'), 'utf8'), /Remember cobalt/)
+      assert.equal(JSON.parse(readFileSync(join(outputDirectory, 'logs', 'reports.jsonl'), 'utf8')).status, 'done')
       const checkpointPath = join(directory, '.config', 'jarvis', 'conversations', `${first.metadata.id}.json`)
       const saved = JSON.parse(readFileSync(checkpointPath, 'utf8'))
       assert.equal(saved.messages.length, 2)
       assert.ok(saved.claudeSessionId)
+      assert.equal(saved.claudeWorkspace, outputDirectory)
       await stop()
       await start()
       const resumed = await connect(first.metadata.id)

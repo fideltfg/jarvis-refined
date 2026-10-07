@@ -293,6 +293,7 @@ export function judge(toolName, input = {}, ctx) {
         return deny('workspace', `A ${kind} task may only write inside its own folder, ${workspace}.`)
       }
       if (exists(real)) return approval('destruction', `overwrite ${real}`, `${name} on a file outside the workspace`)
+      return deny('workspace', `Generated files must stay inside the task folder, ${workspace}.`)
     }
     return allow()
   }

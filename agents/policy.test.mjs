@@ -77,10 +77,10 @@ test('secret-shaped values never leave in a tool call', () => {
   assert.equal(decision(judge('mcp__gmail__send_email', { to: 'a@b.c', body: '-----BEGIN OPENSSH PRIVATE KEY-----' }, ctx())), 'deny')
 })
 
-test('writing outside the workspace: approval for code, denied for research and marketing', () => {
+test('new output stays in the workspace; existing external code edits need approval', () => {
   assert.equal(decision(judge('Write', { file_path: `${WS}/notes.md` }, ctx())), 'allow')
   assert.equal(decision(judge('Write', { file_path: '/home/x/.bashrc' }, ctx())), 'approval')
-  assert.equal(decision(judge('Write', { file_path: '/tmp/new.txt' }, ctx({ exists: () => false }))), 'allow')
+  assert.equal(decision(judge('Write', { file_path: '/tmp/new.txt' }, ctx({ exists: () => false }))), 'deny')
   assert.equal(decision(judge('Write', { file_path: '/tmp/new.txt' }, ctx({ kind: 'research', exists: () => false }))), 'deny')
   assert.equal(decision(judge('Write', { file_path: '/tmp/new.txt' }, ctx({ kind: 'marketing', exists: () => false }))), 'deny')
 })

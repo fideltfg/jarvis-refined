@@ -102,11 +102,11 @@ work immediately; use the task scheduler below to save work for a future time.
 
 The `jarvis_agents` tools are available to every conversation provider: Claude,
 OpenAI and local endpoints all hand work to the same agent service, so every
-agent belongs to JARVIS whichever model asked for it. The agent board lists
-agent-service tasks and Claude session subagents from every open window as one
-list of JARVIS agents. Each running, blocked or approval-waiting agent shows its
-owner, where it runs (provider, endpoint or remote host), model, goal, type,
-start time and, for session subagents, the start of its brief. The `status` tool
+agent belongs to JARVIS whichever model asked for it. The agent board shows
+main tasks (goals), each with one consolidated coordinator result. Worker and
+session-subagent outputs are not listed individually. Worker blockers and
+approval requests remain visible when they require your action. Agent counts
+still include all workers and session subagents. The `status` tool
 reports goals and running session subagents in one briefing. A session subagent
 still running when its browser connection closes is marked interrupted.
 
@@ -116,6 +116,103 @@ campaign materials in their task workspace; they cannot publish or contact
 prospects. Workers have per-task turn, time, and spending limits. Work is persisted under
 `~/.config/jarvis/agents`; task workspaces use `~/.jarvis-work` by default.
 Completed task workspaces can be removed with JARVIS's `cleanup` agent tool.
+
+### Recall Results and Reports
+
+Open the agent board and select **History** to retrieve older goals and tasks,
+including completed, cancelled and archived work. Search matches main task
+names, statuses and consolidated summaries. **Current** retains the live board;
+**Refresh history** reloads the saved snapshot without launching work.
+
+Each main task has one **Result** section containing its saved coordinator
+summary, not individual worker outputs. Missing summaries are stated explicitly.
+Expand **Files** under the result to see supported text documents grouped by
+worker, from their `reports/` and `artifacts/` folders. **View** opens the document in
+a readable blade; Markdown gets headings, lists, tables and code formatting,
+JSON is indented, and HTML is sanitized before display. Other text is shown in
+a code-style block. **Download** saves each file directly. **Refresh reports**
+reloads the list. The viewer supports Markdown, text, JSON, CSV, HTML, XML,
+YAML and log files, with a 512 KB per-file preview limit and up to 200 files.
+
+Recall requires the bridge and agent service. If a workspace was cleaned up,
+the recorded result remains available but its report files do not. Session
+subagent summaries are not shown as main results; this file viewer is for persistent
+agent-service tasks only. Reading history or reports never resumes tasks or
+changes approval decisions.
+
+## Output Folders
+
+JARVIS keeps generated output under `~/.jarvis-work` (`JARVIS_WORK_DIR`), shared
+by chat and the agent service. Set the same override in both services, and on
+each remote worker if you use remote dispatch. New work uses this layout:
+
+```text
+.jarvis-work/
+  sessions/<conversation-id>/
+    reports/       latest.md: latest completed chat response or failure
+    artifacts/     deliverables, downloads, screenshots, exports
+    logs/          reports.jsonl: timestamped response history
+    tmp/           intermediate files and shell temporary directory
+  goals/<goal-id>/tasks/<task-id>/
+    reports/       latest.md: latest progress, completion or blocker report
+    artifacts/     task deliverables, grouped by project or topic
+    logs/          reports.jsonl: every worker report call
+    tmp/           intermediate files and shell temporary directory
+```
+
+Code tasks still use a git worktree at their task path. Agents are instructed
+not to commit generated output folders unless they are requested project
+deliverables. Existing task paths and previously scattered files are not moved;
+resumed tasks gain the output subfolders at their existing path. Explicit
+workspace cleanup also removes the task's saved output, so retain needed
+deliverables before requesting cleanup.
+
+Every worker report call and completed chat response is saved automatically.
+Worker model messages are also retained in `logs/worker.jsonl`, with recognized
+secret-shaped values redacted. Text-provider shell commands and their captured
+stdout/stderr are saved in the session's `logs/commands.jsonl`. Native Claude
+shell logs and external-tool downloads must be directed to the output folders
+by the agent; they are not automatically mirrored by the bridge.
+Agents are instructed to use descriptive names and dated topic subfolders,
+save requested reports as Markdown, and pass the output rules to every
+delegate. Claude session subagent briefs receive the rules automatically.
+Conversation checkpoints, task state, memory and credentials remain in their
+existing managed configuration directories; these are not generated reports.
+
+Native Claude and shared bridge file-write tools reject paths outside the work
+root or project roots, including symlink escapes. Project source/configuration
+edits remain permitted under `~/Projects` and comma-separated
+`JARVIS_PROJECT_ROOTS`; this exemption is for task-required project changes, not
+for scattering generated reports. Background workers cannot create new files
+outside their task folder; existing external code/ops edits still require
+approval. Read access is unchanged. These checks are **not an OS sandbox**:
+shell scripts and external MCP tools can access other locations. Their output
+placement relies on the instructions and explicit destination arguments.
+Restart both services to load changes; this does not relocate existing files.
+
+## Tasks Needing Attention
+
+Open **Board** beside a scheduled task to see its goal and the blocked worker's
+result. A blocked task needs information or another change; it is not necessarily
+waiting for permission. Pending permission requests have separate **Approve** and
+**Deny** buttons.
+
+Blocked task rows have an **Information for this task** field. Enter the missing
+details and choose **Send & Resume** if the goal is paused, or **Send Reply** if
+it is active. A paused goal without a blocked worker also offers the reply form.
+The reply goes to the goal's coordinator, which reviews the new information and
+revises/retries blocked tasks where appropriate. Receipt is not confirmation
+that the blocker has been resolved; watch the updated task state and result.
+The original scope, retry limits, and approval requirements still apply.
+If a request times out or disconnects, check the board before retrying because
+the reply may already have been saved.
+
+You can also ask JARVIS by chat or voice to inspect and respond to a task by
+title. Its `board` tool returns goal IDs and blocker details for `goal_update`;
+you do not need to find internal IDs yourself. If titles are ambiguous, JARVIS
+should ask which goal you mean. `goal_update` can resume with `info` in one call.
+Editing a schedule changes future runs only: send information separately to
+an existing blocked goal.
 
 ## Task Scheduler
 
@@ -131,10 +228,33 @@ choose:
 - **Daily:** a wall-clock time in a selected IANA timezone.
 - **Weekly:** selected weekdays at a wall-clock time in a selected timezone.
 
+Choose a **Provider** and **Model** for the schedule: Claude, OpenAI, or a
+configured OpenAI-compatible local endpoint. New schedules initially select the
+chat provider/model when the agent service offers them. Saving pins that choice
+for both planning and every worker in each run, independently of later chat
+provider changes. Existing schedules without a choice retain automatic Claude
+planning and worker selection. Edit a schedule to select a different provider;
+already-created runs retain their original choice. Unavailable providers/models
+fail explicitly rather than silently switching to Claude.
+
+The agent service must have the provider's configuration, including
+`OPENAI_API_KEY` for OpenAI, `OPENAI_MODEL`/`JARVIS_OPENAI_MODELS` for its model
+list, or an `openai` endpoint in `JARVIS_ENDPOINTS` for local models. Models must
+support function tools. The OpenAI/local worker provides gated file read/write,
+exact text edits, public-page fetches, and (for code tasks) shell commands, plus
+the configured MCP integrations for ops/admin work. It has no native web-search
+tool or Claude Skills. Local calls are pinned to the leased endpoint.
+The bridge and agent service both load `.env.local`, followed by
+`~/.config/jarvis/secrets.env`, without overriding explicit service/shell
+environment values. Restart both services after changing provider settings.
+
 Chat/voice uses `schedule_create`, `schedule_list`, `schedule_update` and
 `schedule_run`. Ask for an explicit timezone for calendar work, such as
 "Prepare a health report every weekday at 09:00 Europe/London." A one-time
 tool timestamp must include a UTC offset. JARVIS confirms the next run time.
+The create/edit payload accepts `execution: { provider: "openai", model:
+"configured-model-name" }`; the agent board's `scheduleModels` lists supported
+choices. Omitting `execution` preserves the legacy default.
 The existing `goal_create` interval option is unchanged: it starts immediately
 and measures recurrence from completion, unlike the task scheduler.
 
@@ -180,8 +300,10 @@ token is never sent to the browser. Offline mutations report an error. If a
 connection drops or an acknowledgement times out, refresh before retrying: the
 change may already have been saved.
 
-Scheduled work uses the same coordinator, worker pool, spending limits and
-approval gates as other goals. A schedule is not approval to send a message,
+Scheduled work uses the same worker pool and approval policy as other goals.
+Claude runs retain SDK dollar-budget limits. OpenAI/local runs enforce time and
+turn limits, but do not enforce a dollar-budget cap or report SDK cost totals;
+use provider-side spend limits for those providers. A schedule is not approval to send a message,
 delete files or perform another restricted action. Standalone reminder
 notifications, arbitrary shell commands and user-entered cron expressions are
 not part of this scheduler.
@@ -198,7 +320,7 @@ another one could take.
 The endpoints come from `JARVIS_ENDPOINTS`, documented in
 [Configuration](configuration.md#model-endpoint-pool). `anthropic`, `gateway`, and `remote` endpoints can carry a task: local `anthropic` and `gateway` workers use the Claude Agent SDK.
 A `remote` endpoint posts research or ops work to the standalone remote-agent runtime over HTTPS; that runtime calls an on-host OpenAI-compatible model directly and the main host retrieves the result. Code and browser-based admin work stay on this machine. To run a task on a local model on the main host, put an
-Anthropic-compatible gateway in front of it and declare that as a `gateway`
+Anthropic-compatible gateway in front of it for ordinary goals and declare that as a `gateway`
 endpoint; the worker then passes that endpoint's own model name and points the
 run at its base URL. The child process still sees only a tight set of
 environment variables, and never the agent service's own token.
@@ -206,9 +328,10 @@ environment variables, and never the agent service's own token.
 The standalone remote runtime is text-only: it cannot browse or operate services,
 and ops tasks return blocked. See [Remote agent deployment](remote-agent.md).
 
-An `openai` endpoint — Ollama and the like — serves conversation and cheap
-summarising through the bridge instead. It is not given agent work, because the
-safety gate lives in the SDK's hooks and would not exist there.
+An `openai` endpoint also carries explicitly provider-selected schedules through
+the provider-neutral tool adapter. The adapter applies the same policy checks
+and approval flow before executing each tool. Ordinary goals without an
+explicit schedule execution choice retain the existing SDK/remote routing.
 
 A task's `model` may be `sonnet`, `opus`, or the id of a declared endpoint,
 which pins it to that machine. An unknown name falls back to `sonnet` rather

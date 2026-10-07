@@ -3,6 +3,7 @@ import https from 'node:https'
 import { isLoopback, TRAVELLING_KINDS } from '../bridge/endpoints.mjs'
 import { boardOf, briefing } from './briefing.mjs'
 import { BUDGETS } from './config.mjs'
+import { taskReports } from './reports.mjs'
 
 /**
  * The agent service's only door: HTTP with a bearer token, plus an SSE stream
@@ -52,7 +53,7 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
   function changeGoal(goal, body) {
     const event = (action) =>
       store.appendEvent({ type: 'goal_changed', goalId: goal.id, text: `${goal.title}: ${action}`, data: { title: goal.title, action } })
-    if (typeof body.info === 'string') {
+    if (typeof body.info === 'string' && body.action !== 'resume') {
       event('updated')
       coordinator.redirect(goal.id, body.info).catch(warn)
       return goal
@@ -65,7 +66,8 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
     if (body.action === 'resume') {
       const g = store.saveGoal({ ...goal, status: 'active' })
       event('resumed')
-      coordinator.redirect(g.id, 'The user resumed this goal. Continue.').catch(warn)
+      coordinator.redirect(g.id, typeof body.info === 'string' && body.info.trim()
+        ? body.info : 'The user resumed this goal. Continue.').catch(warn)
       return g
     }
     if (body.action === 'abandon') {
@@ -242,6 +244,11 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
           return send(201, acceptTask(body))
         case 'GET /tasks/:id':
           return send(200, taskState(id, Number(url.searchParams.get('since')) || 0))
+        case 'GET /tasks/:id/reports': {
+          const task = store.getTask(id)
+          if (!task) throw new NotFound(`No task ${id}.`)
+          return send(200, await taskReports(task, url.searchParams.get('file')))
+        }
         case 'POST /tasks/:id/cancel':
           if (!scheduler.cancel(id)) throw new NotFound(`No cancellable task ${id}.`)
           return send(200, { ok: true })

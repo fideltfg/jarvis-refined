@@ -77,6 +77,7 @@ test('escalate pauses the goal and says why', () => {
   const ev = store.readEvents().at(-1)
   assert.equal(ev.type, 'goal_paused')
   assert.equal(ev.data.reason, 'Which repo?')
+  assert.equal(ev.data.awaitingResponse, true)
 })
 
 test('the snapshot shows the goal, tasks, results and trigger', () => {

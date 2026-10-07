@@ -15,6 +15,10 @@ export const triggerSchema = z.discriminatedUnion('type', [
 export const scheduleSchema = z.object({
   title: z.string().trim().min(1).max(200),
   outcome: z.string().trim().min(1).max(10000),
+  execution: z.object({
+    provider: z.enum(['claude', 'openai', 'local']),
+    model: z.string().trim().min(1).max(200),
+  }).strict().optional(),
   priority: z.number().int().min(1).max(5).default(3),
   trigger: triggerSchema,
 }).strict()

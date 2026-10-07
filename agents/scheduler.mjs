@@ -92,8 +92,8 @@ export function createScheduler({
     const runtime = {
       endpointId: endpoint?.id ?? null,
       label: endpoint?.label ?? null,
-      provider: endpoint?.kind ?? 'anthropic',
-      model: endpoint?.model ?? task.model ?? null,
+      provider: task.execution?.provider ?? endpoint?.kind ?? 'anthropic',
+      model: task.execution?.model ?? endpoint?.model ?? task.model ?? null,
       startedAt: new Date(now()).toISOString(),
     }
     const t = store.saveTask({ ...task, status: 'running', runtime })

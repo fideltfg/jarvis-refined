@@ -2,6 +2,16 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { createServer } from 'node:http'
 import { configuredProviders, fallbackProvider, isCapacityError, providerModels, resolveModel, retryProvider, textProvider } from './providers.mjs'
+import { loadEnvFile } from './env.mjs'
+
+test('shared provider environment loading preserves explicit settings and file precedence', () => {
+  const env = { OPENAI_MODEL: 'explicit-model' }
+  loadEnvFile('project', { env, readFile: () => 'export OPENAI_API_KEY="fixture-key"\nOPENAI_MODEL=ignored\nJARVIS_OPENAI_MODELS=second-model\n# comment' })
+  loadEnvFile('secrets', { env, readFile: () => "OPENAI_API_KEY='other-key'\nJARVIS_AGENTS_TOKEN='fixture-token'" })
+  assert.deepEqual(env, { OPENAI_MODEL: 'explicit-model', OPENAI_API_KEY: 'fixture-key', JARVIS_OPENAI_MODELS: 'second-model', JARVIS_AGENTS_TOKEN: 'fixture-token' })
+  loadEnvFile('missing', { env, readFile: () => { throw Object.assign(new Error('missing'), { code: 'ENOENT' }) } })
+  assert.ok(configuredProviders(env).includes('openai'))
+})
 
 test('only capacity failures qualify for provider failover', () => {
   assert.equal(isCapacityError({ status: 429 }), true)

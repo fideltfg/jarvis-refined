@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 
 import { parseEndpoints } from '../bridge/endpoints.mjs'
 import { MAX_WORKERS } from './config.mjs'
-import { agentEndpoints, createPool, isTaskModel, taskModels } from './pool.mjs'
+import { agentEndpoints, scheduleEndpoints, createPool, isTaskModel, taskModels } from './pool.mjs'
 
 const envWith = (list) => ({ JARVIS_ENDPOINTS: JSON.stringify(list) })
 
@@ -23,9 +23,22 @@ test('with nothing declared, the pool is the Anthropic API at the old width', ()
   assert.equal(only.concurrency, MAX_WORKERS)
 })
 
-test('an OpenAI-compatible box cannot carry a task, because the gate lives in the SDK', () => {
+test('legacy task routing excludes direct OpenAI-compatible boxes', () => {
   assert.deepEqual(agentEndpoints(envWith([OLLAMA])).map((e) => e.id), ['anthropic'])
   assert.deepEqual(agentEndpoints(envWith([CLOUD, OLLAMA, RIGEL])).map((e) => e.id), ['cloud', 'rigel'])
+})
+
+test('explicit schedules lease only their selected provider and local model', () => {
+  const endpoints = scheduleEndpoints({ ...envWith([CLOUD, OLLAMA, RIGEL]), OPENAI_API_KEY: 'test-key' })
+  const p = createPool({ endpoints })
+  const openai = p.acquire({ model: 'sonnet', execution: { provider: 'openai', model: 'gpt-test' } })
+  assert.equal(openai.endpoint.scheduleProvider, 'openai')
+  const local = p.acquire({ execution: { provider: 'local', model: OLLAMA.model } })
+  assert.equal(local.endpoint.id, 'ollama')
+  assert.equal(p.acquire({ execution: { provider: 'local', model: 'missing' } }), null)
+  assert.equal(p.acquire({ execution: { provider: 'claude', model: 'opus' } }).endpoint.id, 'cloud')
+  assert.equal(p.acquire({ model: 'ollama' }), null)
+  assert.equal(p.acquire({ model: 'sonnet' }).endpoint.kind, 'anthropic')
 })
 
 test('a task may name a size or a declared endpoint, and nothing else', () => {

@@ -4,7 +4,8 @@ export type ScheduleTrigger =
   | { type: 'daily'; time: string; timezone: string }
   | { type: 'weekly'; time: string; timezone: string; days: number[] }
 
-export type ScheduleInput = { title: string; outcome: string; priority: number; trigger: ScheduleTrigger }
+export type ScheduleExecution = { provider: 'claude' | 'openai' | 'local'; model: string }
+export type ScheduleInput = { title: string; outcome: string; priority: number; trigger: ScheduleTrigger; execution?: ScheduleExecution }
 export type Schedule = ScheduleInput & {
   id: string
   status: 'active' | 'paused' | 'completed' | 'deleted'

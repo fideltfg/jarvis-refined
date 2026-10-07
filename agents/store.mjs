@@ -100,13 +100,14 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
       })
     },
 
-    newGoal({ title, outcome, priority = 3, recurring = null, taskCap = DEFAULT_TASK_CAP, id = newId('g'), scheduleId, occurrenceKey }) {
+    newGoal({ title, outcome, priority = 3, recurring = null, taskCap = DEFAULT_TASK_CAP, id = newId('g'), scheduleId, occurrenceKey, execution }) {
       if (!title || !outcome) throw new Error('A goal needs a title and an outcome.')
       if (!/^g_[a-z0-9]+$/.test(id) || get('goals', id)) throw new Error('Invalid or existing goal id.')
       if (recurring?.every) parseEvery(recurring.every)
       return save('goals', {
         id,
         ...(scheduleId ? { scheduleId, occurrenceKey } : {}),
+        ...(execution ? { execution: { ...execution } } : {}),
         title: String(title),
         outcome: String(outcome),
         status: 'active',
@@ -121,7 +122,8 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
     newTask({ goalId, title, brief, kind = 'research', dependsOn = [], model = 'sonnet', repo = null, allowedSkills = [] }) {
       if (!KINDS.includes(kind)) throw new Error(`Unknown task kind "${kind}".`)
       const id = newId('t')
-      const path = join(workDir, id)
+      const path = join(workDir, 'goals', goalId, 'tasks', id)
+      const execution = get('goals', goalId)?.execution
       const workspace =
         kind === 'code' && repo
           ? { path, repo, branch: `jarvis/${slug(title)}-${id.slice(-4)}` }
@@ -137,7 +139,8 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
         workspace,
         // A size, or the id of a declared endpoint; anything else falls back
         // rather than pinning the task to a machine that does not exist.
-        model: isTaskModel(model) ? model : 'sonnet',
+        model: execution?.model ?? (isTaskModel(model) ? model : 'sonnet'),
+        ...(execution ? { execution: { ...execution } } : {}),
         allowedSkills: kind === 'research' ? [...allowedSkills] : [],
         budget: { ...BUDGETS[kind] },
         attempts: 0,

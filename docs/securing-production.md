@@ -12,9 +12,10 @@ cheap.**
 
 | Surface | Default reach | Source |
 |---|---|---|
-| `jarvis_files` tools (`fs_read`, `fs_list`, `fs_search`, `fs_write`) | The owning user's whole home directory, the system temp directories, plus `JARVIS_FILE_ROOTS` | `bridge/server.mjs`, `bridge/files.mjs` |
+| `jarvis_files` reads and searches | The owning user's whole home directory, the output root, the system temp directories, plus `JARVIS_FILE_ROOTS` | `bridge/server.mjs`, `bridge/files.mjs` |
+| Foreground file writes | Generated-output root, `~/Projects`, and `JARVIS_PROJECT_ROOTS`; requires write access. Shell and external MCP tools are not confined by this gate. | [Output folders](background-agents.md#output-folders) |
 | Writes | Blocked by `--readonly`; the service installer enables writes unless passed `--readonly` | [Tools and Safety](tools-and-safety.md) |
-| Background-agent workspaces | `~/.jarvis-work/<taskId>` (`JARVIS_WORK_DIR`) | [Background agents](background-agents.md) |
+| Background-agent workspaces | `~/.jarvis-work/goals/<goalId>/tasks/<taskId>` (`JARVIS_WORK_DIR`); existing paths retained | [Background agents](background-agents.md) |
 | Agent state | `~/.config/jarvis/agents` (`JARVIS_AGENTS_DIR`) | [Configuration](configuration.md) |
 | Secrets | `~/.config/jarvis/secrets.env` | [Deployment](deployment.md) |
 | MCP and shell-capable tools | Whatever the owning OS user can do | `~/.claude.json` |

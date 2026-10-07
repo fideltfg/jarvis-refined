@@ -50,11 +50,21 @@ test('a worktree is recreated on an existing branch after removal', () => {
 })
 
 test('other kinds get a plain folder', () => {
-  const { store, goal } = setup()
+  const { store, goal, work } = setup()
   const task = store.newTask({ goalId: goal.id, title: 'Read', brief: 'b' })
+  assert.equal(task.workspace.path, join(work, 'goals', goal.id, 'tasks', task.id))
   assert.ok(existsSync(prepareWorkspace(task)))
+  for (const name of ['reports', 'artifacts', 'logs', 'tmp']) assert.ok(existsSync(join(task.workspace.path, name)))
   assert.equal(removeWorkspace(task), true)
   assert.equal(removeWorkspace(task), false)
+})
+
+test('existing task workspaces retain their path and gain output folders', () => {
+  const { store, goal, work } = setup()
+  const task = store.newTask({ goalId: goal.id, title: 'Legacy', brief: 'b' })
+  task.workspace.path = join(work, task.id)
+  assert.equal(prepareWorkspace(task), task.workspace.path)
+  for (const name of ['reports', 'artifacts', 'logs', 'tmp']) assert.ok(existsSync(join(task.workspace.path, name)))
 })
 
 test('cleanup removes workspaces of finished goals and cancelled tasks only', () => {

@@ -200,6 +200,7 @@ const ALLOWED_CLASSES = new Set([
   'startup-report', 'startup-report-overview', 'startup-report-meta',
   'startup-report-section', 'startup-report-list', 'startup-report-row',
   'startup-report-row-heading', 'startup-report-goal', 'startup-report-history',
+  'bl-document',
 ])
 
 function narrowClasses(root: Element) {
@@ -220,9 +221,9 @@ export function sanitisePanelHtml(html: string): string {
   const doc = new DOMParser().parseFromString(
     DOMPurify.sanitize(html, {
       ALLOWED_TAGS: [
-        'div', 'span', 'p', 'ul', 'ol', 'li', 'img', 'b', 'strong', 'em', 'i',
-        'section', 'h2', 'h3', 'details', 'summary',
-        'br', 'small', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'code', 'pre',
+        'article', 'div', 'span', 'p', 'ul', 'ol', 'li', 'img', 'b', 'strong', 'em', 'i',
+        'section', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'details', 'summary',
+        'blockquote', 'hr', 'del', 'br', 'small', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'code', 'pre',
         // Showing a video result as a line of text was the polite version of
         // refusing to answer.
         'video', 'source', 'iframe',

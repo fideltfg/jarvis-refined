@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { agentSummary, capacityLine, mergeBoard, runningAgents, statusLabel } from './board.ts'
+import { agentSummary, capacityLine, mainTaskRows, mergeBoard, runningAgents, statusLabel } from './board.ts'
 
 const task = (over = {}) => ({
   id: 't1', title: 'Task', kind: 'shell', status: 'queued', attempts: 1, summary: null,
@@ -92,6 +92,28 @@ test('a task stays under its own goal', () => {
   assert.deepEqual(rows.slice(1).map((r) => r.parentId), ['g1', 'g1'])
 })
 
+test('main task results use coordinator notes and hide worker and session results', () => {
+  const rows = mergeBoard(board({ goals: [goal({ notes: 'Release is ready for approval.', tasks: [task({ status: 'done', summary: 'Verbose worker output' })] })] }), [sub({ status: 'done', summary: 'Session output' })])
+  const visible = mainTaskRows(rows)
+  assert.deepEqual(visible.map((row) => row.id), ['g1'])
+  assert.equal(visible[0].result, 'Release is ready for approval.')
+  assert.equal(mainTaskRows(mergeBoard(board({ goals: [goal()] })))[0].result, null)
+})
+
+test('main task view retains actionable blockers and approvals, not worker results', () => {
+  const approval = { id: 'ap1', taskId: 'approval', category: 'shell', action: 'publish', detail: 'command' }
+  const rows = mergeBoard(board({ goals: [goal({ tasks: [task({ id: 'blocked', status: 'blocked' }), task({ id: 'approval', status: 'awaiting_approval' }), task({ id: 'running', status: 'running' })] })], approvals: [approval] }))
+  assert.deepEqual(mainTaskRows(rows).map((row) => row.id), ['g1', 'blocked', 'approval'])
+  assert.equal(mainTaskRows(rows)[2].approval, approval)
+})
+
+test('the merged main and child rows preserve explicit response-needed state', () => {
+  const rows = mergeBoard(board({ goals: [goal({ awaitingResponse: true, tasks: [task({ status: 'blocked', awaitingResponse: true })] })] }))
+  assert.equal(rows[0].awaitingResponse, true)
+  assert.equal(rows[1].awaitingResponse, true)
+  assert.equal(mergeBoard(null, [sub()])[0].awaitingResponse, false)
+})
+
 test('the most urgent unit comes first, whatever kind it is', () => {
   const rows = mergeBoard(
     board({
@@ -145,6 +167,14 @@ test('a paused goal says so', () => {
   const [row] = mergeBoard(board({ goals: [goal({ status: 'paused' })] }))
   assert.equal(row.status, 'paused')
   assert.equal(row.progress, 0)
+})
+
+test('history recalls cancelled tasks and keeps completed goals terminal', () => {
+  const rows = mergeBoard(board({ goals: [goal({ status: 'done', tasks: [task({ status: 'cancelled' })] })] }), [], { history: true })
+  assert.equal(rows[0].status, 'done')
+  assert.equal(rows[1].status, 'cancelled')
+  assert.equal(rows[0].progress, 0)
+  assert.equal(mergeBoard(board({ goals: [goal({ status: 'abandoned' })] }))[0].status, 'cancelled')
 })
 
 test('attempts only surface once something has gone wrong', () => {

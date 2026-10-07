@@ -124,3 +124,20 @@ test('editing title preserves priority and the interval anchor', () => {
   assert.deepEqual(edited.trigger, schedule.trigger)
   assert.equal(edited.nextRunAt, schedule.nextRunAt)
 })
+
+test('execution choices reach goals and every task and edits affect future runs only', async () => {
+  const h = harness(async (id, store) => {
+    store.newTask({ goalId: id, title: 'Research', brief: 'Check health', model: 'opus' })
+  })
+  const execution = { provider: 'openai', model: 'gpt-test' }
+  const schedule = h.jobs.create({ title: 'Report', outcome: 'Check', execution, trigger: { type: 'interval', minutes: 30 } })
+  h.jobs.runNow(schedule.id)
+  await h.jobs.idle()
+  const goal = h.store.listGoals()[0]
+  assert.deepEqual(goal.execution, execution)
+  assert.deepEqual(h.store.listTasks()[0].execution, execution)
+  assert.equal(h.store.listTasks()[0].model, execution.model)
+  const edited = h.jobs.update(schedule.id, { action: 'edit', values: { execution: { provider: 'claude', model: 'sonnet' }, trigger: { type: 'interval', minutes: 60 } } })
+  assert.equal(edited.execution.provider, 'claude')
+  assert.deepEqual(h.store.getGoal(goal.id).execution, execution)
+})

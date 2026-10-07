@@ -20,6 +20,7 @@ export function createScheduledJobs({ store, coordinator, now = Date.now, mirror
       goal = store.newGoal({
         id: occurrence.goalId, title: schedule.title, outcome: schedule.outcome,
         priority: schedule.priority, scheduleId: schedule.id, occurrenceKey: occurrence.key,
+        execution: schedule.execution,
       })
       mirror.goalCreated?.(goal)
     }
@@ -95,6 +96,7 @@ export function createScheduledJobs({ store, coordinator, now = Date.now, mirror
         const next = change.values.trigger ? scheduleInput({
           title: values.title ?? schedule.title, outcome: values.outcome ?? schedule.outcome,
           priority: values.priority ?? schedule.priority, trigger: values.trigger,
+          execution: values.execution ?? schedule.execution,
         }, now()) : values
         saved = store.saveSchedule({ ...schedule, ...next, status: schedule.status === 'completed' && values.trigger ? 'active' : schedule.status })
       } else if (['pause', 'resume', 'delete'].includes(change.action)) {

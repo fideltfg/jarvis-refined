@@ -102,8 +102,9 @@ function oneTurn(client, model, official = false) {
     const tools = options.tools ?? []
     // Only api.openai.com is known to accept it; local servers may reject it.
     const cacheKey = official && options.cacheKey ? { prompt_cache_key: options.cacheKey } : {}
-    for (let round = 0; round < 12; round += 1) {
-      const finalRound = tools.length > 0 && round === 11
+    const maxRounds = options.maxRounds ?? 12
+    for (let round = 0; round < maxRounds; round += 1) {
+      const finalRound = tools.length > 0 && round === maxRounds - 1
       let response
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
@@ -149,6 +150,7 @@ function oneTurn(client, model, official = false) {
         const result = await options.callTool(call.function.name, JSON.parse(call.function.arguments || '{}'))
         messages.push({ role: 'tool', tool_call_id: call.id, content: result })
         options.onToolResult?.(call.function.name, result)
+        if (options.shouldStop?.()) return
       }
     }
   }

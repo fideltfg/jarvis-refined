@@ -2,6 +2,7 @@ import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { dirname, relative, resolve, isAbsolute } from 'node:path'
+import { outputWriteError, resolvedOutputPath } from './workspace.mjs'
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024
 
@@ -26,7 +27,7 @@ const result = (text) => ({ content: [{ type: 'text', text }] })
 const failure = (text) => ({ isError: true, content: [{ type: 'text', text }] })
 
 /** Filesystem tools shared by Claude and OpenAI through the bridge. */
-export function filesServer({ roots, allowWrites }) {
+export function filesServer({ roots, allowWrites, workingDirectory, projectRoots = [] }) {
   const rootDescription = roots.join(', ')
   return createSdkMcpServer({
     name: 'jarvis_files',
@@ -109,9 +110,11 @@ export function filesServer({ roots, allowWrites }) {
         async ({ path, content }) => {
           if (!allowWrites) return failure('Blocked: filesystem writes are disabled.')
           try {
-            const checked = safePath(path, roots)
-            const parent = await existingPath(dirname(checked.candidate), roots)
-            const target = resolve(parent, checked.candidate.slice(dirname(checked.candidate).length + 1))
+            const destination = workingDirectory ? resolve(workingDirectory, path) : path
+            const reason = workingDirectory && outputWriteError(destination, workingDirectory, projectRoots)
+            if (reason) return failure(reason)
+            const checked = safePath(destination, roots)
+            const target = resolvedOutputPath(checked.candidate)
             safePath(target, roots)
             await mkdir(dirname(target), { recursive: true })
             await writeFile(target, content, { encoding: 'utf8', mode: 0o600 })

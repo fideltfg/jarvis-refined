@@ -1,3 +1,4 @@
+import '../bridge/env.mjs'
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -10,7 +11,7 @@ import { createContacts } from './contacts.mjs'
 import { createCoordinator, sdkModel } from './coordinator.mjs'
 import { createDispatch } from './dispatch.mjs'
 import { paMirror } from './mirror.mjs'
-import { agentEndpoints, createPool } from './pool.mjs'
+import { scheduleEndpoints, createPool } from './pool.mjs'
 import { recover } from './recover.mjs'
 import { createScheduler } from './scheduler.mjs'
 import { createStore } from './store.mjs'
@@ -51,9 +52,9 @@ const mcpFor = (task) => {
  * than this box can bear — and the health memory keeps the scheduler from
  * waiting on a machine that is switched off.
  */
-const endpoints = agentEndpoints()
+const endpoints = scheduleEndpoints()
 const health = createHealth()
-const maxTotal = Number(process.env.JARVIS_MAX_WORKERS) || Math.max(MAX_WORKERS, endpoints.reduce((t, e) => t + e.concurrency, 0))
+const maxTotal = Number(process.env.JARVIS_MAX_WORKERS) || Math.max(MAX_WORKERS, endpoints.filter((endpoint) => !endpoint.scheduleProvider).reduce((t, e) => t + e.concurrency, 0))
 const pool = createPool({ endpoints, health, maxTotal })
 
 const dispatch = createDispatch({

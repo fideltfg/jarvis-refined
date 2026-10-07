@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync } from 'node:fs'
+import { prepareOutputFolders } from '../bridge/workspace.mjs'
 
 /**
  * Where a task works. Code tasks get a git worktree on their own branch, so an
@@ -22,12 +23,14 @@ const branchExists = (repo, branch) => {
 
 export function prepareWorkspace(task) {
   const { path, repo, branch } = task.workspace
-  if (existsSync(path)) return path
-  if (task.kind === 'code' && repo) {
-    git(branchExists(repo, branch) ? ['worktree', 'add', path, branch] : ['worktree', 'add', '-b', branch, path], repo)
-  } else {
-    mkdirSync(path, { recursive: true })
+  if (!existsSync(path)) {
+    if (task.kind === 'code' && repo) {
+      git(branchExists(repo, branch) ? ['worktree', 'add', path, branch] : ['worktree', 'add', '-b', branch, path], repo)
+    } else {
+      mkdirSync(path, { recursive: true })
+    }
   }
+  prepareOutputFolders(path)
   return path
 }
 

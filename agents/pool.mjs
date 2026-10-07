@@ -40,6 +40,28 @@ export function agentEndpoints(env = process.env) {
   }]
 }
 
+export function scheduleEndpoints(env = process.env) {
+  const legacy = agentEndpoints(env)
+  const text = listEndpoints(env).filter((endpoint) => endpoint.kind === 'openai')
+    .map((endpoint) => ({ ...endpoint, scheduleProvider: 'local' }))
+  if (!legacy.some((endpoint) => endpoint.kind === 'anthropic')) {
+    text.push({ id: 'schedule:claude', kind: 'anthropic', label: 'Claude', concurrency: MAX_WORKERS, kinds: [], weight: 1, scheduleProvider: 'claude' })
+  }
+  if (env.OPENAI_API_KEY) text.push({
+    id: 'schedule:openai', kind: 'openai', label: 'OpenAI', baseURL: null,
+    model: null, concurrency: MAX_WORKERS, kinds: [], weight: 1, scheduleProvider: 'openai',
+  })
+  return [...legacy, ...text]
+}
+
+const matchesTask = (endpoint, task) => {
+  if (!task.execution) return !endpoint.scheduleProvider && matchesModel(endpoint, task.model)
+  const { provider, model } = task.execution
+  if (provider === 'claude') return endpoint.kind === 'anthropic'
+  if (provider === 'openai') return endpoint.scheduleProvider === 'openai'
+  return endpoint.scheduleProvider === 'local' && endpoint.model === model
+}
+
 /** Whether a task may name this as its model: a size, or an endpoint id. */
 export function isTaskModel(model, env = process.env) {
   if (!model) return false
@@ -91,7 +113,7 @@ export function createPool({ endpoints = agentEndpoints(), health = null, maxTot
   const eligible = (task = {}) =>
     endpoints.filter((endpoint) =>
       usable(endpoint) && (!task.remote || (endpoint.kind === 'remote' && endpoint.id === task.remote.endpointId)) &&
-      canCarry(endpoint, task) && matchesModel(endpoint, task.model) && matchesKind(endpoint, task.kind))
+      canCarry(endpoint, task) && matchesTask(endpoint, task) && matchesKind(endpoint, task.kind))
 
   /** Least loaded relative to its own size, then by weight, then by id: no
    *  clocks and no randomness, so the choice is the same in a test twice. */

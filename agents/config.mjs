@@ -9,7 +9,7 @@ import { join } from 'node:path'
  */
 export const AGENTS_DIR =
   process.env.JARVIS_AGENTS_DIR || join(homedir(), '.config', 'jarvis', 'agents')
-export const WORK_DIR = process.env.JARVIS_WORK_DIR || join(homedir(), '.jarvis-work')
+export { WORK_DIR } from '../bridge/workspace.mjs'
 export const PORT = Number(process.env.JARVIS_AGENTS_PORT) || 8788
 export const TOKEN = process.env.JARVIS_AGENTS_TOKEN || ''
 export const HOST = process.env.JARVIS_AGENTS_HOST || '127.0.0.1'

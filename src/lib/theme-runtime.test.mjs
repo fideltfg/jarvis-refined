@@ -72,9 +72,23 @@ test('LCARS loose ends has command-window docking and a scrollable styled ledger
   assert.match(docking, /position: absolute;/)
   assert.match(docking, /top: 40px;/)
   assert.match(docking, /bottom: 0;/)
-  assert.match(css, /\.lcars-loose-window \{[^}]*display: flex;[^}]*border-left: 6px solid var\(--lc-violet\);/)
+  assert.match(css, /\.lcars-loose-window \{[^}]*display: flex;[^}]*border-left: var\(--lc-window-edge-width\) solid var\(--lc-window-edge\);/)
   assert.match(css, /\.lcars-loose-list \{[^}]*min-height: 0;[^}]*overflow-y: auto;[^}]*list-style: none;/)
   assert.match(css, /\.lcars-loose-row \{[^}]*display: grid;[^}]*minmax\(0, 1fr\)/)
+})
+
+test('LCARS status report keeps descriptions full-width and wraps metadata below them', async () => {
+  const css = await readFile(join(themes, 'lcars/theme.css'), 'utf8')
+  const row = css.match(/\.lcars-report-content li \{([^}]*)\}/)?.[1]
+  const metadata = css.match(/\.lcars-report-content li small \{([^}]*)\}/)?.[1]
+  assert.ok(row)
+  assert.ok(metadata)
+  assert.match(row, /display: block;/)
+  assert.match(row, /overflow-wrap: anywhere;/)
+  assert.match(metadata, /display: block;/)
+  assert.match(metadata, /white-space: normal;/)
+  assert.match(metadata, /overflow-wrap: anywhere;/)
+  assert.doesNotMatch(metadata, /flex: 0 0 auto;|white-space: nowrap;/)
 })
 
 async function withTheme(manifest, module, check) {

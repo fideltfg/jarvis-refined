@@ -201,28 +201,43 @@ export function decideApproval(id: string, decision: 'approve' | 'deny') {
 
 let scheduleRequestSeq = 0
 export function scheduleRequest(request: ScheduleRequest): Promise<Schedule | Schedule[]> {
+  return commandRequest('schedule', request, 'schedules')
+}
+
+export function goalRequest(request: { goalId: string; info: string; resume: boolean }): Promise<{ id: string; status: string }> {
+  return commandRequest('goal', request, 'agent board')
+}
+
+export type TaskReports = { result: unknown; failure: unknown; files: string[] }
+export function reportRequest(request: { action: 'history' }): Promise<AgentBoardData>
+export function reportRequest(request: { action: 'task'; taskId: string; file?: string }): Promise<TaskReports | { file: string; content: string }>
+export function reportRequest(request: { action: 'history' | 'task'; taskId?: string; file?: string }): Promise<AgentBoardData | TaskReports | { file: string; content: string }> {
+  return commandRequest('report', request, 'agent reports')
+}
+
+function commandRequest<Result>(kind: 'schedule' | 'goal' | 'report', request: object, surface: string): Promise<Result> {
   const ws = socket
-  if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error('The bridge is disconnected. Reconnect before changing schedules.'))
-  const requestId = `schedule-${Date.now()}-${++scheduleRequestSeq}`
+  if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error(`The bridge is disconnected. Reconnect before changing ${surface}.`))
+  const requestId = `${kind}-${Date.now()}-${++scheduleRequestSeq}`
   return new Promise((resolve, reject) => {
     const cleanup = () => {
       clearTimeout(timer)
       ws.removeEventListener('message', onMessage)
       ws.removeEventListener('close', onClose)
     }
-    const onClose = () => { cleanup(); reject(new Error('The bridge disconnected. Refresh schedules before retrying; the change may have been saved.')) }
+    const onClose = () => { cleanup(); reject(new Error(`The bridge disconnected. Refresh ${surface} before retrying; the change may have been saved.`)) }
     const onMessage = (event: MessageEvent) => {
       let reply
       try { reply = JSON.parse(event.data as string) } catch { return }
-      if (reply.type !== 'schedule_reply' || reply.requestId !== requestId) return
+      if (reply.type !== `${kind}_reply` || reply.requestId !== requestId) return
       cleanup()
       if (reply.error) reject(new Error(reply.error))
       else resolve(reply.result)
     }
-    const timer = setTimeout(() => { cleanup(); reject(new Error('Schedule request timed out. Refresh before retrying; the change may have been saved.')) }, 30000)
+    const timer = setTimeout(() => { cleanup(); reject(new Error(`${kind === 'schedule' ? 'Schedule' : 'Goal'} request timed out. Refresh ${surface} before retrying; the change may have been saved.`)) }, 30000)
     ws.addEventListener('message', onMessage)
     ws.addEventListener('close', onClose)
-    try { ws.send(JSON.stringify({ type: 'schedule_request', requestId, ...request })) }
+    try { ws.send(JSON.stringify({ type: `${kind}_request`, requestId, ...request })) }
     catch (error) { cleanup(); reject(error) }
   })
 }

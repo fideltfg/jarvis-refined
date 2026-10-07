@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { KINDS, MAX_ATTEMPTS, MODELS } from './config.mjs'
 import { taskModels } from './pool.mjs'
 import { agentEnv, usageData } from './worker.mjs'
+import { scheduleModels, textQuery } from './text-query.mjs'
 
 /**
  * The coordinator is how a goal gets thought about: a short Opus pass that
@@ -120,7 +121,7 @@ export function createActions(store, goalId, { mirror = {}, created = [] } = {})
       if (!t || t.goalId !== goalId) return `No task ${taskId} in this goal.`
       const next = { ...t }
       if (brief) next.brief = String(brief)
-      if (model === 'opus' || model === 'sonnet') next.model = model
+      if (!t.execution && (model === 'opus' || model === 'sonnet')) next.model = model
       if (status === 'queued') {
         if (!['failed', 'blocked'].includes(t.status)) {
           return `Refused: only a failed or blocked task can be retried; ${taskId} is ${t.status}.`
@@ -162,7 +163,7 @@ export function createActions(store, goalId, { mirror = {}, created = [] } = {})
     escalate({ reason }) {
       const g = goal()
       store.saveGoal({ ...g, status: 'paused' })
-      store.appendEvent({ type: 'goal_paused', goalId, text: `${g.title} needs you: ${reason}`, data: { title: g.title, reason } })
+      store.appendEvent({ type: 'goal_paused', goalId, text: `${g.title} needs you: ${reason}`, data: { title: g.title, reason, awaitingResponse: true } })
       return 'Escalated; the goal is paused until the user responds.'
     },
   }
@@ -191,8 +192,11 @@ function checkRunaway(store, goalId, created) {
   store.saveGoal({ ...goal, lastPlan: { sig, done } })
 }
 
-export function sdkModel({ queryFn = query, model = MODELS.opus, maxBudgetUsd = 1 } = {}) {
-  return async ({ prompt, actions }) => {
+export function sdkModel({ queryFn = query, model = MODELS.opus, maxBudgetUsd = 1, makeTextQuery = textQuery, env = process.env } = {}) {
+  return async ({ prompt, actions, execution }) => {
+    if (execution && !scheduleModels(env)[execution.provider]?.includes(execution.model)) {
+      throw new Error(`Scheduled provider/model is unavailable: ${execution.provider}/${execution.model}. Configure it or edit the schedule.`)
+    }
     const text = (s) => ({ content: [{ type: 'text', text: s }] })
     const server = createSdkMcpServer({
       name: 'coord',
@@ -227,10 +231,15 @@ export function sdkModel({ queryFn = query, model = MODELS.opus, maxBudgetUsd = 
         permissionDecisionReason: 'The coordinator acts only through its own tools.',
       },
     })
-    const stream = queryFn({
+    const runQuery = execution && execution.provider !== 'claude' ? makeTextQuery(execution, { env }) : queryFn
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 120000)
+    let usage = null
+    try {
+      const stream = runQuery({
       prompt,
       options: {
-        model,
+        model: execution?.model ?? model,
         maxTurns: 8,
         maxBudgetUsd,
         systemPrompt: COORDINATOR_PROMPT,
@@ -239,19 +248,22 @@ export function sdkModel({ queryFn = query, model = MODELS.opus, maxBudgetUsd = 
         mcpServers: { coord: server },
         hooks: { PreToolUse: [{ hooks: [onlyCoord] }] },
         canUseTool: async () => ({ behavior: 'allow' }),
-        env: agentEnv(),
+        env: agentEnv(env),
+        abortController: controller,
       },
-    })
-    let usage = null
-    for await (const msg of stream) {
-      if (msg.type === 'result') {
-        usage = usageData(msg)
-        if (msg.subtype !== 'success' && msg.subtype !== 'error_max_turns') {
-          const error = new Error(`the coordinator run ended with ${msg.subtype}`)
-          error.usage = usage
-          throw error
+      })
+      for await (const msg of stream) {
+        if (msg.type === 'result') {
+          usage = usageData(msg)
+          if (msg.subtype !== 'success' && msg.subtype !== 'error_max_turns') {
+            const error = new Error(`the coordinator run ended with ${msg.subtype}`)
+            error.usage = usage
+            throw error
+          }
         }
       }
+    } finally {
+      clearTimeout(timer)
     }
     return usage
   }
@@ -271,7 +283,7 @@ export function createCoordinator({ store, runModel = sdkModel(), mirror = {} })
     const created = []
     const actions = createActions(store, goalId, { mirror, created })
     try {
-      const usage = await runModel({ prompt: snapshot(store, goalId, trigger), actions })
+      const usage = await runModel({ prompt: snapshot(store, goalId, trigger), actions, execution: goal.execution })
       if (usage) store.appendEvent({ type: 'coordinator_usage', goalId, text: 'Coordinator usage', data: usage })
     } catch (err) {
       if (err.usage) store.appendEvent({ type: 'coordinator_usage', goalId, text: 'Coordinator usage', data: err.usage })

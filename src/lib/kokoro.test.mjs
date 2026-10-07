@@ -128,7 +128,8 @@ test('the inference worker serializes generation and continues after a sentence 
     },
   }
   const waitFor = async (condition) => {
-    for (let attempt = 0; attempt < 100; attempt++) {
+    const deadline = performance.now() + 5_000
+    while (performance.now() < deadline) {
       if (condition()) return
       await new Promise((resolve) => setImmediate(resolve))
     }

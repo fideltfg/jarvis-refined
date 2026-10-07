@@ -6,12 +6,12 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 
 const CLIENT_INFO = { name: 'jarvis-provider-broker', version: '1.0.0' }
 
-function openTransport(config) {
+function openTransport(config, env) {
   if (config.command) {
     return new StdioClientTransport({
       command: config.command,
       args: config.args ?? [],
-      env: { ...process.env, ...(config.env ?? {}) },
+      env: { ...env, ...(config.env ?? {}) },
       cwd: config.cwd,
       stderr: 'pipe',
     })
@@ -46,7 +46,7 @@ function resultText(result) {
 }
 
 /** Provider-neutral MCP discovery and execution. */
-export async function createToolBroker({ external = {}, local = {} }) {
+export async function createToolBroker({ external = {}, local = {}, env = process.env }) {
   const entries = new Map()
   const connections = []
 
@@ -68,7 +68,7 @@ export async function createToolBroker({ external = {}, local = {} }) {
   for (const [server, config] of Object.entries(external)) {
     try {
       const client = new Client(CLIENT_INFO)
-      await addClient(server, client, openTransport(config))
+      await addClient(server, client, openTransport(config, env))
     } catch (error) {
       console.warn(`[jarvis] MCP broker could not connect to ${server}: ${error.message}`)
     }

@@ -34,6 +34,7 @@ export type AgentTask = {
   status: 'queued' | 'running' | 'blocked' | 'awaiting_approval' | 'done' | 'failed' | 'cancelled'
   attempts: number
   summary: string | null
+  awaitingResponse?: boolean
   created?: string
   updated?: string
   model?: string | null
@@ -45,13 +46,15 @@ export type AgentGoal = {
   id: string
   title: string
   outcome: string
+  notes?: string | null
+  awaitingResponse?: boolean
   status: string
   priority: number
   tasks: AgentTask[]
   created?: string
   updated?: string
 }
-export type AgentApproval = { id: string; taskId: string; category: string; action: string; detail: string }
+export type AgentApproval = { id: string; taskId: string; category: string; action: string; detail: string; created?: string }
 
 /** One model endpoint an agent task can run on, as GET /endpoints reports it. */
 export type AgentEndpoint = {
@@ -68,6 +71,7 @@ export type AgentEndpoint = {
 export type AgentCapacity = { capacity: number | null; running: number; endpoints: AgentEndpoint[] }
 
 export type AgentBoardData = {
+  scheduleModels?: Partial<Record<'claude' | 'openai' | 'local', string[]>>
   schedules?: import('./schedules').Schedule[]
   goals: AgentGoal[]
   approvals: AgentApproval[]
@@ -130,6 +134,7 @@ export type BoardAgent = {
   progress: number | null
   /** The approval this row is waiting on, if any. */
   approval: AgentApproval | null
+  awaitingResponse: boolean
   /** Every row is JARVIS's, whichever provider carries it. */
   owner: 'JARVIS'
   /** Where it runs, in words: provider, endpoint or host. Null for goals. */
@@ -233,11 +238,14 @@ export function capacityLine(capacity: AgentCapacity | null | undefined): string
   return parts.join(' · ')
 }
 
-const goalStatus = (status: string): BoardAgentStatus => (status === 'paused' ? 'paused' : 'active')
+const goalStatus = (status: string): BoardAgentStatus => status === 'paused' ? 'paused' : status === 'done' ? 'done' : status === 'abandoned' ? 'cancelled' : 'active'
 
 /** Agents doing work right now, whatever provider carries them. Goals are plans, not agents. */
 export const runningAgents = (rows: BoardAgent[]): BoardAgent[] =>
   rows.filter((row) => row.kind !== 'goal' && row.status === 'running')
+
+export const mainTaskRows = (rows: BoardAgent[]): BoardAgent[] =>
+  rows.filter((row) => row.kind === 'goal' || (row.kind === 'task' && (row.status === 'blocked' || row.approval !== null)))
 
 /** The board's headline: how many of JARVIS's agents are in each live state. */
 export function agentSummary(rows: BoardAgent[]): string {
@@ -281,11 +289,11 @@ const at = (row: BoardAgent) => row.finishedAt ?? row.startedAt ?? ''
  * tie. Tasks keep their goal's order rather than being re-sorted, because a
  * plan read out of order is not a plan.
  */
-export function mergeBoard(board: AgentBoardData | null, session: SessionAgent[] = []): BoardAgent[] {
+export function mergeBoard(board: AgentBoardData | null, session: SessionAgent[] = [], { history = false } = {}): BoardAgent[] {
   const units: BoardAgent[][] = []
 
   for (const goal of board?.goals ?? []) {
-    const live = goal.tasks.filter((t) => t.status !== 'cancelled')
+    const live = goal.tasks.filter((task) => task.status !== 'cancelled')
     const done = live.filter((t) => t.status === 'done').length
     const goalRow: BoardAgent = {
       id: goal.id,
@@ -293,19 +301,20 @@ export function mergeBoard(board: AgentBoardData | null, session: SessionAgent[]
       name: goal.title,
       status: goalStatus(goal.status),
       activity: goalActivity(live, done),
-      result: null,
+      result: goal.notes?.trim() || null,
       startedAt: goal.created ?? null,
       finishedAt: null,
       parentId: null,
       progress: live.length ? done / live.length : 0,
       approval: null,
+      awaitingResponse: goal.awaitingResponse ?? false,
       owner: 'JARVIS',
       runsOn: null,
       model: null,
       goal: null,
       brief: goal.outcome || null,
     }
-    const tasks: BoardAgent[] = live.map((task) => ({
+    const tasks: BoardAgent[] = (history ? goal.tasks : live).map((task) => ({
       id: task.id,
       kind: 'task',
       name: task.title,
@@ -317,6 +326,7 @@ export function mergeBoard(board: AgentBoardData | null, session: SessionAgent[]
       parentId: goal.id,
       progress: null,
       approval: board?.approvals.find((a) => a.taskId === task.id) ?? null,
+      awaitingResponse: task.awaitingResponse ?? false,
       owner: 'JARVIS',
       runsOn: taskRunsOn(task),
       model: task.runtime?.model ?? task.model ?? null,
@@ -342,6 +352,7 @@ export function mergeBoard(board: AgentBoardData | null, session: SessionAgent[]
         parentId: null,
         progress: null,
         approval: null,
+        awaitingResponse: false,
         owner: 'JARVIS',
         runsOn: `${providerName(agent.provider ?? 'claude')} session`,
         model: agent.model ?? null,

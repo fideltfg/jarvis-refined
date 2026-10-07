@@ -42,12 +42,15 @@ test('text providers can run builds only with shell permission and a permitted c
   const name = 'mcp__jarvis_commands__run_command'
   try {
     for (const allowWrites of [false, true]) {
-      const broker = await createToolBroker({ local: { jarvis_commands: commandsServer({ roots: [root], allowWrites }) } })
+      const broker = await createToolBroker({ local: { jarvis_commands: commandsServer({ roots: [root], allowWrites, workingDirectory: root }) } })
       try {
         assert.ok(broker.tools().some((entry) => entry.function.name === name))
         const response = await broker.call(name, { command: 'printf build-ok', cwd: root }, { allow: () => allowWrites })
         assert.match(response, allowWrites ? /build-ok\nExit: 0/ : /Blocked/)
         if (allowWrites) {
+          const log = JSON.parse((await readFile(join(root, 'logs', 'commands.jsonl'), 'utf8')).trim())
+          assert.equal(log.stdout, 'build-ok')
+          assert.equal(log.exit, 0)
           assert.match(await broker.call(name, { command: 'pwd', cwd: '/etc' }), /outside Jarvis file roots/)
           assert.match(await broker.call(name, { command: 'exit 7', cwd: root }), /Exit: 7/)
         }
@@ -56,6 +59,24 @@ test('text providers can run builds only with shell permission and a permitted c
       }
     }
   } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('session file writes use organized output folders and reject loose files outside them', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'jarvis-session-files-'))
+  const workingDirectory = join(root, 'session')
+  const { prepareOutputFolders } = await import('./workspace.mjs')
+  prepareOutputFolders(workingDirectory)
+  const broker = await createToolBroker({ local: { jarvis_files: filesServer({ roots: [root], allowWrites: true, workingDirectory }) } })
+  try {
+    const name = 'mcp__jarvis_files__fs_write'
+    assert.match(await broker.call(name, { path: 'reports/topic/final.md', content: 'saved' }), /Wrote/)
+    assert.equal(await readFile(join(workingDirectory, 'reports/topic/final.md'), 'utf8'), 'saved')
+    assert.match(await broker.call(name, { path: join(root, 'loose.md'), content: 'blocked' }), /must stay/)
+    await assert.rejects(readFile(join(root, 'loose.md')))
+  } finally {
+    await broker.close()
     await rm(root, { recursive: true, force: true })
   }
 })

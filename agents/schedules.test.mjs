@@ -42,3 +42,14 @@ test('schedule persistence survives reload without creating any goal', () => {
   assert.equal(store.listGoals().length, 0)
   assert.equal(store.listTasks().length, 0)
 })
+
+test('schedules persist an explicit provider and model without changing legacy defaults', () => {
+  const root = mkdtempSync(join(tmpdir(), 'jarvis-schedule-provider-'))
+  const store = createStore(root, { now: () => new Date(now) })
+  const execution = { provider: 'openai', model: 'gpt-4.1-mini' }
+  const schedule = store.newSchedule({ ...input({ type: 'interval', minutes: 30 }), execution })
+  assert.deepEqual(createStore(root).getSchedule(schedule.id).execution, execution)
+  assert.equal(scheduleInput(input({ type: 'interval', minutes: 30 }), now).execution, undefined)
+  assert.throws(() => scheduleInput({ ...input({ type: 'interval', minutes: 30 }), execution: { ...execution, provider: 'unknown' } }, now))
+  assert.throws(() => scheduleInput({ ...input({ type: 'interval', minutes: 30 }), execution: { ...execution, model: '' } }, now))
+})

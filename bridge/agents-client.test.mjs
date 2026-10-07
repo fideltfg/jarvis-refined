@@ -85,6 +85,25 @@ test('status combines session agents with service work as one JARVIS briefing', 
   }
 })
 
+test('board exposes identifiers and blockers for goal updates without a user-supplied ID', async () => {
+  const goal = { id: 'g_attention', title: 'Review documentation', status: 'paused', tasks: [{ id: 't_inventory', status: 'blocked', summary: 'Repository path needed.' }] }
+  const calls = []
+  const broker = await createToolBroker({ local: { jarvis_agents: agentsServer({
+    board: async () => ({ goals: [goal], approvals: [] }),
+    updateGoal: async (id, change) => { calls.push({ id, change }); return { ...goal, status: change.action === 'resume' ? 'active' : 'paused' } },
+  }) } })
+  try {
+    const result = JSON.parse(await broker.call('mcp__jarvis_agents__board', {}))
+    assert.equal(result.goals[0].tasks[0].summary, 'Repository path needed.')
+    await broker.call('mcp__jarvis_agents__goal_update', { goalId: result.goals[0].id, action: 'info', info: 'Repository: /repo. Revise and retry inventory.' })
+    await broker.call('mcp__jarvis_agents__goal_update', { goalId: result.goals[0].id, action: 'resume' })
+    assert.deepEqual(calls, [{ id: 'g_attention', change: { info: 'Repository: /repo. Revise and retry inventory.' } }, { id: 'g_attention', change: { action: 'resume' } }])
+    await broker.call('mcp__jarvis_agents__goal_update', { goalId: goal.id, action: 'resume', info: 'Repository: /repo. Retry inventory.' })
+    assert.deepEqual(calls.at(-1), { id: goal.id, change: { action: 'resume', info: 'Repository: /repo. Retry inventory.' } })
+    assert.match(await broker.call('mcp__jarvis_agents__goal_update', { goalId: goal.id, action: 'info' }), /Provide the information/)
+  } finally { await broker.close() }
+})
+
 test('the status tool reports the service offline instead of throwing', async () => {
   const broker = await createToolBroker({
     local: { jarvis_agents: agentsServer(agentsApi({ token: 't', fetchFn: offlineFetch })) },

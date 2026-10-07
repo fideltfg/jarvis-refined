@@ -172,6 +172,58 @@ test('a failed reconnect schedules another attempt and recovers without a new qu
   })
 })
 
+test('goal replies await correlated acknowledgements, preserve errors and never retry automatically', async () => {
+  await withBridge(async ({ bridge, sockets, fire }) => {
+    const input = { goalId: 'g_123', info: 'Repository: /repo', resume: true }
+    await assert.rejects(bridge.goalRequest(input), /disconnected/)
+    const warm = bridge.warmBridge()
+    sockets[0].open()
+    await warm
+    const pending = bridge.goalRequest(input)
+    const frame = sockets[0].sent.at(-1)
+    assert.deepEqual(frame, { type: 'goal_request', requestId: frame.requestId, ...input })
+    sockets[0].message({ type: 'goal_reply', requestId: 'unrelated', result: {} })
+    sockets[0].message({ type: 'goal_reply', requestId: frame.requestId, result: { id: 'g_123', status: 'active' } })
+    assert.deepEqual(await pending, { id: 'g_123', status: 'active' })
+    const failed = bridge.goalRequest(input)
+    const failure = assert.rejects(failed, /offline/)
+    sockets[0].message({ type: 'goal_reply', requestId: sockets[0].sent.at(-1).requestId, error: 'Agents offline' })
+    await failure
+    const timed = bridge.goalRequest(input)
+    const timeout = assert.rejects(timed, /may have been saved/)
+    await fire(30000)
+    await fire(30000)
+    await timeout
+    assert.equal(sockets[0].sent.filter((sent) => sent.type === 'goal_request').length, 3)
+    const disconnected = bridge.goalRequest(input)
+    const closed = assert.rejects(disconnected, /may have been saved/)
+    sockets[0].close()
+    await closed
+  })
+})
+
+test('report recall requests correlate history, file results and missing-file errors', async () => {
+  await withBridge(async ({ bridge, sockets }) => {
+    await assert.rejects(bridge.reportRequest({ action: 'history' }), /disconnected/)
+    const warm = bridge.warmBridge()
+    sockets[0].open()
+    await warm
+    const history = bridge.reportRequest({ action: 'history' })
+    const frame = sockets[0].sent.at(-1)
+    assert.equal(frame.type, 'report_request')
+    sockets[0].message({ type: 'report_reply', requestId: 'unrelated', result: {} })
+    sockets[0].message({ type: 'report_reply', requestId: frame.requestId, result: { goals: [] } })
+    assert.deepEqual(await history, { goals: [] })
+    const file = bridge.reportRequest({ action: 'task', taskId: 't_123', file: 'latest.md' })
+    sockets[0].message({ type: 'report_reply', requestId: sockets[0].sent.at(-1).requestId, result: { file: 'latest.md', content: 'Saved' } })
+    assert.deepEqual(await file, { file: 'latest.md', content: 'Saved' })
+    const missing = bridge.reportRequest({ action: 'task', taskId: 't_123', file: 'missing.md' })
+    sockets[0].message({ type: 'report_reply', requestId: sockets[0].sent.at(-1).requestId, error: 'Report not found' })
+    await assert.rejects(missing, /not found/)
+    assert.equal(sockets[0].sent.some((message) => message.type === 'ask' || message.type === 'goal_request'), false)
+  })
+})
+
 test('schedule mutations await correlated acknowledgements and surface service errors', async () => {
   await withBridge(async ({ bridge, sockets }) => {
     await assert.rejects(bridge.scheduleRequest({ action: 'list' }), /disconnected/)
