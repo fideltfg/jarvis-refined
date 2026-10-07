@@ -1,5 +1,6 @@
 import { MAX_WORKERS } from './config.mjs'
 import { parseEvery } from './store.mjs'
+import { createScheduledJobs } from './scheduled-jobs.mjs'
 
 /**
  * The loop that turns queued tasks into running workers. No model: it picks
@@ -33,7 +34,9 @@ export function createScheduler({
   retryDelayMs = 30_000,
   onCancel = () => {},
   onArchive = () => {},
+  mirror = {},
 }) {
+  const schedules = createScheduledJobs({ store, coordinator, now, mirror })
   const running = new Map()
   const inflight = new Set()
   let backoffMs = 0
@@ -84,7 +87,16 @@ export function createScheduler({
 
   function launch(task, lease = null) {
     const controller = new AbortController()
-    const t = store.saveTask({ ...task, status: 'running' })
+    const endpoint = lease?.endpoint ?? null
+    // Where this run went, so the board can show every agent's provider and model.
+    const runtime = {
+      endpointId: endpoint?.id ?? null,
+      label: endpoint?.label ?? null,
+      provider: endpoint?.kind ?? 'anthropic',
+      model: endpoint?.model ?? task.model ?? null,
+      startedAt: new Date(now()).toISOString(),
+    }
+    const t = store.saveTask({ ...task, status: 'running', runtime })
     running.set(t.id, controller)
     store.appendEvent({
       type: 'task_started',
@@ -191,6 +203,7 @@ export function createScheduler({
     try {
       do {
         again = false
+        schedules.tick()
         if (now() < backoffUntil) break
         requeueRecurring()
         for (const task of runnable(store, running)) {
@@ -220,6 +233,7 @@ export function createScheduler({
   }
 
   return {
+    schedules,
     tick,
     start() {
       unsubscribe = store.onEvent(() => tick())
@@ -246,6 +260,7 @@ export function createScheduler({
       return true
     },
     async idle() {
+      await schedules.idle()
       await Promise.all([...inflight])
     },
   }

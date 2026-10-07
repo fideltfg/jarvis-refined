@@ -86,3 +86,13 @@ test('folding spellings does not swallow a real question', () => {
   assert.equal(isEcho('what is your favourite colour', spoken), false)
   assert.equal(isEcho('open the catalogue instead', spoken), false)
 })
+
+test('his own one-word reply, heard clean, is still echo', () => {
+  assert.equal(isEcho('confirmed', 'Confirmed.'), true)
+  assert.equal(isEcho('acknowledged', 'Acknowledged.'), true)
+  assert.equal(isEcho('noted', 'Noted.'), true)
+})
+
+test('an unrelated single word is not swallowed as echo', () => {
+  assert.equal(isEcho('pizza', 'Confirmed.'), false)
+})

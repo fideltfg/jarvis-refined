@@ -135,8 +135,18 @@ export function isEcho(heard: string, spoken: string): boolean {
   // Nothing distinctive was said at all, so there is no strong evidence either
   // way. Demand a total match before discarding it — the cost of dropping a
   // real question is much higher than the cost of one stray echo getting in.
+  //
+  // A single recognised word is the one exception. He answers in exactly one
+  // word on purpose — "Confirmed.", "Acknowledged.", "Noted." — and a short
+  // utterance is also the one a recogniser renders cleanest, so his own stock
+  // replies come back through the microphone as a clean one-word transcript
+  // more often than anything else he says. Demanding a second word before an
+  // echo can be recognised at all meant those replies never cleared the bar
+  // and answered themselves every time. A single word is still only taken as
+  // echo when it is a word he just said — an unrelated single word is no more
+  // suppressed than it was before.
   if (content.length < 2) {
-    if (all.length < 2) return false
+    if (all.length < 2) return mine.has(all[0])
     return all.every((w) => mine.has(w))
   }
 

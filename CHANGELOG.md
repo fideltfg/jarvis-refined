@@ -9,107 +9,66 @@ Security. When work is committed, move its entries under a dated heading.
 
 ## Unreleased
 
-## 2026-10-06
+## 2026-10-07
 
 ### Added
 
-- Local UniFiGuard beta planning and feedback triage helpers prepare supervised
-  readiness workflows without starting agents or publishing external changes.
-- A step-by-step Windows setup tutorial covers WSL2, Ubuntu, both Node runtimes,
-  provider login, diagnostics and backups for full installer 0.0.11, which
-  includes the cumulative setup fixes without a separate repair installer.
-- JARVIS can delegate software marketing research, positioning and draft copy to
-  a dedicated background worker that keeps deliverables in its workspace and
-  does not publish or contact prospects.
-- A planning document describes how JARVIS could become a hosted subscription
-  service where subscribers connect their own AI provider keys as paid
-  integrations, with plans for agents, storage and custom skills.
-- A competitive research report maps rival agents, voice assistants and
-  hosting services, and recommends a market niche for the hosted service.
+- Recurring task schedules with interval and calendar triggers, a task scheduler
+  window, and tools to create, update, pause, delete, and run schedules.
+- Conversation recovery checkpoints and a session-history workflow for reviewing
+  and reopening past conversations.
+- A Loose ends command window for viewing unfinished-work records.
+- Standalone browser relay background operation, status checks, and stop controls.
+- Project-local grilling skills for reviewing plans and design decisions.
 
 ### Changed
 
-- The LCARS theme uses an ultrawide workspace with diagnostics in a side rail,
-  the current session log in the center, and separate command windows on the
-  right. Controls align with the session log, while command windows extend
-  upward to fill the right column. Standard desktop and mobile layouts are
-  unchanged.
-- Windows setup now requires users to install current WSL2, the dedicated
-  Ubuntu-24.04 distro, and Node.js 22+ for both Windows and Ubuntu before
-  running the installer. The installer bundles the Jarvis application but no
-  longer installs WSL or Node.js.
+- Startup speech gives a brief overview of running work, schedules, outstanding
+  items, and issues instead of reading the entire detailed report aloud. The
+  displayed report has clear sections, status labels, readable dates, and
+  expandable progress notes and result paths.
+- All agents are JARVIS agents regardless of provider: the agent board shows owner, provider/endpoint, model, goal, type, start time and brief for every live agent; agent-service tasks record the endpoint and model they run on; LCARS agent counts include every running agent, not only session subagents; the `status` tool combines agent-service goals with running session subagents.
 
 ### Fixed
 
-- Windows setup reads the dedicated Ubuntu requirement from the prerequisite
-  list correctly, fixing the missing `linuxDistribution` property failure after
-  prerequisite checks pass.
-- Windows setup checks all external prerequisites before installing or
-  replacing application files and reports the missing requirement directly.
-
-## 2026-10-05
-
-### Added
-
-- Small Windows repair installers update the shared setup helpers without
-  replacing application archives or the existing uninstaller. The deployment
-  guide tracks fixes and verification needed for the next full installer build.
-- A production launcher serves the built interface and local bridge without
-  running the development server, with read-only actions by default.
-- Release packaging builds an isolated WSL application payload without local
-  environment files, and the Linux service installer supports production builds.
-- Windows installer sources provision a dedicated WSL distro, resume setup after
-  reboot, register per-user startup and browser-relay tasks, and retain WSL data
-  on uninstall. Windows release validation is still required.
-- Windows installers can be compiled on Linux using an isolated Wine container
-  and a checksum-pinned Inno Setup compiler.
-- The current full Windows installer is kept in the persistent workspace
-  Downloads folder rather than the disposable frontend `dist/` directory.
-- The README has a Requirements section listing the runtime, browser, model
-  provider and optional speech credentials needed before installing.
-
-### Fixed
-
-- The Windows installer resumes after reboot, keeps setup output and progress
-  in the wizard, hides background consoles and stores writable runtime files
-  outside Program Files, and installs application files under the standard
-  Program Files directory.
-- Windows Node runtime checks use version output rather than inline JavaScript,
-  avoiding argument-quoting changes in Windows PowerShell 5.1.
-- Windows Node runtime validation avoids inline JavaScript quoting that Windows
-  PowerShell 5.1 strips when invoking native executables.
-- Windows setup shows WSL provisioning progress as it happens, with credentials
-  redacted, instead of appearing frozen during long steps.
-- Windows setup relaunches into native 64-bit PowerShell so WSL remains
-  accessible when setup or shortcuts start from a 32-bit process.
-- WSL provisioning explicitly selects Jarvis's own systemd bus instead of
-  inheriting another user's session address during service setup and lifecycle commands.
-- Windows provisioning gives Jarvis ownership of its config and systemd
-  directories, including repairing directories created by earlier previews.
-- Windows setup reports the failing provisioning step and saves redacted logs,
-  and WSL availability checks handle native errors before requesting setup.
-- Windows release packaging works when temporary build files and the output
-  directory are on different filesystems.
-- Kokoro speech uses a quantized CPU model in a background worker to avoid UI
-  freezes and competition with the interface's graphics rendering.
+- Bridge turns report progress and recover more reliably from interruptions,
+  timeouts, and closed streams.
+- Late browser speech-recognition results no longer duplicate an utterance or
+  interrupt its answer.
+- The `jarvis_agents` tools are wired back into the bridge for Claude, OpenAI and local providers when `JARVIS_AGENTS=1`.
+- Session subagents are tracked once per bridge instead of per connection, so every window sees them and history writes no longer overwrite each other; subagents left running by a closed connection are marked interrupted.
 
 ## 2026-10-04
 
 ### Added
 
+- Startup agent briefings are spoken as well as displayed. Speech waits for
+  ignition to unlock browser audio and for the foreground conversation to be
+  idle, without adding briefing turns to chat history.
 - Confirmation prompts before deleting an individual session or clearing all
   past sessions.
 - Development diagnostics identify the scripts responsible for long UI freezes.
 
 ### Fixed
 
+- Startup reports now read authoritative task, goal, schedule, remote endpoint,
+  subagent, personal-task, and unfinished-work records instead of asking a model
+  to infer them. Completed work, last progress, results, and unavailable sources
+  are reported explicitly; live subagents are not mistaken for interrupted history.
+- Startup briefing visuals now use the HUD's mounted report surface rather
+  than the legacy panel list, so progress and results are actually visible.
+- Restored Loose ends command-window docking and ledger styling, with a
+  scrollable list and responsive status/date alignment inside the session area.
+- Hidden startup agent checks now start after page-load conversation recovery,
+  without waiting for ignition or microphone access, and show checking, failure,
+  and empty-result states instead of leaving no visible report.
+- Restored task scheduler styling and LCARS command-window docking so the
+  scheduler fills the session area instead of appearing unstyled at its bottom.
 - Reduced unnecessary audio-level updates and LCARS console rendering, and skip
   post-processing when the scene has nothing to draw.
 
 ### Changed
 
-- Push-to-talk mutes Jarvis's microphone input between presses, without changing
-  the system microphone or affecting other applications.
 - Session recall ranks search results by relevance, ignores filler words, and
   matches on any search word rather than requiring all of them.
 - Reading a long past conversation shows its opening and closing turns, with an

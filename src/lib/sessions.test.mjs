@@ -9,6 +9,7 @@ import {
   recordTurns,
   saveSessions,
   sessionTitle,
+  startupSession,
   upsertSession,
 } from './sessions.ts'
 
@@ -160,6 +161,31 @@ test('the live session cannot be deleted while it is on screen', () => {
   history.stop()
 })
 
+test('deleting an active session after a fresh-session handoff clears its turns and stays deleted', () => {
+  storage()
+  saveSessions([session('keep', 2)])
+  const store = fakeStore([{ id: 'active-turn', role: 'user', text: 'delete this context' }])
+  const history = createSessionHistory(store, { now: () => 10 })
+  try {
+    history.attachConversation('old-conversation')
+    const deletedId = history.getSnapshot().currentId
+    history.startNew(store.setTurns)
+    history.attachConversation('new-conversation')
+    history.remove(deletedId)
+    assert.deepEqual(store.getState().turns, [])
+    assert.notEqual(history.getSnapshot().currentId, deletedId)
+    assert.deepEqual(loadSessions().map((entry) => entry.id), ['keep'])
+    store.setTurns([{ id: 'fresh-turn', role: 'user', text: 'new context' }])
+    history.flush()
+    assert.equal(loadSessions().some((entry) => entry.id === deletedId), false)
+    const current = loadSessions().find((entry) => entry.id === history.getSnapshot().currentId)
+    assert.equal(current.conversationId, 'new-conversation')
+    assert.deepEqual(current.turns.map((turn) => turn.text), ['new context'])
+  } finally {
+    history.stop()
+  }
+})
+
 test('removing one past session preserves the others and stays deleted after a live save', () => {
   storage()
   saveSessions([session('keep', 2), session('delete', 1)])
@@ -178,4 +204,54 @@ test('removing one past session preserves the others and stays deleted after a l
   } finally {
     history.stop()
   }
+})
+
+test('reopening preserves the current session and appends future turns to the selected one', () => {
+  storage()
+  saveSessions([session('past', 2)])
+  const store = fakeStore([{ id: 'live', role: 'user', text: 'keep current' }])
+  const history = createSessionHistory(store, { now: () => 10 })
+  const originalId = history.getSnapshot().currentId
+  history.attachConversation('original-conversation')
+  assert.equal(history.reopen('past', store.setTurns), true)
+  history.attachConversation('past-conversation')
+  store.setTurns([...store.getState().turns, { id: 'follow-up', role: 'user', text: 'continue' }])
+  history.flush()
+  assert.equal(history.getSnapshot().currentId, 'past')
+  const saved = loadSessions()
+  assert.deepEqual(saved.find((entry) => entry.id === 'past').turns.map((turn) => turn.text), ['past', 'continue'])
+  assert.equal(saved.find((entry) => entry.id === 'past').conversationId, 'past-conversation')
+  assert.equal(saved.find((entry) => entry.id === originalId).conversationId, 'original-conversation')
+  assert.equal(saved.find((entry) => entry.id === originalId).turns[0].text, 'keep current')
+  assert.equal(history.reopen('missing', () => assert.fail('must not change displayed turns')), false)
+  history.stop()
+})
+
+test('a new session archives the previous conversation without copying its context or bridge ID', () => {
+  storage()
+  const store = fakeStore([{ id: 'old-turn', role: 'user', text: 'old context' }])
+  const history = createSessionHistory(store, { now: () => 10 })
+  history.attachConversation('old-bridge-id')
+  const oldId = history.getSnapshot().currentId
+  history.startNew(store.setTurns)
+  assert.notEqual(history.getSnapshot().currentId, oldId)
+  assert.deepEqual(store.getState().turns, [])
+  assert.equal(history.getSnapshot().sessions.find((entry) => entry.id === oldId).conversationId, 'old-bridge-id')
+  history.attachConversation('new-bridge-id')
+  store.setTurns([{ id: 'new-turn', role: 'user', text: 'new context' }])
+  history.flush()
+  const current = loadSessions().find((entry) => entry.id === history.getSnapshot().currentId)
+  assert.deepEqual(current.turns.map((turn) => turn.text), ['new context'])
+  assert.equal(current.conversationId, 'new-bridge-id')
+  history.stop()
+})
+
+test('startup restores the last active session or most recent conversation, but preserves an empty new session', () => {
+  const older = { ...session('older', 1), conversationId: 'linked' }
+  const latest = session('latest', 2)
+  assert.equal(startupSession([older, latest]).id, 'latest')
+  assert.equal(startupSession([older, latest], { activeId: 'older' }).id, 'older')
+  assert.equal(startupSession([older, latest], { conversationId: 'linked' }).id, 'older')
+  assert.equal(startupSession([older, latest], { activeId: 'empty-new-session' }), null)
+  assert.equal(startupSession([]), null)
 })

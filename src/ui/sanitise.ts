@@ -197,6 +197,9 @@ const ALLOWED_CLASSES = new Set([
   'hud-tag', 'hud-metric', 'hud-unit', 'hud-note', 'hud-img', 'hud-caption',
   'hud-grid', 'hud-bar', 'hud-dim', 'hud-hot',
   'hud-gallery', 'hud-thumb', 'hud-video', 'hud-embed', 'hud-figure',
+  'startup-report', 'startup-report-overview', 'startup-report-meta',
+  'startup-report-section', 'startup-report-list', 'startup-report-row',
+  'startup-report-row-heading', 'startup-report-goal', 'startup-report-history',
 ])
 
 function narrowClasses(root: Element) {
@@ -218,6 +221,7 @@ export function sanitisePanelHtml(html: string): string {
     DOMPurify.sanitize(html, {
       ALLOWED_TAGS: [
         'div', 'span', 'p', 'ul', 'ol', 'li', 'img', 'b', 'strong', 'em', 'i',
+        'section', 'h2', 'h3', 'details', 'summary',
         'br', 'small', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'code', 'pre',
         // Showing a video result as a line of text was the polite version of
         // refusing to answer.

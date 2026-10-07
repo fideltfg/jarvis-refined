@@ -5,6 +5,7 @@ import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { BUDGETS, DEFAULT_TASK_CAP, KINDS, WORK_DIR } from './config.mjs'
 import { isTaskModel } from './pool.mjs'
+import { scheduleInput } from './schedules.mjs'
 
 /**
  * The agent service's state: one JSON file per goal, task and approval, plus an
@@ -52,6 +53,7 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
     goals: join(root, 'goals'),
     tasks: join(root, 'tasks'),
     approvals: join(root, 'approvals'),
+    schedules: join(root, 'schedules'),
   }
   for (const dir of Object.values(dirs)) mkdirSync(dir, { recursive: true })
   const eventsFile = join(root, 'events.jsonl')
@@ -88,11 +90,23 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
     getApproval: (id) => get('approvals', id),
     saveApproval: (approval) => save('approvals', approval),
 
-    newGoal({ title, outcome, priority = 3, recurring = null, taskCap = DEFAULT_TASK_CAP }) {
+    listSchedules: () => list('schedules'),
+    getSchedule: (id) => get('schedules', id),
+    saveSchedule: (schedule) => save('schedules', schedule),
+    newSchedule(input) {
+      return save('schedules', {
+        ...scheduleInput(input, now()), id: newId('s'), status: 'active',
+        lastRunAt: null, lastGoalId: null, pendingOccurrence: null, error: null, created: stamp(),
+      })
+    },
+
+    newGoal({ title, outcome, priority = 3, recurring = null, taskCap = DEFAULT_TASK_CAP, id = newId('g'), scheduleId, occurrenceKey }) {
       if (!title || !outcome) throw new Error('A goal needs a title and an outcome.')
+      if (!/^g_[a-z0-9]+$/.test(id) || get('goals', id)) throw new Error('Invalid or existing goal id.')
       if (recurring?.every) parseEvery(recurring.every)
       return save('goals', {
-        id: newId('g'),
+        id,
+        ...(scheduleId ? { scheduleId, occurrenceKey } : {}),
         title: String(title),
         outcome: String(outcome),
         status: 'active',

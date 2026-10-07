@@ -32,7 +32,7 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
-      - run: node --test scripts/windows-installer.test.mjs scripts/package-windows.test.mjs
+      - run: node --test scripts/windows-installer.test.mjs scripts/package-windows.test.mjs bridge/relay.test.mjs
       - name: Compile Inno Setup with non-deployable syntax fixtures
         shell: pwsh
         run: |

@@ -62,6 +62,29 @@ test('the MCP tools call the API and answer in sentences', async () => {
   }
 })
 
+test('status combines session agents with service work as one JARVIS briefing', async () => {
+  const running = [
+    { id: 's1', title: 'Map the parser', status: 'running' },
+    { id: 's2', title: 'Old run', status: 'done' },
+  ]
+  const quiet = await createToolBroker({
+    local: { jarvis_agents: agentsServer({ status: async () => ({ text: 'No agent work is in progress.' }) }, { sessionAgents: () => running }) },
+  })
+  const busy = await createToolBroker({
+    local: { jarvis_agents: agentsServer({ status: async () => ({ text: 'One goal in progress.' }) }, { sessionAgents: () => running }) },
+  })
+  const offline = await createToolBroker({
+    local: { jarvis_agents: agentsServer(agentsApi({ token: 't', fetchFn: offlineFetch }), { sessionAgents: () => running }) },
+  })
+  try {
+    assert.equal(await quiet.call('mcp__jarvis_agents__status', {}), 'One session agent running: Map the parser.')
+    assert.equal(await busy.call('mcp__jarvis_agents__status', {}), 'One goal in progress.\nOne session agent running: Map the parser.')
+    assert.match(await offline.call('mcp__jarvis_agents__status', {}), /^One session agent running: Map the parser\.\n.*offline/)
+  } finally {
+    await Promise.all([quiet.close(), busy.close(), offline.close()])
+  }
+})
+
 test('the status tool reports the service offline instead of throwing', async () => {
   const broker = await createToolBroker({
     local: { jarvis_agents: agentsServer(agentsApi({ token: 't', fetchFn: offlineFetch })) },
@@ -71,6 +94,25 @@ test('the status tool reports the service offline instead of throwing', async ()
   } finally {
     await broker.close()
   }
+})
+
+test('schedule tools create future work and expose lifecycle operations', async () => {
+  const calls = []
+  const schedule = { id: 's_1', title: 'Report', status: 'active', nextRunAt: '2026-10-07T09:00:00Z', trigger: { type: 'daily', time: '09:00', timezone: 'UTC' }, lastGoalId: 'g_1' }
+  const api = {
+    createSchedule: async (input) => { calls.push(input); return schedule },
+    schedules: async () => [schedule],
+    updateSchedule: async () => ({ ...schedule, status: 'paused' }),
+    runSchedule: async () => schedule,
+  }
+  const broker = await createToolBroker({ local: { jarvis_agents: agentsServer(api) } })
+  try {
+    assert.match(await broker.call('mcp__jarvis_agents__schedule_create', { title: 'Report', outcome: 'Health check', trigger: schedule.trigger }), /Next run: 2026-10-07/)
+    assert.equal(calls[0].trigger.timezone, 'UTC')
+    assert.match(await broker.call('mcp__jarvis_agents__schedule_list', {}), /s_1/)
+    assert.match(await broker.call('mcp__jarvis_agents__schedule_update', { scheduleId: 's_1', action: 'pause' }), /paused/)
+    assert.match(await broker.call('mcp__jarvis_agents__schedule_run', { scheduleId: 's_1' }), /goal g_1/)
+  } finally { await broker.close() }
 })
 
 test('the subscription parses SSE events and reports online state', async () => {

@@ -42,6 +42,36 @@ function harness({ maxWorkers = 3, pool = null } = {}) {
 
 const DONE = { status: 'done', result: { summary: 'ok', artifacts: [] } }
 
+test('persisted schedules run after service restart without a browser or event subscriber', async () => {
+  let clock = Date.parse('2026-10-06T08:00:00Z')
+  const root = mkdtempSync(join(tmpdir(), 'agents-schedule-restart-'))
+  const initial = createStore(root, { workDir: '/work', now: () => new Date(clock) })
+  const saved = initial.newSchedule({ title: 'Health', outcome: 'Check services', trigger: { type: 'interval', minutes: 30 } })
+  assert.equal(initial.listGoals().length, 0)
+  clock += 24 * 3600000
+  const store = createStore(root, { workDir: '/work', now: () => new Date(clock) })
+  const runs = []
+  const coordinator = {
+    plan: async (goalId) => {
+      const task = store.newTask({ goalId, title: 'Health', brief: 'Check services' })
+      store.appendEvent({ type: 'task_queued', goalId, taskId: task.id, text: 'Queued' })
+    },
+    review: async (goalId) => store.saveGoal({ ...store.getGoal(goalId), status: 'done', notes: 'Healthy' }),
+  }
+  const scheduler = createScheduler({ store, coordinator, now: () => clock, runTask: async (task) => { runs.push(task.id); return DONE } })
+  try {
+    scheduler.start()
+    await scheduler.idle()
+    scheduler.tick()
+    await scheduler.idle()
+    assert.equal(runs.length, 1)
+    assert.equal(store.listGoals().length, 1)
+    assert.equal(store.listTasks()[0].status, 'done')
+    assert.equal(store.getSchedule(saved.id).nextRunAt, '2026-10-07T08:30:00.000Z')
+    assert.equal(store.getGoal(store.getSchedule(saved.id).lastGoalId).status, 'done')
+  } finally { scheduler.stop() }
+})
+
 test('a task waits for its dependencies, then runs; the coordinator reviews each ending', async () => {
   const h = harness()
   const g = h.store.newGoal({ title: 'G', outcome: 'O' })
@@ -230,6 +260,13 @@ test('with a pool, each run is leased to an endpoint and the lease comes back', 
   // The endpoint that carried the work is recorded with the start.
   const started = h.store.readEvents().filter((e) => e.type === 'task_started')
   assert.deepEqual(started.map((e) => e.data.endpoint).sort(), ['cloud', 'rigel'])
+  // And on the task itself, so the board can say where every agent runs.
+  assert.equal(h.store.getTask(a.id).runtime.provider, 'anthropic')
+  assert.equal(h.store.getTask(a.id).runtime.model, 'sonnet')
+  assert.equal(h.store.getTask(b.id).runtime.endpointId, 'rigel')
+  assert.equal(h.store.getTask(b.id).runtime.provider, 'gateway')
+  assert.equal(h.store.getTask(b.id).runtime.model, 'llama3.1:8b')
+  assert.match(h.store.getTask(b.id).runtime.startedAt, /^\d{4}-/)
 
   // Both runs end. Releasing a lease ticks the scheduler, so the slot is not
   // merely given back: C is placed on it without waiting for the next timer.

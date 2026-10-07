@@ -32,8 +32,10 @@ before an action runs.
 | **Choose the brain** | Claude Code login, OpenAI, or an OpenAI-compatible local endpoint. |
 | **Use real tools** | MCP services, guarded files and media, browser control, memory, and rich HUD panels. |
 | **Remember past chats** | JARVIS can search and recall earlier conversations in detail, so you can pick up where you left off ([details](docs/tools-and-safety.md#session-history-and-recall)). |
-| **Change character** | JARVIS, HAL, WOPR, Mother, and LCARS themes—or add a theme without changing app code. |
+| **Change character** | JARVIS, HAL, WOPR, Mother, LCARS, and ORIN themes—or add a theme without changing app code. |
 | **Keep work moving** | Optional persistent goals, approvals, worker pools, and secure remote workers. |
+| **Schedule work** | One-time and recurring agent tasks, managed in the scheduler or by chat/voice. |
+| **Track follow-through** | The LCARS Loose ends panel shows unfinished assistant work from a local ledger ([details](docs/tools-and-safety.md#loose-ends-ledger)). |
 
 ## Requirements
 
@@ -74,6 +76,13 @@ run `./scripts/install.sh` (add `--readonly` to block actions). See
 [Run as services at boot](docs/deployment.md#run-as-services-at-boot-scriptsinstallsh).
 
 ## Documentation
+
+### Task scheduler
+
+Create schedules from the LCARS control deck, the command palette in other
+themes, or chat/voice. The background agent service and host must remain
+running, even when the browser is closed. See [Task scheduler](docs/background-agents.md#task-scheduler)
+for timing options, timezones, recovery and schedule controls.
 
 ### Set up and operate
 

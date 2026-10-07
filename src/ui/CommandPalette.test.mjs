@@ -12,6 +12,26 @@ const statusReport = await readFile(new URL('../../public/themes/lcars/StatusRep
 const timeline = await readFile(new URL('./Timeline.tsx', import.meta.url), 'utf8')
 const storeSource = await readFile(new URL('../store.ts', import.meta.url), 'utf8')
 const voiceSource = await readFile(new URL('../lib/voice.ts', import.meta.url), 'utf8')
+const sessionHistory = await readFile(new URL('./SessionHistory.tsx', import.meta.url), 'utf8')
+
+test('session history keeps deletion on the right of the detail header without a new-session button', () => {
+  assert.doesNotMatch(sessionHistory, /MessageSquarePlus|jarvis:new-session|New session/)
+  const detailHeader = sessionHistory.match(/<div className="sh-detail-head">[\s\S]*?<div className="sh-transcript"/)?.[0]
+  assert.ok(detailHeader)
+  assert.match(detailHeader, /className="sh-detail-actions"[\s\S]*className="sh-action sh-session-delete"/)
+  assert.match(detailHeader, /<Trash2[^>]*\/> Delete<\/button>/)
+  assert.match(styles, /\.sh-session-delete \{[^}]*width: 112px;/)
+  assert.match(detailHeader, /sessionHistory.remove\(selected.id\)/)
+  assert.doesNotMatch(detailHeader, /disabled=\{[^}]*selected.id === currentId/)
+  assert.match(detailHeader, /if \(!window.confirm\([\s\S]*?\)\) return/)
+  assert.match(detailHeader, /new CustomEvent\('jarvis:delete-session', \{ detail: selected \}\)/)
+  assert.match(app, /reopenHistorySession\(selected\).then\(\(\) => \{[\s\S]*?if \(deleting\) sessionHistory.remove\(deleting.id\)/)
+  assert.match(app, /if \(!deleting && store.getState\(\).historyOpen\)/)
+  assert.match(app, /addEventListener\('jarvis:delete-session', onReopen\)/)
+  assert.match(app, /removeEventListener\('jarvis:delete-session', onReopen\)/)
+  assert.doesNotMatch(sessionHistory.split('{selected &&')[0], /sh-session-delete/)
+  assert.match(styles, /\.sh-detail-actions \{[^}]*margin-left: auto;/)
+})
 
 test('LCARS docks the composer outside the scrolling console and reserves its height', () => {
   assert.match(reactor, /<\/main>\s*<form className="lcars-command-form"/)

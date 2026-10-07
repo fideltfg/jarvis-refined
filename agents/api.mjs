@@ -203,7 +203,7 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
     try {
       switch (route) {
         case 'GET /board':
-          return send(200, boardOf(store, scheduler.running()))
+          return send(200, boardOf(store, scheduler.running(), { history: url.searchParams.get('history') === '1' }))
         // Where the capacity is, and how much of it is busy. Endpoint ids and
         // labels only: no base URLs and no keys leave the process.
         case 'GET /endpoints':
@@ -212,8 +212,19 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
             : { capacity: null, running: scheduler.running().size, endpoints: [] })
         case 'GET /status':
           return send(200, { text: briefing(store, url.searchParams.get('goal') || undefined) })
+        case 'GET /schedules':
+          return send(200, store.listSchedules().filter((schedule) => schedule.status !== 'deleted'))
+        case 'POST /schedules':
+          return send(201, scheduler.schedules.create(body))
+        case 'POST /schedules/:id':
+          if (!store.getSchedule(id) || store.getSchedule(id).status === 'deleted') throw new NotFound('Schedule not found.')
+          return send(200, scheduler.schedules.update(id, body))
+        case 'POST /schedules/:id/run':
+          if (!store.getSchedule(id)) throw new NotFound('Schedule not found.')
+          return send(200, scheduler.schedules.runNow(id))
         case 'POST /goals': {
-          const goal = store.newGoal(body)
+          const { title, outcome, priority, recurring, taskCap } = body
+          const goal = store.newGoal({ title, outcome, priority, recurring, taskCap })
           store.appendEvent({ type: 'goal_created', goalId: goal.id, text: `New goal: ${goal.title}`, data: { title: goal.title } })
           mirror.goalCreated?.(goal)
           coordinator.plan(goal.id).catch(warn)

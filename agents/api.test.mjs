@@ -11,6 +11,7 @@ import { createApi } from './api.mjs'
 import { boardOf, briefing } from './briefing.mjs'
 import { createPool } from './pool.mjs'
 import { parseEndpoints } from '../bridge/endpoints.mjs'
+import { createScheduledJobs } from './scheduled-jobs.mjs'
 
 const TOKEN = 'test-token'
 
@@ -35,12 +36,13 @@ async function setup({ pool = null, host = '127.0.0.1', tls = null } = {}) {
   const store = createStore(mkdtempSync(join(tmpdir(), 'agents-api-')), { workDir: '/work' })
   const approvals = createApprovals(store)
   const calls = { plan: [], redirect: [], cancel: [], mirror: [] }
+  const schedules = createScheduledJobs({ store, coordinator: { plan: async (id) => { calls.plan.push(id) } } })
   const api = createApi({
     store,
     approvals,
     pool,
     token: TOKEN,
-    scheduler: { running: () => new Set(), cancel: (id) => { calls.cancel.push(id); return true } },
+    scheduler: { schedules, running: () => new Set(), cancel: (id) => { calls.cancel.push(id); return true } },
     coordinator: {
       plan: async (id) => { calls.plan.push(id) },
       redirect: async (id, text) => { calls.redirect.push([id, text]) },
@@ -94,6 +96,41 @@ async function setup({ pool = null, host = '127.0.0.1', tls = null } = {}) {
 
 test('the API refuses to start without a token', () => {
   assert.throws(() => createApi({ token: '' }), /JARVIS_AGENTS_TOKEN/)
+})
+
+test('public goal creation cannot supply internal occurrence identity', async () => {
+  const instance = await setup()
+  try {
+    const existing = instance.store.newGoal({ title: 'Existing', outcome: 'Keep' })
+    const response = await instance.call('POST', '/goals', { title: 'Other', outcome: 'Check', id: existing.id, scheduleId: 's_fake', occurrenceKey: 'fake' })
+    assert.equal(response.status, 201)
+    const created = await response.json()
+    assert.notEqual(created.id, existing.id)
+    assert.equal(created.scheduleId, undefined)
+    assert.equal(instance.store.getGoal(existing.id).title, 'Existing')
+  } finally { await instance.api.close() }
+})
+
+test('schedule API persists without early work, validates changes and runs explicitly', async () => {
+  const instance = await setup()
+  try {
+    assert.equal((await instance.call('POST', '/schedules', { title: 'bad' })).status, 400)
+    assert.equal((await instance.call('GET', '/schedules', null, 'wrong')).status, 401)
+    const response = await instance.call('POST', '/schedules', { title: 'Report', outcome: 'Check health', trigger: { type: 'interval', minutes: 30 } })
+    assert.equal(response.status, 201)
+    const schedule = await response.json()
+    assert.equal(instance.calls.plan.length, 0)
+    assert.equal(instance.store.listGoals().length, 0)
+    assert.equal((await (await instance.call('GET', '/board')).json()).schedules.length, 1)
+    assert.equal((await instance.call('POST', `/schedules/${schedule.id}`, { action: 'edit', values: { title: 'Updated' } })).status, 200)
+    assert.equal((await instance.call('POST', `/schedules/${schedule.id}/run`)).status, 200)
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(instance.calls.plan.length, 1)
+    assert.equal((await instance.call('POST', `/schedules/${schedule.id}/run`)).status, 400)
+    assert.equal((await instance.call('POST', `/schedules/${schedule.id}`, { action: 'delete' })).status, 200)
+    assert.deepEqual(await (await instance.call('GET', '/schedules')).json(), [])
+    assert.equal((await instance.call('POST', '/schedules/missing', { action: 'pause' })).status, 404)
+  } finally { await instance.api.close() }
 })
 
 test('a host other than loopback without TLS is refused at startup', () => {
@@ -247,6 +284,26 @@ test('F11: the board leaves out archived tasks', () => {
 })
 
 // -- the capacity readout ---------------------------------------------------
+
+test('history-inclusive board API returns completed goals and archived task results', async () => {
+  const setupState = await setup()
+  try {
+    const goal = setupState.store.newGoal({ title: 'Completed research', outcome: 'Report' })
+    setupState.store.saveGoal({ ...goal, status: 'done' })
+    const task = setupState.store.newTask({ goalId: goal.id, title: 'Archived result', brief: 'Research' })
+    setupState.store.saveTask({ ...task, status: 'done', archived: true, result: { summary: 'Report finished', artifacts: ['/work/report.txt'] } })
+    const headers = { authorization: `Bearer ${TOKEN}` }
+    const normal = await (await fetch(`${setupState.base}/board`, { headers })).json()
+    assert.equal(normal.goals.length, 0)
+    const history = await (await fetch(`${setupState.base}/board?history=1`, { headers })).json()
+    assert.equal(history.goals[0].tasks[0].summary, 'Report finished')
+    assert.deepEqual(history.goals[0].tasks[0].result.artifacts, ['/work/report.txt'])
+    assert.equal(history.goals[0].tasks[0].workspace, task.workspace.path)
+    assert.equal(history.goals[0].tasks[0].archived, true)
+  } finally {
+    await setupState.api.close()
+  }
+})
 
 test('GET /endpoints reports the pool, its width and what is busy', async () => {
   const pool = createPool({

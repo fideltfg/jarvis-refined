@@ -17,6 +17,15 @@
  * so it must not import anything.
  */
 
+/** Where an agent-service task was sent to run. */
+export type AgentRuntime = {
+  endpointId: string | null
+  label: string | null
+  provider: string
+  model: string | null
+  startedAt?: string | null
+}
+
 /** The agent service's board, as the bridge relays it. */
 export type AgentTask = {
   id: string
@@ -27,6 +36,10 @@ export type AgentTask = {
   summary: string | null
   created?: string
   updated?: string
+  model?: string | null
+  runtime?: AgentRuntime | null
+  remote?: { endpointId: string } | null
+  origin?: { label: string } | null
 }
 export type AgentGoal = {
   id: string
@@ -55,6 +68,7 @@ export type AgentEndpoint = {
 export type AgentCapacity = { capacity: number | null; running: number; endpoints: AgentEndpoint[] }
 
 export type AgentBoardData = {
+  schedules?: import('./schedules').Schedule[]
   goals: AgentGoal[]
   approvals: AgentApproval[]
   running: string[]
@@ -70,8 +84,16 @@ export type SessionAgent = {
   kind: string
   status: 'running' | 'done' | 'failed' | 'interrupted'
   startedAt: string
-  finishedAt?: string
+  finishedAt?: string | null
   summary: string | null
+  /** The handle a background agent's completion notification names it by. */
+  agentId?: string | null
+  /** The conversation provider that dispatched it. */
+  provider?: string | null
+  model?: string | null
+  /** The start of the instructions it was given. */
+  brief?: string | null
+  background?: boolean
 }
 
 /** Which source a row came from. Shown on the row, never used to split the list. */
@@ -108,6 +130,37 @@ export type BoardAgent = {
   progress: number | null
   /** The approval this row is waiting on, if any. */
   approval: AgentApproval | null
+  /** Every row is JARVIS's, whichever provider carries it. */
+  owner: 'JARVIS'
+  /** Where it runs, in words: provider, endpoint or host. Null for goals. */
+  runsOn: string | null
+  model: string | null
+  /** The goal a task serves, by name. */
+  goal: string | null
+  /** What it was asked to do, when that is more than its name. */
+  brief: string | null
+}
+
+const PROVIDER_LABEL: Record<string, string> = {
+  anthropic: 'Anthropic',
+  claude: 'Claude',
+  openai: 'OpenAI',
+  gateway: 'Gateway',
+  local: 'Local',
+  remote: 'Remote host',
+}
+
+const providerName = (provider: string | null | undefined) =>
+  provider ? (PROVIDER_LABEL[provider] ?? provider) : null
+
+/** Where an agent-service task runs, or would run, in one phrase. */
+export function taskRunsOn(task: AgentTask): string | null {
+  if (task.origin?.label) return `delegated by ${task.origin.label}`
+  const runtime = task.runtime
+  if (!runtime) return task.remote ? `${PROVIDER_LABEL.remote} · ${task.remote.endpointId}` : null
+  const name = providerName(runtime.provider)
+  const where = runtime.label ?? runtime.endpointId
+  return where && where !== name ? `${name} · ${where}` : name
 }
 
 /**
@@ -182,6 +235,21 @@ export function capacityLine(capacity: AgentCapacity | null | undefined): string
 
 const goalStatus = (status: string): BoardAgentStatus => (status === 'paused' ? 'paused' : 'active')
 
+/** Agents doing work right now, whatever provider carries them. Goals are plans, not agents. */
+export const runningAgents = (rows: BoardAgent[]): BoardAgent[] =>
+  rows.filter((row) => row.kind !== 'goal' && row.status === 'running')
+
+/** The board's headline: how many of JARVIS's agents are in each live state. */
+export function agentSummary(rows: BoardAgent[]): string {
+  const agents = rows.filter((row) => row.kind !== 'goal')
+  const parts = [`${runningAgents(rows).length} running`]
+  const waiting = agents.filter((row) => row.status === 'awaiting_approval' || row.status === 'blocked').length
+  const queued = agents.filter((row) => row.status === 'queued').length
+  if (waiting) parts.push(`${waiting} waiting`)
+  if (queued) parts.push(`${queued} queued`)
+  return parts.join(' · ')
+}
+
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 /** The one-line "what is this goal doing" that replaces a static outcome. */
@@ -231,6 +299,11 @@ export function mergeBoard(board: AgentBoardData | null, session: SessionAgent[]
       parentId: null,
       progress: live.length ? done / live.length : 0,
       approval: null,
+      owner: 'JARVIS',
+      runsOn: null,
+      model: null,
+      goal: null,
+      brief: goal.outcome || null,
     }
     const tasks: BoardAgent[] = live.map((task) => ({
       id: task.id,
@@ -239,11 +312,16 @@ export function mergeBoard(board: AgentBoardData | null, session: SessionAgent[]
       status: task.status,
       activity: taskActivity(task),
       result: task.summary,
-      startedAt: task.created ?? null,
+      startedAt: task.runtime?.startedAt ?? task.created ?? null,
       finishedAt: terminal(task.status) ? (task.updated ?? null) : null,
       parentId: goal.id,
       progress: null,
       approval: board?.approvals.find((a) => a.taskId === task.id) ?? null,
+      owner: 'JARVIS',
+      runsOn: taskRunsOn(task),
+      model: task.runtime?.model ?? task.model ?? null,
+      goal: goal.title,
+      brief: null,
     }))
     units.push([goalRow, ...tasks])
   }
@@ -257,13 +335,18 @@ export function mergeBoard(board: AgentBoardData | null, session: SessionAgent[]
         status: agent.status,
         // A subagent's type is the closest thing it has to a job description,
         // and it is the only hint of what kind of work is being done.
-        activity: agent.kind,
+        activity: agent.background ? `${agent.kind} · background` : agent.kind,
         result: agent.summary,
         startedAt: agent.startedAt,
         finishedAt: agent.finishedAt ?? null,
         parentId: null,
         progress: null,
         approval: null,
+        owner: 'JARVIS',
+        runsOn: `${providerName(agent.provider ?? 'claude')} session`,
+        model: agent.model ?? null,
+        goal: null,
+        brief: agent.brief ?? null,
       },
     ])
   }

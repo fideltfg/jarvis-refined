@@ -7,12 +7,20 @@ const VISIBLE = ['active', 'paused']
 const byPriority = (a, b) => a.priority - b.priority || a.created.localeCompare(b.created)
 const count = (n, word) => `${n === 1 ? 'One' : n} ${word}${n === 1 ? '' : 's'}`
 
-export function boardOf(store, running = new Set()) {
-  const tasks = store.listTasks().filter((t) => !t.archived).sort((a, b) => a.created.localeCompare(b.created))
+export function boardOf(store, running = new Set(), { history = false } = {}) {
+  const tasks = store.listTasks().filter((t) => history || !t.archived).sort((a, b) => a.created.localeCompare(b.created))
+  const progress = history ? new Map(store.readEvents({ limit: 5000 })
+    .filter((event) => event.type === 'task_progress').map((event) => [event.taskId, event])) : null
+  const latestScheduled = new Set(store.listSchedules().filter((schedule) => schedule.status !== 'deleted').map((schedule) => schedule.lastGoalId))
   return {
+    schedules: store.listSchedules().filter((schedule) => schedule.status !== 'deleted').map((schedule) => {
+      const goal = schedule.lastGoalId && store.getGoal(schedule.lastGoalId)
+      const latest = goal ? store.listTasks({ goalId: goal.id }).sort((first, second) => second.updated.localeCompare(first.updated))[0] : null
+      return { ...schedule, lastStatus: goal?.status ?? null, lastSummary: goal?.notes || latest?.result?.summary || latest?.failure?.detail || null }
+    }),
     goals: store
       .listGoals()
-      .filter((g) => VISIBLE.includes(g.status))
+      .filter((g) => history || VISIBLE.includes(g.status) || latestScheduled.has(g.id))
       .sort(byPriority)
       .map((g) => ({
         ...g,
@@ -29,6 +37,18 @@ export function boardOf(store, running = new Set()) {
             // has to carry the same stamps a subagent does.
             created: t.created,
             updated: t.updated,
+            model: t.model ?? null,
+            runtime: t.runtime ?? null,
+            remote: t.remote ? { endpointId: t.remote.endpointId } : null,
+            origin: t.origin?.label ? { label: t.origin.label } : null,
+            ...(history && {
+              result: t.result ?? null,
+              failure: t.failure ?? null,
+              workspace: t.workspace?.path ?? null,
+              archived: Boolean(t.archived),
+              remote: t.remote ? { endpointId: t.remote.endpointId, taskId: t.remote.taskId } : null,
+              progress: progress.get(t.id) ?? null,
+            }),
           })),
       })),
     approvals: store.listApprovals('pending'),

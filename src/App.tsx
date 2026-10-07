@@ -1,16 +1,19 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useEffectEvent, useRef } from 'react'
 import { Scene } from './scene/Scene'
 import { Hud } from './ui/Hud'
 import { CommandPalette } from './ui/CommandPalette'
 import { Timeline } from './ui/Timeline'
 import { SessionHistory } from './ui/SessionHistory'
+import { TaskScheduler } from './ui/TaskScheduler'
+import { reopenHistorySession, restoreLastSession, sessionHistory } from './ui/sessionHistory'
+import type { ChatSession } from './lib/sessions'
 import { Launcher } from './ui/Launcher'
 import { ThemeBoot } from './ui/ThemeBoot'
 import { Ignition } from './ui/Ignition'
 import { Diagnostics } from './ui/Diagnostics'
 import { Enrol } from './ui/Enrol'
 import { CharacterReactor } from './ui/CharacterReactor'
-import { useStore } from './store'
+import { useStore, type Panel } from './store'
 import { startVoice, type Voice, type VoiceMode } from './lib/voice'
 import { createSpeaker, cycleVoice, currentVoiceName } from './lib/tts'
 import * as sfx from './lib/sfx'
@@ -45,6 +48,8 @@ import { probeCapabilities } from './lib/capabilities'
 import { env } from './config'
 import { loadPtt, savePtt, bindingLabel, isReservedKey, type PttBinding } from './lib/ptt'
 import { attachmentMeta, describeAttachments, type Attachment } from './lib/attachments'
+import { createStartupAgentBriefing, createStartupAnnouncement } from './lib/startup-agents'
+import { readStartupStatus } from './lib/bridge'
 
 /**
  * The conversation.
@@ -92,6 +97,9 @@ export default function App() {
   const history = useRef<Msg[]>([])
   const speaker = useRef<ReturnType<typeof createSpeaker> | null>(null)
   const voice = useRef<Voice | null>(null)
+  const startupSpeaker = useRef<ReturnType<typeof createSpeaker> | null>(null)
+  const startupAudioReady = useRef(false)
+  const startupReport = useRef<Panel | null>(null)
 
   /**
    * Monotonic turn counter. Every await in a turn checks it on the way out:
@@ -102,6 +110,7 @@ export default function App() {
   const booting = useRef(false)
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const voicePoll = useRef<ReturnType<typeof setInterval> | null>(null)
+  const reopeningSession = useRef(true)
   const ptt = useRef(loadPtt())
 
   // -- helpers --------------------------------------------------------------
@@ -114,6 +123,7 @@ export default function App() {
   const silence = () => {
     speaker.current?.cancel()
     speaker.current = null
+    startupSpeaker.current = null
   }
 
   const goDormant = () => {
@@ -142,6 +152,8 @@ export default function App() {
   // -- one turn -------------------------------------------------------------
 
   const respond = async (said: string, attachments: Attachment[] = []): Promise<void> => {
+    if (reopeningSession.current) return
+    if (startupSpeaker.current) silence()
     const mine = ++turn.current
     const stale = () => mine !== turn.current
 
@@ -246,6 +258,7 @@ export default function App() {
 
   /** What the voice loop should do with what it hears, derived from phase. */
   const mode = (): VoiceMode => {
+    if (reopeningSession.current) return 'deaf'
     // Enrolment owns the microphone while it is on screen. The phrases are
     // samples, not commands, and a loop still listening would answer the
     // script — and worse, the half-built profile cannot yet vouch for whose
@@ -304,13 +317,16 @@ export default function App() {
     const wasBusy =
       phase === 'thinking' || phase === 'tooling' || phase === 'speaking'
 
+    const wasStartupAnnouncement = startupSpeaker.current !== null
     silence()
     if (wasBusy) {
       sfx.play('interrupt')
       // Abandon the answer in flight. The turn counter moves in respond()'s
       // replacement; bumping it here covers the case where nothing replaces it.
-      turn.current++
-      interrupt()
+      if (!wasStartupAnnouncement) {
+        turn.current++
+        interrupt()
+      }
       store.getState().setActiveTool(null)
       music.working(false)
       sfx.duck(false)
@@ -454,6 +470,60 @@ export default function App() {
 
   // -- power on -------------------------------------------------------------
 
+  const startupAnnouncement = useRef<ReturnType<typeof createStartupAnnouncement> | null>(null)
+  startupAnnouncement.current ??= createStartupAnnouncement({
+    canSpeak: () => {
+      const current = store.getState()
+      return startupAudioReady.current && current.phase === 'dormant' &&
+        !current.sessionLoading && !current.enrolling && !reopeningSession.current && !speaker.current
+    },
+    speak: async (text) => {
+      const current = store.getState()
+      const announcement = createSpeaker()
+      clearIdle()
+      speaker.current = announcement
+      startupSpeaker.current = announcement
+      current.setCaption(text)
+      current.setPhase('speaking')
+      sfx.duck(true)
+      music.duck(true)
+      try {
+        announcement.push(text)
+        await announcement.end()
+      } finally {
+        if (speaker.current === announcement) {
+          speaker.current = null
+          startupSpeaker.current = null
+          sfx.duck(false)
+          music.duck(false)
+          store.getState().setCaption('')
+          if (store.getState().phase === 'speaking') store.getState().setPhase('dormant')
+        }
+      }
+    },
+    onError: (error) => store.getState().setError(
+      `Startup briefing audio failed: ${error instanceof Error ? error.message : String(error)}`,
+    ),
+  })
+
+  const startupAgentBriefing = useRef<ReturnType<typeof createStartupAgentBriefing> | null>(null)
+  startupAgentBriefing.current ??= createStartupAgentBriefing({
+    usingBridge,
+    restore: restoreLastSession,
+    runHidden: readStartupStatus,
+    publish: (panel) => {
+      startupReport.current = panel
+      if (!['offline', 'boot'].includes(store.getState().phase)) {
+        startupReport.current = null
+        store.getState().pushBlade({
+          id: panel.id, title: panel.title, kind: 'markup', html: panel.html,
+          size: 'compact', hold: panel.hold,
+        })
+      }
+    },
+    announce: (text) => startupAnnouncement.current?.enqueue(text),
+  })
+
   const powerOn = async () => {
     // The ignition button and the space bar can both land here, and the phase
     // only moves after the first await — so without this a double press boots
@@ -488,6 +558,7 @@ export default function App() {
     // Must happen inside the click handler — browsers won't start an
     // AudioContext or speech synthesis without a user gesture.
     await sfx.unlockAudio()
+    startupAudioReady.current = true
     // The score. Must be started from inside this click handler for the same
     // reason as the rest of the audio. A theme that declares no music gets the
     // low synthesised hum from sfx.ts instead — which is what a mainframe or a
@@ -527,11 +598,6 @@ export default function App() {
         case 'approval_needed': sfx.play('warning'); break
       }
     })
-
-    // The board mirrors the agent service: snapshots after every event, plus
-    // whatever was already waiting when this socket opened.
-    watchAgents((board, online) => store.getState().setAgents(board, online))
-    watchSessionAgents((agents) => store.getState().setSessionAgents(agents))
 
     /**
      * JARVIS asking to see something.
@@ -617,17 +683,18 @@ export default function App() {
           console.warn('[jarvis] unknown ui op:', op, args)
       }
     })
-    // In bridge mode the conversation lives in the agent session, which is tied
-    // to the socket — so a drop silently wipes his memory while the transcript
-    // on screen still shows it. Better to say so than to let him quietly forget.
     watchConnection((state) => {
       if (state === 'lost') {
         sfx.play('warning')
         store.getState().setError('Bridge connection lost — reconnecting.')
       } else if (state === 'reconnected') {
-        store
-          .getState()
-          .setError('Bridge reconnected. The previous conversation was not kept.')
+        store.getState().setError('Bridge reconnected. Recovering the conversation.')
+      } else if (state === 'restored') {
+        store.getState().setError(null)
+      } else if (state === 'reset') {
+        store.getState().setError('Bridge reconnected, but the saved conversation could not be found.')
+      } else if (state === 'storage_error') {
+        store.getState().setError('Conversation backup is unavailable. Check the bridge storage permissions.')
       }
     })
     const warming = warm().catch((err: Error) => s.setError(err.message))
@@ -701,10 +768,63 @@ export default function App() {
 
   // -- clap to start --------------------------------------------------------
 
-  // Fetch bridge capabilities before ignition so provider selection is ready
-  // while the boot screen is still offline.
   useEffect(() => {
-    if (usingBridge) void warm().catch(() => {})
+    const unsubscribe = useStore.subscribe((current) => {
+      const panel = startupReport.current
+      if (panel && !['offline', 'boot'].includes(current.phase)) {
+        startupReport.current = null
+        current.pushBlade({
+          id: panel.id, title: panel.title, kind: 'markup', html: panel.html,
+          size: 'compact', hold: panel.hold,
+        })
+      }
+      startupAnnouncement.current?.flush()
+    })
+    watchAgents((board, online) => useStore.getState().setAgents(board, online))
+    watchSessionAgents((agents) => useStore.getState().setSessionAgents(agents))
+    void restoreLastSession().then((session) => {
+      history.current = session ? session.turns.map((entry) => ({
+        role: entry.role === 'user' ? 'user' : 'assistant', content: entry.text,
+      })) : []
+    }).catch((error: Error) => useStore.getState().setError(error.message))
+      .finally(() => { reopeningSession.current = false })
+    void startupAgentBriefing.current?.().catch((error: Error) => {
+      useStore.getState().setError(`Agent startup briefing failed: ${error.message}`)
+    })
+    return unsubscribe
+  }, [])
+
+  const onReopenSession = useEffectEvent((event: Event) => {
+      if (reopeningSession.current) return
+      const deleting = event.type === 'jarvis:delete-session' ? (event as CustomEvent<ChatSession>).detail : null
+      const selected = event.type === 'jarvis:new-session' || deleting ? null : (event as CustomEvent<ChatSession>).detail
+      if (selected && !selected.turns?.length) return
+      if (['offline', 'boot'].includes(store.getState().phase)) return
+      reopeningSession.current = true
+      interrupt()
+      goDormant()
+      void reopenHistorySession(selected).then(() => {
+        history.current = selected ? selected.turns.map((entry) => ({
+          role: entry.role === 'user' ? 'user' : 'assistant', content: entry.text,
+        })) : []
+        if (deleting) sessionHistory.remove(deleting.id)
+        store.getState().clearPanels()
+        store.getState().clearBlades()
+        store.getState().setError(null)
+        if (!deleting && store.getState().historyOpen) store.getState().toggleHistory()
+      }).catch((error: Error) => store.getState().setError(error.message))
+        .finally(() => { reopeningSession.current = false })
+  })
+  useEffect(() => {
+    const onReopen = (event: Event) => onReopenSession(event)
+    window.addEventListener('jarvis:reopen-session', onReopen)
+    window.addEventListener('jarvis:new-session', onReopen)
+    window.addEventListener('jarvis:delete-session', onReopen)
+    return () => {
+      window.removeEventListener('jarvis:reopen-session', onReopen)
+      window.removeEventListener('jarvis:new-session', onReopen)
+      window.removeEventListener('jarvis:delete-session', onReopen)
+    }
   }, [])
 
   useEffect(() => useStore.subscribe((state, previous) => {
@@ -1028,6 +1148,7 @@ export default function App() {
       {activeTheme().id !== 'lcars' && <CommandPalette />}
       {activeTheme().id !== 'lcars' && <Timeline />}
       {activeTheme().id !== 'lcars' && <SessionHistory />}
+      {activeTheme().id !== 'lcars' && <TaskScheduler />}
       {activeTheme().id !== 'lcars' && <Launcher />}
       <ThemeBoot />
       {activeTheme().id !== 'lcars' && <Diagnostics />}

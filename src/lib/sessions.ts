@@ -18,6 +18,7 @@ export type SessionTurn = {
 
 export type ChatSession = {
   id: string
+  conversationId?: string
   startedAt: number
   updatedAt: number
   turns: SessionTurn[]
@@ -132,6 +133,15 @@ export function sessionTitle(session: ChatSession): string {
   return text.length > 60 ? `${text.slice(0, 59)}…` : text
 }
 
+export function startupSession(
+  sessions: ChatSession[],
+  { activeId, conversationId }: { activeId?: string | null; conversationId?: string } = {},
+): ChatSession | null {
+  if (activeId) return sessions.find((session) => session.id === activeId) ?? null
+  const linked = conversationId && sessions.find((session) => session.conversationId === conversationId)
+  return linked || [...sessions].sort((first, second) => second.updatedAt - first.updatedAt)[0] || null
+}
+
 const newSession = (now: number): ChatSession => ({
   id: `s-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
   startedAt: now,
@@ -151,6 +161,7 @@ export function createSessionHistory(
   let current = recordTurns(newSession(now()), source.getState().turns, now())
   let snapshot: SessionSnapshot = { sessions: upsertSession(sessions, current), currentId: current.id }
   let timer: ReturnType<typeof setTimeout> | null = null
+  let changingSession = false
   const listeners = new Set<() => void>()
 
   const publish = () => {
@@ -170,6 +181,7 @@ export function createSessionHistory(
   }
 
   const unsubscribe = source.subscribe((state, previous) => {
+    if (changingSession) return
     if (state.turns === previous.turns) return
     if (!state.turns.length && previous.turns.length) {
       flush()
@@ -189,6 +201,31 @@ export function createSessionHistory(
     subscribe: (listener: () => void) => {
       listeners.add(listener)
       return () => { listeners.delete(listener) }
+    },
+    attachConversation: (conversationId: string) => {
+      if (current.conversationId === conversationId) return
+      current = { ...current, conversationId }
+      publish()
+      flush()
+    },
+    reopen: (id: string, showTurns: (turns: SessionTurn[]) => void) => {
+      flush()
+      const selected = sessions.find((session) => session.id === id)
+      if (!selected) return false
+      current = { ...selected, updatedAt: now() }
+      changingSession = true
+      try { showTurns(current.turns) } finally { changingSession = false }
+      publish()
+      flush()
+      return true
+    },
+    startNew: (showTurns: (turns: SessionTurn[]) => void) => {
+      flush()
+      current = newSession(now())
+      changingSession = true
+      try { showTurns([]) } finally { changingSession = false }
+      publish()
+      flush()
     },
     /** Deletes a past session. The live session is not removable while its turns are on screen. */
     remove: (id: string) => {

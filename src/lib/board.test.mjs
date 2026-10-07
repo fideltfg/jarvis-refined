@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { capacityLine, mergeBoard, statusLabel } from './board.ts'
+import { agentSummary, capacityLine, mergeBoard, runningAgents, statusLabel } from './board.ts'
 
 const task = (over = {}) => ({
   id: 't1', title: 'Task', kind: 'shell', status: 'queued', attempts: 1, summary: null,
@@ -45,6 +45,38 @@ test('a subagent carries its brief, its type and its result', () => {
   assert.equal(row.status, 'done')
   assert.equal(row.result, 'Parser lives in src/lib/parse.ts')
   assert.equal(row.parentId, null)
+})
+
+test('every agent belongs to JARVIS and says which provider carries it', () => {
+  const rows = mergeBoard(
+    board({
+      goals: [goal({
+        tasks: [
+          task({ id: 'a', status: 'running', model: 'sonnet', runtime: { endpointId: 'anthropic', label: 'Anthropic', provider: 'anthropic', model: 'sonnet', startedAt: '2026-09-29T02:00:00Z' } }),
+          task({ id: 'b', status: 'running', runtime: { endpointId: 'rigel', label: 'Rigel', provider: 'remote', model: null } }),
+          task({ id: 'c', model: 'opus' }),
+          task({ id: 'd', origin: { label: 'vega' } }),
+        ],
+      })],
+    }),
+    [sub({ provider: 'claude', model: 'claude-opus-5', brief: 'Find where parsing happens.' })],
+  )
+  const by = Object.fromEntries(rows.map((row) => [row.id, row]))
+
+  assert.ok(rows.every((row) => row.owner === 'JARVIS'))
+  assert.equal(by.a.runsOn, 'Anthropic')
+  assert.equal(by.a.startedAt, '2026-09-29T02:00:00Z', 'a task is timed from when it began running')
+  assert.equal(by.a.goal, 'Goal')
+  assert.equal(by.b.runsOn, 'Remote host · Rigel')
+  assert.equal(by.c.runsOn, null, 'not yet placed')
+  assert.equal(by.c.model, 'opus')
+  assert.equal(by.d.runsOn, 'delegated by vega')
+  assert.equal(by.s1.runsOn, 'Claude session')
+  assert.equal(by.s1.model, 'claude-opus-5')
+  assert.equal(by.s1.brief, 'Find where parsing happens.')
+
+  assert.deepEqual(runningAgents(rows).map((row) => row.id).sort(), ['a', 'b', 's1'])
+  assert.equal(agentSummary(rows), '3 running · 2 queued')
 })
 
 test('subagents show even with the agent service offline', () => {

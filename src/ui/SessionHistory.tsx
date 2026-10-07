@@ -1,4 +1,5 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
+import { ListX, Trash2 } from 'lucide-react'
 
 import { sessionTitle, type ChatSession } from '../lib/sessions'
 import { useStore } from '../store'
@@ -17,9 +18,11 @@ function sessionMeta(session: ChatSession, currentId: string) {
 export function SessionHistory({ inline = false }: { inline?: boolean } = {}) {
   const open = useStore((s) => s.historyOpen)
   const toggle = useStore((s) => s.toggleHistory)
+  const phase = useStore((s) => s.phase)
+  const loading = useStore((s) => s.sessionLoading)
   const { sessions, currentId } = useSyncExternalStore(sessionHistory.subscribe, sessionHistory.getSnapshot)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const selected = sessions.find((session) => session.id === selectedId) ?? sessions[0] ?? null
+  const selected = sessions.find((session) => session.id === currentId) ?? sessions[0] ?? null
+  const unavailable = loading || ['offline', 'boot', 'thinking', 'tooling', 'speaking'].includes(phase)
   const hasPast = sessions.some((session) => session.id !== currentId)
 
   useEffect(() => {
@@ -55,12 +58,15 @@ export function SessionHistory({ inline = false }: { inline?: boolean } = {}) {
         <div className="sh-body">
           <ul className="sh-list" aria-label="Sessions">
             {sessions.map((session) => (
-              <li key={session.id}>
+              <li key={session.id} className="sh-session-row">
                 <button
                   type="button"
                   className="sh-session"
-                  aria-pressed={session.id === selected?.id}
-                  onClick={() => setSelectedId(session.id)}
+                  aria-pressed={session.id === currentId}
+                  disabled={unavailable}
+                  onClick={() => {
+                    if (session.id !== currentId) window.dispatchEvent(new CustomEvent('jarvis:reopen-session', { detail: session }))
+                  }}
                 >
                   <strong>{sessionTitle(session)}</strong>
                   <small>{sessionMeta(session, currentId)}</small>
@@ -72,15 +78,20 @@ export function SessionHistory({ inline = false }: { inline?: boolean } = {}) {
           {selected && (
             <div className="sh-detail">
               <div className="sh-detail-head">
-                <span title={sessionTitle(selected)}>{dateTime.format(selected.startedAt)} – {clock.format(selected.updatedAt)}</span>
-                {selected.id !== currentId && (
-                  <button type="button" className="sh-action" onClick={() => {
-                    // Leave persisted history untouched unless deletion is confirmed.
-                    if (window.confirm(`Delete session "${sessionTitle(selected)}"? This cannot be undone.`)) {
-                      sessionHistory.remove(selected.id)
-                    }
-                  }}>Delete</button>
-                )}
+                <span className="sh-detail-time" title={sessionTitle(selected)}>{dateTime.format(selected.startedAt)} – {clock.format(selected.updatedAt)}</span>
+                <div className="sh-detail-actions">
+                  <button type="button" className="sh-action sh-session-delete"
+                    title="Delete session"
+                    aria-label={`Delete session: ${sessionTitle(selected)}`} disabled={loading || phase === 'offline' || phase === 'boot'}
+                    onClick={() => {
+                      if (!window.confirm(`Delete session "${sessionTitle(selected)}"? This cannot be undone.`)) return
+                      if (selected.id === currentId) {
+                        window.dispatchEvent(new CustomEvent('jarvis:delete-session', { detail: selected }))
+                      } else {
+                        sessionHistory.remove(selected.id)
+                      }
+                    }}><Trash2 size={14} aria-hidden="true" /> Delete</button>
+                </div>
               </div>
               <div className="sh-transcript" role="log" aria-label="Session transcript">
                 {selected.turns.map((turn) => (
@@ -105,11 +116,11 @@ export function SessionHistory({ inline = false }: { inline?: boolean } = {}) {
       {hasPast && (
         <footer className="sh-foot">
           <span>Stored on this device only.</span>
-          <button type="button" className="sh-action" onClick={() => {
+          <button type="button" className="sh-action" title="Clear past sessions" onClick={() => {
             if (window.confirm('Delete all past sessions? This cannot be undone. The current session will be kept.')) {
               sessionHistory.clearPast()
             }
-          }}>Clear past sessions</button>
+          }}><ListX size={14} aria-hidden="true" /> Clear past sessions</button>
         </footer>
       )}
     </section>

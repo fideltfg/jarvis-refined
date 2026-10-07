@@ -68,11 +68,47 @@ chmod 600 ~/.config/jarvis/agents-key.pem
 
 ## Workflow
 
+When the interface loads, JARVIS automatically requests a briefing on
+previous session subagents and background or remote agent work. It waits for
+conversation restoration and runs once per page launch, not on reconnects or
+history changes, without waiting for ignition or microphone access. Startup
+work uses a separate hidden session, leaving the
+restored conversation's context and chat history untouched. The finished report
+appears after ignition in a sticky Startup Agent Briefing panel with progress, completed
+results, failures, interruptions, blockers, and pending approvals. The panel
+shows when the check is running and reports failures or empty responses. JARVIS
+also speaks a brief overview once ignition has unlocked browser audio and
+the foreground conversation is idle. A report that arrives before ignition or
+during another answer is queued; it does not interrupt or enter chat history.
+The visual report groups work into sections with status labels and readable
+dates. Detailed progress, result paths, and historical notes remain available
+in expandable Details entries rather than being read aloud.
+The report is formatted directly from a read-only service snapshot, not inferred
+by a language model. It includes active and completed goals, archived tasks,
+latest recorded progress and results, scheduled work and next runs, endpoint
+health, session subagents, personal tasks, and the unfinished-work ledger.
+It cannot create work, restart tasks, or approve actions. Saved subagent records
+are distinguished from live tracking, schedules are not counted as workers, and
+unavailable sources are reported explicitly rather than treated as empty.
+This requires the bridge backend; background status tools additionally require
+the agent-service configuration described above.
+
 Ask JARVIS to handle work that takes more than one turn, such as a code change,
 research report, service operation, or administrative task. The coordinator
 plans tasks, schedules workers against the available capacity, tracks progress,
 and reviews task results. Goals can be paused, resumed, updated with new
-information, or abandoned. Recurring goals can be scheduled with an interval.
+information, or abandoned. The `goal_create` interval option starts recurring
+work immediately; use the task scheduler below to save work for a future time.
+
+The `jarvis_agents` tools are available to every conversation provider: Claude,
+OpenAI and local endpoints all hand work to the same agent service, so every
+agent belongs to JARVIS whichever model asked for it. The agent board lists
+agent-service tasks and Claude session subagents from every open window as one
+list of JARVIS agents. Each running, blocked or approval-waiting agent shows its
+owner, where it runs (provider, endpoint or remote host), model, goal, type,
+start time and, for session subagents, the start of its brief. The `status` tool
+reports goals and running session subagents in one briefing. A session subagent
+still running when its browser connection closes is marked interrupted.
 
 Worker categories are `code`, `research`, `marketing`, `ops`, and `admin`.
 Marketing workers research software positioning and draft evidence-based
@@ -80,6 +116,75 @@ campaign materials in their task workspace; they cannot publish or contact
 prospects. Workers have per-task turn, time, and spending limits. Work is persisted under
 `~/.config/jarvis/agents`; task workspaces use `~/.jarvis-work` by default.
 Completed task workspaces can be removed with JARVIS's `cleanup` agent tool.
+
+## Task Scheduler
+
+The task scheduler saves future work without asking the coordinator to plan it
+early. Open **Task scheduler** in the LCARS deck, or **Open task scheduler** in
+the command palette in other themes. Enter a title and desired outcome, then
+choose:
+
+- **Once:** a future date and time in the browser's local timezone.
+- **Interval:** every specified number of minutes, hours or days, beginning
+  after the first interval. Timing stays anchored to that initial cadence,
+  rather than the previous task's completion.
+- **Daily:** a wall-clock time in a selected IANA timezone.
+- **Weekly:** selected weekdays at a wall-clock time in a selected timezone.
+
+Chat/voice uses `schedule_create`, `schedule_list`, `schedule_update` and
+`schedule_run`. Ask for an explicit timezone for calendar work, such as
+"Prepare a health report every weekday at 09:00 Europe/London." A one-time
+tool timestamp must include a UTC offset. JARVIS confirms the next run time.
+The existing `goal_create` interval option is unchanged: it starts immediately
+and measures recurrence from completion, unlike the task scheduler.
+
+### Timing and Recovery
+
+Schedules are stored under `JARVIS_AGENTS_DIR/schedules` (default
+`~/.config/jarvis/agents/schedules`). They survive reloads and agent-service
+restarts. The browser may be closed, but the host and agent service must be
+running; the scheduler cannot wake a sleeping host. Due work is checked every
+five seconds and actual task execution waits for worker capacity.
+
+After downtime or a long previous run, missed occurrences coalesce into one
+catch-up run. Each occurrence creates its own goal. A still-active goal,
+including one paused for a decision or approval, prevents overlap. Resolve or
+abandon that goal on the agent board or through chat before another occurrence
+can start. The panel shows the latest run and result.
+
+Calendar schedules skip wall-clock times that do not exist at a spring-forward
+transition and run once on a fall-back day. The one-time date picker rejects
+nonexistent or ambiguous local times; choose an unambiguous time instead.
+Intervals measure elapsed minutes, not calendar days across timezone changes.
+
+An occurrence is reserved on disk before its goal is created. Restart recovery
+reuses that goal and does not replan it if tasks already exist. Coordinator
+failures without tasks retry with one- then two-minute delays; after three
+failures the schedule pauses and exposes the error. This avoids duplicate local
+goals, but cannot promise exactly-once external actions after a worker crash.
+
+### Managing Schedules
+
+Pausing, editing or deleting a schedule changes future occurrences only; work
+already launched remains available through the agent board. Deletion requires
+confirmation and retains the stored record as a tombstone. Resuming catches up
+once if the next occurrence is overdue. **Run now** is available for active or
+paused schedules, refuses overlapping work and leaves recurring cadence
+unchanged. For a one-time schedule, it consumes that occurrence. Edit a
+completed one-time schedule's trigger to schedule it again.
+
+The API adds authenticated `GET /schedules`, `POST /schedules`,
+`POST /schedules/:id` (edit, pause, resume, delete), and
+`POST /schedules/:id/run`. Browser operations pass through the bridge; the agent
+token is never sent to the browser. Offline mutations report an error. If a
+connection drops or an acknowledgement times out, refresh before retrying: the
+change may already have been saved.
+
+Scheduled work uses the same coordinator, worker pool, spending limits and
+approval gates as other goals. A schedule is not approval to send a message,
+delete files or perform another restricted action. Standalone reminder
+notifications, arbitrary shell commands and user-entered cron expressions are
+not part of this scheduler.
 
 ## Capacity and Endpoints
 

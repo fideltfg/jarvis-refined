@@ -231,7 +231,7 @@ function defined<T extends object>(patch: T | undefined): Partial<T> {
  */
 const MAX_ORBITS = 8
 
-export type CommandWindow = 'agents' | 'diagnostics' | 'history' | 'palette' | 'timeline' | 'status' | 'voice'
+export type CommandWindow = 'agents' | 'diagnostics' | 'history' | 'loose-ends' | 'palette' | 'scheduler' | 'timeline' | 'status' | 'voice'
 
 const commandWindowState = (commandWindow: CommandWindow | null) => ({
   commandWindow,
@@ -259,6 +259,7 @@ type State = {
   timelineOpen: boolean
   /** True while the session history window is on screen. */
   historyOpen: boolean
+  sessionLoading: boolean
   error: string | null
   connected: string[]
   /** Name of the speech-synthesis voice in use, shown in the HUD. */
@@ -347,6 +348,7 @@ export const useStore = create<State>((set) => ({
   toolEvents: [],
   timelineOpen: false,
   historyOpen: false,
+  sessionLoading: false,
   error: null,
   connected: [],
   voice: '',

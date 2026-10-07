@@ -1,15 +1,18 @@
-import { useEffect, useId, useRef, useState } from 'react'
-import { Activity, AudioLines, Camera, ClipboardList, FileText, History, Mic, MicOff, Paperclip, Search, Send, ShieldCheck, UserRound } from 'lucide-react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { Activity, AudioLines, CalendarClock, Camera, ClipboardList, FileText, History, ListTodo, MessageSquarePlus, Mic, MicOff, Paperclip, Search, Send, ShieldCheck, UserRound } from 'lucide-react'
 import { providerState, selectProvider, selectModel, usingBridge, watchProviders } from '../../../src/lib/brain'
 import { useStore, type Phase } from '../../../src/store'
+import { mergeBoard, runningAgents } from '../../../src/lib/board'
 import { AgentBoard } from '../../../src/ui/AgentBoard'
 import { CommandPalette } from '../../../src/ui/CommandPalette'
 import { Timeline } from '../../../src/ui/Timeline'
 import { SessionHistory } from '../../../src/ui/SessionHistory'
+import { TaskScheduler } from '../../../src/ui/TaskScheduler'
 import { Diagnostics } from '../../../src/ui/Diagnostics'
 import { AttachmentNames, AttachmentTray } from '../../../src/ui/AttachmentTray'
 import { useAttachments } from '../../../src/ui/useAttachments'
 import StatusReport from './StatusReport'
+import LooseEnds from './LooseEnds'
 
 const PHASE_LABELS: Record<Phase, string> = {
   offline: 'OFFLINE',
@@ -43,6 +46,11 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
   const connected = useStore((state) => state.connected)
   const agentsOnline = useStore((state) => state.agentsOnline)
   const sessionAgents = useStore((state) => state.sessionAgents)
+  const agentBoard = useStore((state) => state.agentBoard)
+  const agentCount = useMemo(
+    () => runningAgents(mergeBoard(agentsOnline ? agentBoard : null, sessionAgents)).length,
+    [agentBoard, agentsOnline, sessionAgents],
+  )
   const gestures = useStore((state) => state.gestures)
   const turns = useStore((state) => state.turns)
   const caption = useStore((state) => state.caption)
@@ -56,6 +64,7 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
   const timelineOpen = useStore((state) => state.timelineOpen)
   const toggleTimeline = useStore((state) => state.toggleTimeline)
   const historyOpen = useStore((state) => state.historyOpen)
+  const sessionLoading = useStore((state) => state.sessionLoading)
   const toggleHistory = useStore((state) => state.toggleHistory)
   const toolCalls = useStore((state) => state.toolEvents.length)
   const reactor = useStore((state) => state.ui.reactor)
@@ -64,6 +73,7 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
   const commandWindow = useStore((state) => state.commandWindow)
   const setCommandWindow = useStore((state) => state.setCommandWindow)
   const statusReportOpen = commandWindow === 'status'
+  const looseEndsOpen = commandWindow === 'loose-ends'
   const diagnosticsOpen = commandWindow === 'diagnostics'
   const commandPaletteOpen = commandWindow === 'palette'
   const transcriptRef = useRef<HTMLDivElement>(null)
@@ -117,7 +127,7 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
     { name: 'AUDIO INPUT', state: phase === 'offline' ? 'OFFLINE' : 'ARMED', on: phase !== 'offline', tone: 'orange', meter: true },
     { name: 'TOOL CHANNEL', state: activeTool ?? 'IDLE', on: Boolean(activeTool), tone: 'lilac' },
     { name: 'VISION TRACKING', state: gestures ? 'TRACKING' : 'STANDBY', on: gestures, tone: 'blue' },
-    { name: 'AGENT NETWORK', state: agentsOnline ? `${sessionAgents.length} SESSION${sessionAgents.length === 1 ? '' : 'S'}` : 'NOT CONNECTED', on: agentsOnline, tone: 'mint' },
+    { name: 'AGENT NETWORK', state: agentsOnline ? `${agentCount} RUNNING` : 'NOT CONNECTED', on: agentsOnline, tone: 'mint' },
   ]
 
   return (
@@ -215,13 +225,16 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
               <div className="lcars-deck-switches">
                 <button type="button" data-function-off={!ptt.enabled} data-function-active={ptt.enabled && ptt.held} aria-pressed={ptt.enabled} onClick={() => window.dispatchEvent(new Event('jarvis:toggle-ptt'))} disabled={unavailable} title={ptt.enabled ? `Hold ${ptt.label} to speak` : 'Enable push-to-talk'}><AudioLines size={17} /> Push to talk <b>{ptt.enabled ? 'ON' : 'OFF'}</b></button>
                 <button type="button" data-function-off={!gestures} aria-pressed={gestures} onClick={() => window.dispatchEvent(new Event('jarvis:toggle-hands'))} disabled={unavailable} title="Toggle camera gesture tracking"><Camera size={17} /> Camera <b>{gestures ? 'ON' : 'OFF'}</b></button>
-                <button type="button" data-command-window="agents" aria-pressed={boardOpen} onClick={toggleBoard} disabled={!agentsSeen && !sessionAgents.length} title="Open agent board"><ClipboardList size={17} /> Agents <b>{sessionAgents.length}</b></button>
+                <button type="button" data-command-window="agents" aria-pressed={boardOpen} onClick={toggleBoard} disabled={!agentsSeen && !sessionAgents.length} title="Open agent board"><ClipboardList size={17} /> Agents <b>{agentCount}</b></button>
+                <button type="button" data-command-window="scheduler" aria-pressed={commandWindow === 'scheduler'} onClick={() => setCommandWindow(commandWindow === 'scheduler' ? null : 'scheduler')} title="Manage scheduled tasks"><CalendarClock size={17} /> Task scheduler</button>
                 <button type="button" data-command-window="voice" aria-pressed={enrolling} onClick={() => window.dispatchEvent(new Event('jarvis:voice-profile'))} disabled={unavailable} title="Manage voice profile"><UserRound size={17} /> Voice profile <b>{enrolling ? 'OPEN' : 'SET'}</b></button>
                 <button type="button" data-command-window="diagnostics" aria-pressed={diagnosticsOpen} onClick={() => window.dispatchEvent(new Event('jarvis:toggle-diagnostics'))} title="Toggle voice diagnostics"><ShieldCheck size={17} /> Diagnostics</button>
                 <button type="button" data-command-window="status" aria-pressed={statusReportOpen} onClick={() => setCommandWindow(statusReportOpen ? null : 'status')} title="Open status report"><FileText size={17} /> Status report</button>
+                <button type="button" data-command-window="loose-ends" aria-pressed={looseEndsOpen} onClick={() => setCommandWindow(looseEndsOpen ? null : 'loose-ends')} title="Show work left undone, un-started or incomplete"><ListTodo size={17} /> Loose ends</button>
                 <button type="button" data-command-window="palette" aria-pressed={commandPaletteOpen} onClick={() => window.dispatchEvent(new Event('jarvis:toggle-command-palette'))} title="Toggle command palette"><Search size={17} /> Command palette</button>
                 <button type="button" data-command-window="timeline" aria-pressed={timelineOpen} onClick={toggleTimeline} title="Show what tools have run and for how long"><Activity size={17} /> Tool timeline <b>{toolCalls}</b></button>
                 <button type="button" data-command-window="history" aria-pressed={historyOpen} onClick={toggleHistory} title="Review past chat sessions (Shift+H)"><History size={17} /> Session history</button>
+                <button type="button" disabled={unavailable || busy || sessionLoading} onClick={() => window.dispatchEvent(new Event('jarvis:new-session'))} title="Start a new conversation"><MessageSquarePlus size={17} /> New session</button>
               </div>
             </div>
             <section className="lcars-deck-history" aria-label="Recent conversation">
@@ -242,8 +255,10 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
               <CommandPalette inline />
               <Timeline inline />
               <SessionHistory inline />
+              <TaskScheduler inline />
               <Diagnostics inline />
               {statusReportOpen && <StatusReport onClose={() => setCommandWindow(null)} />}
+              {looseEndsOpen && <LooseEnds onClose={() => setCommandWindow(null)} />}
             </section>
           </div>
         </section>

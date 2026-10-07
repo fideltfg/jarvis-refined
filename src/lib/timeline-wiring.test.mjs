@@ -119,7 +119,7 @@ test('LCARS selects one command window across every pair and shortcut action', a
     })
     const { useStore } = await server.ssrLoadModule('/src/store.ts')
     useStore.setState({ exclusiveCommandWindows: true })
-    const windows = ['agents', 'diagnostics', 'palette', 'timeline', 'status', 'voice', null]
+    const windows = ['agents', 'diagnostics', 'palette', 'scheduler', 'timeline', 'status', 'voice', null]
     const assertWindow = (expected) => {
       const state = useStore.getState()
       assert.equal(state.commandWindow, expected)

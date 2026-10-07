@@ -59,10 +59,22 @@ test('LCARS ultrawide layout separates diagnostics, session log and command wind
   assert.match(ultrawide, /\.lcars-deck-transcript \{[^}]*grid-column: 1;[^}]*grid-row: 4;/)
   const commandWindowStyles = css.split('@media (min-width: 1800px) and (min-aspect-ratio: 21/9) {')[2]?.split('@media')[0]
   assert.ok(commandWindowStyles)
-  for (const panel of ['agent-board', 'command-palette-inline', 'timeline-inline', 'session-history-inline', 'diag', 'lcars-report-window']) {
+  for (const panel of ['agent-board', 'command-palette-inline', 'timeline-inline', 'session-history-inline', 'task-scheduler-inline', 'diag', 'lcars-report-window', 'lcars-loose-window']) {
     assert.ok(commandWindowStyles.includes(`.${panel}`))
   }
   assert.match(commandWindowStyles, /position: relative;\s*grid-column: 2;\s*grid-row: 2 \/ -1;\s*inset: auto;/)
+})
+
+test('LCARS loose ends has command-window docking and a scrollable styled ledger', async () => {
+  const css = await readFile(join(themes, 'lcars/theme.css'), 'utf8')
+  const docking = css.match(/\.lcars-deck-history > :is\([^)]*\.lcars-loose-window[^)]*\) \{([^}]*)\}/)?.[1]
+  assert.ok(docking)
+  assert.match(docking, /position: absolute;/)
+  assert.match(docking, /top: 40px;/)
+  assert.match(docking, /bottom: 0;/)
+  assert.match(css, /\.lcars-loose-window \{[^}]*display: flex;[^}]*border-left: 6px solid var\(--lc-violet\);/)
+  assert.match(css, /\.lcars-loose-list \{[^}]*min-height: 0;[^}]*overflow-y: auto;[^}]*list-style: none;/)
+  assert.match(css, /\.lcars-loose-row \{[^}]*display: grid;[^}]*minmax\(0, 1fr\)/)
 })
 
 async function withTheme(manifest, module, check) {

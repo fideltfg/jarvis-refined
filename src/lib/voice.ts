@@ -178,7 +178,7 @@ const TRAILS = /[,;:–—-]$/
  * Kept short deliberately. This is the one window where a genuine interruption
  * is also least likely: the user has not yet heard enough to want to stop him.
  */
-const SELF_GUARD_MS = 650
+const SELF_GUARD_MS = 1600
 
 /**
  * How long a provisional barge-in may stay unjudged before he comes back up.
@@ -815,7 +815,8 @@ async function startBrowserVoice(h: VoiceHandlers, pushToTalk: boolean): Promise
   let barged = false
   let lastWake = 0
   let lastAlive = Date.now()
-  let consumedWakeThrough = -1
+  let consumedThrough = -1
+  let latestResultIndex = -1
   let phraseBias = true
   let silenceTimer: ReturnType<typeof setTimeout> | null = null
   /** When the words currently being assembled were first seen. The voiceprint
@@ -886,6 +887,7 @@ async function startBrowserVoice(h: VoiceHandlers, pushToTalk: boolean): Promise
     const text = `${settled} ${interim}`.replace(/\s+/g, ' ').trim()
     const mode = h.mode()
     const from = speechFrom || Date.now()
+    consumedThrough = Math.max(consumedThrough, latestResultIndex)
     reset()
     if (!text || mode === 'deaf') {
       settleBarge(false)
@@ -984,12 +986,9 @@ async function startBrowserVoice(h: VoiceHandlers, pushToTalk: boolean): Promise
       interim = ''
       return
     }
-    let first = e.resultIndex
-    if (consumedWakeThrough >= 0) {
-      first = Math.max(first, consumedWakeThrough + 1)
-      if (first >= e.results.length) return
-      consumedWakeThrough = -1
-    }
+    const first = Math.max(e.resultIndex, consumedThrough + 1)
+    if (first >= e.results.length) return
+    latestResultIndex = e.results.length - 1
     interim = ''
     for (let i = first; i < e.results.length; i++) {
       const chunk = e.results[i][0].transcript as string
@@ -1021,7 +1020,7 @@ async function startBrowserVoice(h: VoiceHandlers, pushToTalk: boolean): Promise
         if (!trailing && !latest?.isFinal) return
         lastWake = Date.now()
         diag.wakes++
-        consumedWakeThrough = e.results.length - 1
+        consumedThrough = e.results.length - 1
         reset()
         h.onWake(trailing)
       } else if (settled.length > 400) {
@@ -1122,7 +1121,10 @@ async function startBrowserVoice(h: VoiceHandlers, pushToTalk: boolean): Promise
 
   const spin = () => {
     if (stopped || running || (ptt && !held)) return
+    consumedThrough = -1
+    latestResultIndex = -1
     rec = new Ctor()
+    const session = rec
     rec.continuous = true
     rec.interimResults = true
     rec.lang = SPEECH_LANGUAGE
@@ -1138,14 +1140,19 @@ async function startBrowserVoice(h: VoiceHandlers, pushToTalk: boolean): Promise
       }
     }
     rec.onstart = () => {
+      if (stopped || rec !== session) return
       running = true
       diag.running = true
       diag.lastError = ''
       diag.sessions++
       touch()
     }
-    rec.onresult = onResult
+    rec.onresult = (event: any) => {
+      if (stopped || rec !== session) return
+      onResult(event)
+    }
     rec.onerror = (ev: any) => {
+      if (stopped || rec !== session) return
       diag.lastError = String(ev.error ?? '')
       if (ev.error === 'phrases-not-supported') {
         phraseBias = false
@@ -1164,6 +1171,7 @@ async function startBrowserVoice(h: VoiceHandlers, pushToTalk: boolean): Promise
       }
     }
     rec.onend = () => {
+      if (stopped || rec !== session) return
       running = false
       diag.running = false
       touch()
@@ -1173,10 +1181,10 @@ async function startBrowserVoice(h: VoiceHandlers, pushToTalk: boolean): Promise
           emit()
           return
         }
-        carry = `${settled} ${interim}`.replace(/\s+/g, ' ').trim()
-        finalResults.clear()
-        interim = ''
       }
+      carry = `${settled} ${interim}`.replace(/\s+/g, ' ').trim()
+      finalResults.clear()
+      interim = ''
       if (!stopped) setTimeout(spin, 80)
     }
     try {
@@ -1216,9 +1224,12 @@ async function startBrowserVoice(h: VoiceHandlers, pushToTalk: boolean): Promise
       clearSilence()
       assemble.cancel()
       gate?.stop()
+      const previous = rec
+      rec = null
+      running = false
       diag.running = false
       try {
-        rec?.abort()
+        previous?.abort()
       } catch {
         /* noop */
       }
@@ -1230,15 +1241,17 @@ async function startBrowserVoice(h: VoiceHandlers, pushToTalk: boolean): Promise
       diag.ptt = on
       held = false
       reset()
-      consumedWakeThrough = -1
       assemble.cancel()
-      if (on) {
-        try {
-          rec?.abort()
-        } catch {
-          /* already gone */
-        }
-      } else {
+      const previous = rec
+      rec = null
+      running = false
+      diag.running = false
+      try {
+        previous?.abort()
+      } catch {
+        /* already gone */
+      }
+      if (!on) {
         touch()
         spin()
       }

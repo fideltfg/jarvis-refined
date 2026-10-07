@@ -98,8 +98,9 @@ are sent to the main host or an outside provider.
 
 Do not rerun `install.sh` to upgrade: it intentionally refuses to overwrite an
 existing install. Stop the service, unpack a newly built and checksum-verified
-archive into a **new versioned directory**, install locked dependencies there
-and atomically repoint `current`; then restart and repeat the health and task checks. Preserve
+archive into a **new versioned directory**, then atomically repoint `current`;
+no npm dependency installation is required because the runtime package has no
+runtime dependencies. Restart and repeat the health and task checks. Preserve
 `/var/lib/jarvis-remote-agent` across releases. For rollback, stop the service,
 repoint `current` to the previous tested directory, restart and verify. Do not
 replace a directory in place while a worker is running; drain tasks first.

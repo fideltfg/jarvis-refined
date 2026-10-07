@@ -48,6 +48,24 @@ Session history (**Shift+H**) lists past conversations. It is stored in this
 browser's local storage and keeps session text, timestamps, tool names and
 attachment names/metadata, not attached file bytes.
 
+Click a past session to continue it. **New session** saves the current conversation
+and starts an empty one. The last active conversation and transcript are restored
+when the interface loads; an explicitly started empty session stays empty on reload.
+Loading a session does not submit a model request or repeat previous actions.
+Newer sessions link
+to their bridge conversation checkpoint; older sessions restore the recorded
+dialogue. Reopening does not execute old requests or restore attached file bytes.
+
+The browser tab keeps its current conversation ID in session storage. The bridge
+saves private recovery checkpoints under `~/.config/jarvis/conversations`
+(override with `JARVIS_CONVERSATIONS_DIR`), and Claude keeps its native session
+transcripts in its own configuration directory. Reconnects, reloads and bridge
+restarts recover conversation context; interrupted actions are not automatically
+replayed. If a native Claude transcript is missing, the dialogue checkpoint is
+used instead. Checkpoints contain conversation text and use owner-only file
+permissions. They and Claude's native transcripts are retained separately from
+the history list; deleting a history entry does not delete these recovery files.
+
 A copy of the session text (not tool names or attachment metadata) is also
 mirrored to the local bridge at `~/.config/jarvis/sessions.json` (override with
 `JARVIS_HISTORY_FILE`; up to 200 sessions, owner-readable only). JARVIS reads it
@@ -103,6 +121,40 @@ If the server certificate chains to a CA already trusted by the machine, use
 `curl -O` and omit `--ca` from Node. Never use `curl -k` for executable code:
 the Node `--ca` option verifies only the later WebSocket connection, not the
 download.
+
+### Run without a relay window
+
+The standalone downloaded relay supports background operation with the same
+Node runtime and no additional installation. On Windows, start it once:
+
+```powershell
+node .\jarvis-relay.mjs wss://dockerbox:5173/bridge/relay --token <token> --ca .\jarvis.crt --background
+```
+
+After the command reports that it is running, close the terminal. The child
+Node process is detached with Windows console hiding enabled; its command line
+does not contain the relay token. Certificate and socket options continue to
+work. Prefer a trusted certificate; `--insecure` is still supported only for
+networks you trust.
+
+```powershell
+node .\jarvis-relay.mjs --status
+node .\jarvis-relay.mjs --stop
+```
+
+Status distinguishes a linked relay from one reconnecting to the server. A
+second background start is rejected; stop the existing relay before changing
+servers or credentials. The background relay reconnects after network loss,
+but does not automatically restart after a process crash, logout, or reboot.
+Run the start command again in those cases. Foreground operation is unchanged.
+
+Logs and private control state live in `%LOCALAPPDATA%\JarvisRefined\Relay` on
+Windows, or `~/.local/state/jarvis-relay` on Linux and macOS. The token is passed
+through the child environment, not saved in this state. Files are restricted to
+the current user (and SYSTEM on Windows); local administrators can still inspect
+processes. `relay.log` rotates at approximately 5 MiB, keeping one previous log.
+Use `--background-dir <path>` on start, status, and stop to select a separate
+directory. Preserve access to Node and the downloaded script for later commands.
 
 That machine needs Chrome open with the Claude extension, and Claude Code
 installed with its Chrome integration enabled. The bridge drives the browser of

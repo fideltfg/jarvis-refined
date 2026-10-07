@@ -16,15 +16,16 @@
  */
 
 import { WebSocketServer } from 'ws'
-import { query } from '@anthropic-ai/claude-agent-sdk'
+import { getSessionInfo, query } from '@anthropic-ai/claude-agent-sdk'
 import { displayServer } from './panels.mjs'
 import { uiServer } from './ui.mjs'
 import { chromeAvailable, chromeServer, chromeTarget } from './chrome.mjs'
 import { clientAddress, createRelayHub } from './relay.mjs'
 import { visionServer } from './vision.mjs'
-import { SESSION_AGENT_TOOLS, createSessionAgents } from './session-agents.mjs'
+import { SESSION_AGENT_TOOLS, createSessionAgents, parseTaskNotification } from './session-agents.mjs'
 import { historyServer, refreshSummaries, save as saveHistory } from './history.mjs'
 import { load as loadMemory, MEMORY_GUIDE, memoryServer, memorySnapshot, MEMORY_FILE } from './memory.mjs'
+import { load as loadLooseEnds, LOOSE_ENDS_FILE } from './loose-ends.mjs'
 import { homedir, tmpdir } from 'node:os'
 import { readFileSync, realpathSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
@@ -36,9 +37,13 @@ import { AttachmentError, claudeContent, describeAttachments, isMultimodalReject
 import { describeFile } from './describe.mjs'
 import { sharedContext } from './context.mjs'
 import { createToolBroker } from './tool-broker.mjs'
+import { isTurnProgress, waitForInterruptedTurn } from './turns.mjs'
+import { claudeRecoveryOptions, createConversationStore, historyMessages, interruptedContext } from './conversations.mjs'
 import { filesServer } from './files.mjs'
 import { commandsServer } from './commands.mjs'
-import { agentsApi, subscribeAgents } from './agents-client.mjs'
+import { AGENTS_PROMPT, agentsApi, agentsServer, subscribeAgents } from './agents-client.mjs'
+import { handleScheduleRequest } from './schedule-commands.mjs'
+import { handleStartupStatusRequest, mergeSessionAgents } from './startup-status.mjs'
 import { personaFor as themePersona, resolveThemeId } from './themes.mjs'
 
 // Vite reads .env.local for the browser, but the bridge is a separate Node
@@ -335,6 +340,10 @@ function decideTool(name) {
     // and friends read as writes to the verb rules below.
     if (server === 'jarvis_memory' || server === 'jarvis_history') return true
 
+    // Background agents gate their own actions through the agent service's
+    // policy and approvals, whichever provider asked for the work.
+    if (server === 'jarvis_agents') return true
+
     const tool = mcpToolOf(name)
     if (EFFECTFUL_VERB.test(tool) && !VETO_EXEMPT.has(`${server}__${tool}`)) {
       return ALLOW_WRITES
@@ -514,7 +523,7 @@ Using tools:
 const personaFor = (theme) => themePersona(theme) || PERSONA_STARK
 
 const systemPromptFor = (theme) =>
-  `${personaFor(theme)}\n\n${TOOLS_PROMPT}\n\n${MEMORY_GUIDE}${sharedContext()}`
+  `${personaFor(theme)}\n\n${TOOLS_PROMPT}\n\n${process.env.JARVIS_AGENTS === '1' ? `${AGENTS_PROMPT}\n\n` : ''}${MEMORY_GUIDE}${sharedContext()}`
 
 const memoryContext = (snapshot) => `Memory snapshot at the start of this conversation:\n${snapshot}`
 
@@ -791,6 +800,23 @@ const handleRequest = async (req, res) => {
     const { goals, focus, tasks, log } = loadMemory(MEMORY_FILE)
     res.writeHead(200, { ...cors, 'content-type': 'application/json', 'cache-control': 'no-store' })
     return res.end(JSON.stringify({ goals, focus, tasks, progress: log.slice(-10).reverse() }))
+  }
+
+  if (req.method === 'GET' && req.url === '/memory/loose-ends') {
+    // Same loopback rule as /memory/status: this is the assistant's own notes.
+    if (!origin && !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)) {
+      res.writeHead(403, cors)
+      return res.end('forbidden')
+    }
+    let payload
+    try {
+      payload = loadLooseEnds(LOOSE_ENDS_FILE)
+    } catch (err) {
+      res.writeHead(500, { ...cors, 'content-type': 'application/json' })
+      return res.end(JSON.stringify({ error: err.message }))
+    }
+    res.writeHead(200, { ...cors, 'content-type': 'application/json', 'cache-control': 'no-store' })
+    return res.end(JSON.stringify(payload))
   }
 
   // Serve local image files to the page. Screenshots and generated art land on
@@ -1176,6 +1202,15 @@ const RESULT_FAILURES = {
   default: 'The turn ended without an answer.',
 }
 
+const conversationStore = createConversationStore()
+// One tracker for the whole bridge, so every window sees every agent JARVIS dispatched.
+const sessionAgentListeners = new Set()
+const sessionAgents = createSessionAgents({
+  send: (msg) => {
+    for (const listener of sessionAgentListeners) listener(msg)
+  },
+})
+
 wss.on('connection', (socket, req) => {
   const clientIp = clientAddress(req)
   if ((req.url ?? '/').split('?')[0] === '/relay') return relayHub.attach(socket, clientIp)
@@ -1183,12 +1218,29 @@ wss.on('connection', (socket, req) => {
   // An unknown or missing theme falls back to whatever is installed, so an
   // older client — or a theme folder that has since been removed — still gets a
   // working character rather than none.
-  const requested = new URL(req.url ?? '/', 'http://x').searchParams.get('theme')
+  const parameters = new URL(req.url ?? '/', 'http://x').searchParams
+  const requested = parameters.get('theme')
   const theme = resolveThemeId(requested)
+  const checkpoint = conversationStore.open(parameters.get('conversation'), theme, () => {
+    saveConversation()
+    closed = true
+    socket.close()
+  })
+  const saved = checkpoint.state
+  let recoveredPending = saved.pending
+  let checkpointTimer = null
+  const saveConversation = () => {
+    clearTimeout(checkpointTimer)
+    checkpointTimer = null
+    return checkpoint.save()
+  }
+  const durable = saveConversation()
+  socket.send(JSON.stringify({ type: 'conversation', id: checkpoint.id, status: !durable
+    ? 'storage_error' : checkpoint.restored ? 'restored' : checkpoint.unavailable ? 'unavailable' : 'new' }))
   console.log(`[jarvis] client connected (${theme})`)
   const systemPrompt = systemPromptFor(theme)
   const memoryAtStart = memoryContext(memorySnapshot())
-  let claudePrimed = false
+  let claudePrimed = saved.claudePrimed
 
   // Answer the HUD straight away rather than making it wait for the agent's
   // first turn. Refined later by the real init message.
@@ -1266,16 +1318,23 @@ wss.on('connection', (socket, req) => {
    * listener over there has already heard.
    */
   let answering = null
-  const sendTurn = (msg) => send({ ...msg, ask: answering })
+  const sendTurn = (msg) => {
+    if (msg.type === 'text' && saved.pending) {
+      saved.pending.partial = (saved.pending.partial ?? '') + msg.delta
+      if (!checkpointTimer) checkpointTimer = setTimeout(saveConversation, 2000)
+    }
+    send({ ...msg, ask: answering })
+  }
   let currentProvider = selectedProvider
   let lastQuestion = ''
   let lastAttachments = []
   const visionless = new Set()
   let activity = false
+  let claudeTurnPending = false
   let activeController = null
   const tried = new Set()
-  const conversation = []
-  const missedClaude = []
+  const conversation = saved.messages
+  const missedClaude = saved.missedClaude
   let localMcpServers = {}
   let brokerMcpServers = {}
   let toolBrokerPromise = Promise.resolve(null)
@@ -1294,6 +1353,24 @@ wss.on('connection', (socket, req) => {
    */
   let sessionModel = null
   const deliverClaude = async (text, attachments = []) => {
+    if (closed) return
+    claudeTurnPending = true
+    if (!session && saved.claudeSessionId) {
+      let resumable = false
+      try {
+        resumable = Boolean(await getSessionInfo(saved.claudeSessionId, { dir: homedir() }))
+      } catch (err) {
+        console.warn('[jarvis] could not inspect saved Claude session:', err.message)
+      }
+      if (closed) return
+      if (!resumable) {
+        saved.claudeSessionId = null
+        claudePrimed = false
+        saved.claudePrimed = false
+        saveConversation()
+        console.warn('[jarvis] saved Claude session unavailable; restoring dialogue checkpoint')
+      }
+    }
     const model = chosenModel.claude
     if (session && sessionModel !== model) {
       try {
@@ -1304,14 +1381,18 @@ wss.on('connection', (socket, req) => {
         console.warn(`[jarvis] could not switch to ${model}:`, err?.message ?? err)
       }
     }
+    if (closed) return
     ensureClaudeSession()
-    const context = missedClaude.length
-      ? `Recent conversation on another provider:\n${missedClaude.map((m) => `${m.role}: ${m.content}`).join('\n')}\n\nCurrent request: `
+    const recent = !saved.claudeSessionId && !claudePrimed ? conversation : missedClaude
+    const context = recent.length
+      ? `Previous conversation (context only, not requests to execute again):\n${recent.map((message) => `${message.role}: ${message.content}`).join('\n')}\n\nCurrent request: `
       : ''
     missedClaude.length = 0
     const memory = claudePrimed ? '' : `${memoryAtStart}\n\n`
     claudePrimed = true
-    const prompt = claudeContent(memory + context + text, attachments)
+    saved.claudePrimed = true
+    const prompt = claudeContent(memory + interruptedContext(recoveredPending) + context + text, attachments)
+    recoveredPending = null
     if (deliver) {
       const resolve = deliver
       deliver = null
@@ -1343,6 +1424,7 @@ wss.on('connection', (socket, req) => {
         { role: 'system', content: broker
           ? `${systemPrompt}\n\nTools are available through the bridge. Use them when needed and never claim an action succeeded until the tool result confirms it.\n\n${memoryAtStart}`
           : `${systemPrompt}\n\nProvider limitation: this provider has no access to Jarvis tools, MCP servers, the browser, files, or live data. Do not claim to have taken actions or seen live data.\n\n${memoryAtStart}` },
+        ...(recoveredPending ? [{ role: 'system', content: interruptedContext(recoveredPending) }] : []),
         ...conversation,
         { role: 'user', content },
       ]
@@ -1366,6 +1448,9 @@ wss.on('connection', (socket, req) => {
       missedClaude.push({ role: 'user', content: asked }, { role: 'assistant', content: output })
       trimHistory(conversation)
       if (missedClaude.length > 12) missedClaude.splice(0, missedClaude.length - 12)
+      recoveredPending = null
+      saved.pending = null
+      saveConversation()
       sendTurn({ type: 'done', text: output })
     } catch (err) {
       if (controller.signal.aborted || answering !== id) return
@@ -1422,6 +1507,10 @@ wss.on('connection', (socket, req) => {
     })
 
   const pickBrowser = chromeTarget({ hub: relayHub, clientIp })
+  // Every provider hands work to the same agent service, so all agents are JARVIS's.
+  const agentTools = () => agentApi
+    ? { jarvis_agents: agentsServer(agentApi, { lastUserText: () => lastQuestion, sessionAgents: () => sessionAgents.list() }) }
+    : {}
   localMcpServers = {
     jarvis: displayServer(
       (panel) => send({ type: 'panel', panel }),
@@ -1433,6 +1522,7 @@ wss.on('connection', (socket, req) => {
     jarvis_memory: memoryServer(MEMORY_FILE),
     jarvis_history: historyServer(),
     jarvis_files: filesServer({ roots: FILE_ROOTS, allowWrites: ALLOW_WRITES }),
+    ...agentTools(),
   }
   brokerMcpServers = {
     jarvis: displayServer(
@@ -1446,6 +1536,7 @@ wss.on('connection', (socket, req) => {
     jarvis_history: historyServer(),
     jarvis_files: filesServer({ roots: FILE_ROOTS, allowWrites: ALLOW_WRITES }),
     jarvis_commands: commandsServer({ roots: FILE_ROOTS, allowWrites: ALLOW_WRITES }),
+    ...agentTools(),
   }
   toolBrokerPromise = createToolBroker({ external: MCP_SERVERS, local: brokerMcpServers })
 
@@ -1496,14 +1587,6 @@ wss.on('connection', (socket, req) => {
       finishTurn = resolve
     })
 
-  /**
-   * A brief pause so the abandoned turn's frames are tagged with the OLD id
-   * before the new one is adopted. Short, because correctness now comes from
-   * the tag rather than from the wait — this only has to cover the gap, not
-   * outlast the whole turn.
-   */
-  const SETTLE_CAP_MS = 400
-
   const announceTool = (id, name) => {
     if (!name || (id && seenTools.has(id))) return
     if (id) seenTools.add(id)
@@ -1527,11 +1610,18 @@ wss.on('connection', (socket, req) => {
   }
 
   /** Subagents spawned in this session, so the board covers every kind of agent. */
-  const sessionAgents = createSessionAgents({ send })
+  const carrier = Symbol('connection')
+  sessionAgentListeners.add(send)
+
+  // The list is only pushed when it changes, so a reload or a reconnect used to
+  // land on an empty board while agents were demonstrably running. Send it once
+  // on connect; after that the change frames carry it.
+  sessionAgents.resend()
 
   const createClaudeSession = () => query({
     prompt: userMessages(),
     options: {
+      ...claudeRecoveryOptions(saved),
       // Everything Claude Code has configured, plus the HUD as an in-process
       // server. The HUD's handler closes over this socket, so a `display` call
       // lands on screen directly — which is also why this object is built per
@@ -1618,6 +1708,9 @@ wss.on('connection', (socket, req) => {
         if (process.env.JARVIS_DEBUG === '1') {
           console.log('[msg]', msg.type, msg.event?.type ?? '')
         }
+        if (currentProvider === 'claude' && claudeTurnPending && isTurnProgress(msg)) {
+          sendTurn({ type: 'progress' })
+        }
 
         switch (msg.type) {
           // Raw Anthropic stream events, surfaced by includePartialMessages.
@@ -1655,7 +1748,12 @@ wss.on('connection', (socket, req) => {
                 activity = true
                 announceTool(block.id, block.name)
                 if (SESSION_AGENT_TOOLS.includes(block.name)) {
-                  sessionAgents.start(block.id, block.input)
+                  sessionAgents.start(block.id, block.input, { provider: 'claude', model: sessionModel ?? chosenModel.claude, carrier })
+                }
+                // Messaging a stopped agent resumes it from its transcript, so
+                // the existing row goes back to running rather than vanishing.
+                if (block.name === 'SendMessage') {
+                  sessionAgents.resume(block.input?.to, carrier)
                 }
               }
             }
@@ -1673,11 +1771,18 @@ wss.on('connection', (socket, req) => {
                 settleTool(block.tool_use_id, block.is_error === true)
                 sessionAgents.settle(block.tool_use_id, block.is_error === true, block.content)
               }
+              // A background agent ends in a notification, not a tool result.
+              // Without this the row stays running until the bridge restarts.
+              if (block?.type === 'text') {
+                const note = parseTaskNotification(block.text)
+                if (note) sessionAgents.notify(note.agentId, note.status, note.summary)
+              }
             }
             break
           }
 
           case 'result':
+            claudeTurnPending = false
             // A result is not automatically a success. The error subtypes
             // carry no `result` field at all, so reporting them as 'done' with
             // empty text is indistinguishable from a turn that simply had
@@ -1686,6 +1791,8 @@ wss.on('connection', (socket, req) => {
             if (msg.subtype === 'success') {
               conversation.push({ role: 'user', content: describeAttachments(lastQuestion, lastAttachments) }, { role: 'assistant', content: msg.result ?? '' })
               trimHistory(conversation)
+              saved.pending = null
+              saveConversation()
               sendTurn({
                 type: 'done',
                 text: msg.result ?? '',
@@ -1719,7 +1826,12 @@ wss.on('connection', (socket, req) => {
             break
 
           case 'system':
+            if (msg.subtype === 'api_retry') {
+              console.warn(`[jarvis] Claude API retry ${msg.attempt}/${msg.max_retries}; status ${msg.error_status ?? 'unknown'}; delay ${msg.retry_delay_ms}ms`)
+            }
             if (msg.subtype === 'init') {
+              saved.claudeSessionId = msg.session_id
+              saveConversation()
               // Servers report 'pending' until first use — they connect
               // lazily — so only drop the ones that are actually unusable.
               const usable = (msg.mcp_servers ?? [])
@@ -1733,6 +1845,11 @@ wss.on('connection', (socket, req) => {
       }
     } catch (err) {
       console.error('[jarvis] session error:', err)
+      if (!activity && saved.claudeSessionId) {
+        saved.claudeSessionId = null
+        saved.claudePrimed = false
+      }
+      saveConversation()
       const next = !answering || currentProvider === 'claude'
         ? retryProvider('claude', available, tried, err, activity) : null
       if (next) {
@@ -1751,6 +1868,20 @@ wss.on('connection', (socket, req) => {
       deliver?.(null)
       currentSession.close?.()
       if (!next) socket.close()
+    } finally {
+      finishTurn?.()
+      finishTurn = null
+      if (!closed) {
+        saveConversation()
+        console.warn('[jarvis] Claude session stream ended; reconnecting client')
+        if (claudeTurnPending) {
+          sendTurn({ type: 'error', message: 'The Claude session ended before answering. Please ask again after reconnecting.' })
+        }
+        closed = true
+        deliver?.(null)
+        currentSession.close?.()
+        socket.close()
+      }
     }
   }
 
@@ -1764,6 +1895,22 @@ wss.on('connection', (socket, req) => {
 
     if (msg.type === 'ping') {
       send({ type: 'pong' })
+      return
+    }
+
+    if (msg.type === 'restore_history' && typeof msg.id === 'string') {
+      try {
+        if (session || answering || conversation.length) throw new Error('This conversation is already active.')
+        const messages = historyMessages(msg.turns)
+        conversation.push(...messages)
+        saved.claudeSessionId = null
+        saved.claudePrimed = false
+        claudePrimed = false
+        if (!saveConversation()) throw new Error('The bridge could not save the restored conversation.')
+        send({ type: 'history_restored', id: msg.id })
+      } catch (err) {
+        send({ type: 'history_restore_error', id: msg.id, message: err.message })
+      }
       return
     }
 
@@ -1782,6 +1929,21 @@ wss.on('connection', (socket, req) => {
       void agentApi.decide(msg.id, msg.decision).catch((err) => {
         console.warn('[jarvis] approval decision failed:', err.message)
       })
+    }
+
+    if (msg.type === 'schedule_request') {
+      void handleScheduleRequest(msg, agentApi, send).then(() => pushBoard())
+      return
+    }
+
+    if (msg.type === 'startup_status') {
+      void handleStartupStatusRequest(msg, {
+        api: agentApi ? agentsApi({ timeoutMs: 5000 }) : null,
+        readMemory: () => loadMemory(MEMORY_FILE),
+        readLooseEnds: () => loadLooseEnds(LOOSE_ENDS_FILE),
+        readSessionAgents: () => mergeSessionAgents([sessionAgents.snapshot()]),
+      }, send)
+      return
     }
 
     if (msg.type === 'ask' && typeof msg.text === 'string') {
@@ -1809,18 +1971,26 @@ wss.on('connection', (socket, req) => {
         return
       }
       void settling.then(() => {
+        if (closed) return
         activeController?.abort()
         answering = id
         lastQuestion = text
         lastAttachments = attachments
+        saved.pending = { question: describeAttachments(text, attachments), partial: '' }
+        saveConversation()
         activity = false
         tried.clear()
         const provider = available.includes(msg.provider) ? msg.provider : selectedProvider
         if (typeof msg.model === 'string') chosenModel[provider] = resolveModel(models, provider, msg.model)
         tried.add(provider)
         switchProvider(provider)
-        if (provider === 'claude') void deliverClaude(text, attachments)
-        else void runText(provider, text, id, attachments)
+        if (provider === 'claude') return deliverClaude(text, attachments)
+        return runText(provider, text, id, attachments)
+      }).catch((err) => {
+        console.error('[jarvis] could not start turn:', err)
+        send({ type: 'error', message: 'The session could not start this turn. Please ask again after reconnecting.', ask: id })
+        closed = true
+        socket.close()
       })
     }
 
@@ -1835,25 +2005,25 @@ wss.on('connection', (socket, req) => {
 
     if (msg.type === 'interrupt') {
       activeController?.abort()
-      if (currentProvider !== 'claude') return
+      if (currentProvider !== 'claude' || !session || !claudeTurnPending) return
       // Held so the next question can wait for it rather than racing it.
       const stopped = turnFinished()
-      settling = Promise.resolve(session?.interrupt?.())
-        .catch(() => {})
-        .then(() =>
-          Promise.race([
-            stopped,
-            new Promise((r) => setTimeout(r, SETTLE_CAP_MS)),
-          ]),
-        )
+      settling = waitForInterruptedTurn(session, stopped).catch((err) => {
+        console.warn('[jarvis] interrupt failed; reconnecting client:', err.message)
+        closed = true
+        socket.close()
+      })
     }
   })
 
   socket.on('close', () => {
     console.log('[jarvis] client disconnected')
+    saveConversation()
+    checkpoint.release()
     clearTimeout(boardTimer)
     agentSubscription?.close()
-    sessionAgents.stop()
+    sessionAgentListeners.delete(send)
+    sessionAgents.release(carrier)
     closed = true
     activeController?.abort()
     deliver?.(null)

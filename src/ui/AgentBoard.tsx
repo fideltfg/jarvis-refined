@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 
 import { useStore } from '../store'
 import { decideApproval } from '../lib/brain'
-import { ago, capacityLine, mergeBoard, statusLabel, type BoardAgent } from '../lib/board'
+import { ago, agentSummary, capacityLine, mergeBoard, statusLabel, type BoardAgent } from '../lib/board'
 
 /**
  * The agent board: every agent JARVIS has running, in one view.
@@ -22,12 +22,42 @@ import { ago, capacityLine, mergeBoard, statusLabel, type BoardAgent } from '../
 
 const KIND_LABEL: Record<BoardAgent['kind'], string> = {
   goal: 'goal',
-  task: 'task',
-  subagent: 'subagent',
+  task: 'agent',
+  subagent: 'agent',
 }
 
 /** Anything the user could still act on, and so a reason to open the board. */
 const LIVE: BoardAgent['status'][] = ['running', 'awaiting_approval', 'blocked']
+
+const clock = (stamp: string | null) => {
+  const at = stamp ? new Date(stamp) : null
+  return at && !Number.isNaN(at.getTime()) ? at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null
+}
+
+/** The full picture of one live agent: who carries it, on what, for what, since when. */
+function AgentDetails({ row }: { row: BoardAgent }) {
+  const started = clock(row.startedAt)
+  const elapsed = ago(row.startedAt)
+  const fields: Array<[string, string | null]> = [
+    ['Owner', row.owner],
+    ['Runs on', row.runsOn],
+    ['Model', row.model],
+    ['Goal', row.goal],
+    ['Type', row.activity || null],
+    ['Started', started ? `${started}${elapsed && elapsed !== 'now' ? ` · ${elapsed} ago` : ''}` : null],
+    ['Brief', row.brief],
+  ]
+  return (
+    <dl className="ab-details">
+      {fields.filter(([, value]) => value).map(([label, value]) => (
+        <div key={label}>
+          <dt>{label}</dt>
+          <dd>{value}</dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
 
 export function AgentBoard() {
   const board = useStore((s) => s.agentBoard)
@@ -51,7 +81,8 @@ export function AgentBoard() {
   return (
     <div className="agent-board" role="region" aria-label="Agent board">
       <div className="ab-head">
-        AGENTS{seen && !online && <span className="ab-offline"> · offline</span>}
+        JARVIS AGENTS{seen && !online && <span className="ab-offline"> · offline</span>}
+        <span className="ab-summary"> · {agentSummary(rows)}</span>
       </div>
       {/* Where the work can run, and how much of it is in use. One line, plus a
           chip per machine once there is more than one to choose between. */}
@@ -93,7 +124,16 @@ export function AgentBoard() {
                 <span style={{ width: `${row.progress * 100}%` }} />
               </span>
             )}
-            {row.activity && <span className="ab-activity">{row.activity}</span>}
+            {row.kind !== 'goal' && LIVE.includes(row.status) ? (
+              <AgentDetails row={row} />
+            ) : (
+              <>
+                {row.activity && <span className="ab-activity">{row.activity}</span>}
+                {row.runsOn && (
+                  <span className="ab-runtime">{row.runsOn}{row.model ? ` · ${row.model}` : ''}</span>
+                )}
+              </>
+            )}
             {row.result && <span className="ab-result">{row.result}</span>}
             {row.approval && (
               <span className="ab-actions">

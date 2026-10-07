@@ -53,6 +53,8 @@ available to them. The HUD's model menu is built from the variables above; see
 | `JARVIS_MEMORY_FILE` | `~/.config/jarvis/pa.md` | Markdown file used by personal-assistant memory tools. |
 | `JARVIS_HISTORY_FILE` | `~/.config/jarvis/sessions.json` | Copy of saved chat sessions that JARVIS searches to recall earlier conversations. |
 | `JARVIS_SESSION_AGENTS_FILE` | `~/.config/jarvis/session-agents.json` | Persistent summary of session/subagent activity shown on the board. |
+| `JARVIS_CONVERSATIONS_DIR` | `~/.config/jarvis/conversations` | Private bridge conversation checkpoints used to recover context across reconnects and restarts. |
+| `JARVIS_LOOSE_ENDS_FILE` | `~/.config/jarvis/loose-ends.md` | Markdown ledger of unfinished assistant work shown in the LCARS Loose ends window. |
 | `JARVIS_RELAY_TOKEN` | unset | Enables authenticated registration by a remote Chrome relay. Generate with `npm run relay:token`. |
 
 Write permission does not bypass tool-specific confirmation or policy. File

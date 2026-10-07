@@ -35,13 +35,16 @@ test('microphone mute applies before acquisition and toggles every shared audio 
 })
 
 for (const serverVoice of [true, false]) {
-  test(`${serverVoice ? 'server' : 'browser'} voice mutes only Jarvis between push-to-talk presses`, async () => {
+  test(`${serverVoice ? 'server' : 'browser'} voice mutes only Jarvis between push-to-talk presses`, async (context) => {
     const cacheDir = await mkdtemp(join(tmpdir(), 'jarvis-audio-test-'))
     const originals = new Map(['navigator', 'window', '__voiceTest']
       .map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
     const track = { enabled: true }
     const otherAppTrack = { enabled: true }
     const captureStates = []
+    const utterances = []
+    let recognition
+    let speechStarts = 0
     const state = { serverVoice, track, captureStates }
     const mocks = {
       '../config': 'export const BRIDGE_HTTP_URL = "http://unused"',
@@ -68,6 +71,7 @@ for (const serverVoice of [true, false]) {
       globalThis.window = {
         SpeechRecognition: class {
           start() {
+            recognition = this
             captureStates.push({ down: true, enabled: track.enabled })
             this.onstart?.()
           }
@@ -99,8 +103,8 @@ for (const serverVoice of [true, false]) {
       const { startVoice } = await server.ssrLoadModule('/src/lib/voice.ts')
       voice = await startVoice({
         mode: () => 'command',
-        onWake() {}, onSpeechStart() {}, onSpeechMaybe() {}, onSpeechResume() {},
-        onPartial() {}, onUtterance() {},
+        onWake() {}, onSpeechStart() { speechStarts++ }, onSpeechMaybe() {}, onSpeechResume() {},
+        onPartial() {}, onUtterance(text) { utterances.push(text) },
         onError(message) { assert.fail(message) },
       }, { pushToTalk: true })
       assert.equal(track.enabled, false)
@@ -116,9 +120,65 @@ for (const serverVoice of [true, false]) {
       assert.equal(track.enabled, true)
       voice.setPushToTalk(true)
       assert.equal(track.enabled, false)
+      if (!serverVoice) {
+        const staleRecognition = recognition
+        const result = Object.assign([{ transcript: 'this was heard without pressing talk' }], { isFinal: true })
+        staleRecognition.onresult({ resultIndex: 0, results: [result] })
+        staleRecognition.onend()
+        assert.deepEqual(utterances, [], 'an aborted recognizer must not submit speech while PTT is idle')
+        assert.equal(speechStarts, 0, 'an aborted recognizer must not interrupt while PTT is idle')
+      }
       voice.hold(true)
       voice.setPushToTalk(true)
       assert.equal(track.enabled, true)
+      if (!serverVoice) {
+        const activeRecognition = recognition
+        const result = (text, isFinal) => Object.assign([{ transcript: text }], { isFinal })
+        activeRecognition.onresult({ resultIndex: 0, results: [result('please check the status', true)] })
+        voice.hold(false)
+        assert.deepEqual(utterances, ['please check the status'], 'release must still submit speech from the held session')
+        assert.equal(track.enabled, false)
+        activeRecognition.onresult({ resultIndex: 1, results: [
+          result('please check the status', true), result('speech after release', true),
+        ] })
+        activeRecognition.onend()
+        assert.deepEqual(utterances, ['please check the status'], 'ended sessions must ignore late speech')
+        utterances.length = 0
+        speechStarts = 0
+        voice.setPushToTalk(false)
+        context.mock.timers.enable({ apis: ['setTimeout'] })
+        const phrase = 'please continue to work on the echo suppression systems'
+        recognition.onresult({ resultIndex: 0, results: [result(phrase, false)] })
+        context.mock.timers.tick(900)
+        context.mock.timers.tick(450)
+        assert.deepEqual(utterances, [phrase])
+        recognition.onresult({ resultIndex: 0, results: [result(phrase, true)] })
+        context.mock.timers.tick(900)
+        context.mock.timers.tick(450)
+        assert.deepEqual(utterances, [phrase], 'late finalization must not submit the same result twice')
+        assert.equal(speechStarts, 1, 'late finalization must not interrupt the answer')
+        recognition.onresult({ resultIndex: 1, results: [result(phrase, true), result(phrase, true)] })
+        context.mock.timers.tick(900)
+        context.mock.timers.tick(450)
+        assert.deepEqual(utterances, [phrase, phrase], 'a new result may intentionally repeat the same words')
+        recognition.onresult({ resultIndex: 2, results: [
+          result(phrase, true), result(phrase, true), result('please check', true),
+        ] })
+        recognition.onend()
+        context.mock.timers.tick(80)
+        recognition.onresult({ resultIndex: 0, results: [result('the deployment status.', true)] })
+        context.mock.timers.tick(900)
+        assert.deepEqual(utterances, [phrase, phrase, 'please check the deployment status.'],
+          'restart must carry pending words without replaying consumed results')
+        recognition.onend()
+        context.mock.timers.tick(80)
+        recognition.onresult({ resultIndex: 0, results: [result(phrase, true)] })
+        context.mock.timers.tick(900)
+        context.mock.timers.tick(450)
+        assert.deepEqual(utterances, [phrase, phrase, 'please check the deployment status.', phrase],
+          'new recognizer sessions must accept result index zero again')
+        voice.setPushToTalk(true)
+      }
       voice.stop()
       voice.hold(true)
       voice.setPushToTalk(false)
@@ -126,6 +186,7 @@ for (const serverVoice of [true, false]) {
       assert.equal(otherAppTrack.enabled, true)
     } finally {
       voice?.stop()
+      context.mock.timers.reset()
       await server?.close()
       for (const [key, descriptor] of originals) {
         if (descriptor) Object.defineProperty(globalThis, key, descriptor)

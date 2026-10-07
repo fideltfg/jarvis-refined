@@ -9,6 +9,7 @@ import {
   isSessionAgentTool,
   createSessionAgents,
   loadSessionAgents,
+  parseTaskNotification,
 } from './session-agents.mjs'
 
 /**
@@ -55,6 +56,19 @@ test('a started subagent is reported as running, with its description and type',
     summary: null,
   })
   assert.ok(frames[0].agents[0].startedAt)
+})
+
+test('a subagent records its provider and model, and dies with its own connection only', async () => {
+  const { agents, frames, settled } = tracker()
+  const first = Symbol('first')
+  const second = Symbol('second')
+  agents.start('a', { description: 'One', prompt: 'Read the parser.', run_in_background: true }, { model: 'claude-opus-5', carrier: first })
+  agents.start('b', { description: 'Two', model: 'haiku' }, { model: 'claude-opus-5', carrier: second })
+  agents.release(first)
+  await settled()
+  const by = Object.fromEntries(frames.at(-1).agents.map((agent) => [agent.id, agent]))
+  assert.partialDeepStrictEqual(by.a, { provider: 'claude', model: 'claude-opus-5', brief: 'Read the parser.', background: true, status: 'interrupted' })
+  assert.partialDeepStrictEqual(by.b, { provider: 'claude', model: 'haiku', status: 'running' })
 })
 
 test('a subagent with no usable input still gets a title and a kind', async () => {
@@ -238,4 +252,109 @@ test('a tracker with no file keeps its history to itself', async (t) => {
   agents.start('t1', {})
   await settled()
   assert.deepEqual(loadSessionAgents(file), [])
+})
+
+/**
+ * Background dispatch. The Agent tool returns the instant the agent is
+ * launched, so the acknowledgement must not be mistaken for a result — the
+ * board showed a twenty-minute research run as `done` four seconds in.
+ */
+const LAUNCH = 'Async agent launched successfully. agentId: af2cf65773a3ecd19 (internal ID - do not mention)'
+
+test('a background dispatch stays running, and never leaks the internal id', async () => {
+  const { agents, frames, settled } = tracker()
+  agents.start('t1', { description: 'Research passive income routes', subagent_type: 'general-purpose' })
+  agents.settle('t1', false, LAUNCH)
+  await settled()
+  const row = frames.at(-1).agents[0]
+  assert.equal(row.status, 'running')
+  assert.equal(row.finishedAt, undefined)
+  assert.ok(!row.summary.includes('af2cf65773a3ecd19'))
+  assert.match(row.summary, /background/)
+})
+
+test('a foreground result still settles the row as it always did', async () => {
+  const { agents, frames, settled } = tracker()
+  agents.start('t1', { description: 'Audit the CSS' })
+  agents.settle('t1', false, 'Found three misaligned headers.')
+  await settled()
+  assert.partialDeepStrictEqual(frames.at(-1).agents[0], { status: 'done', summary: 'Found three misaligned headers.' })
+})
+
+test('a completion notification ends the background agent it names', async () => {
+  const { agents, frames, settled } = tracker()
+  agents.start('t1', { description: 'Research passive income routes' })
+  agents.settle('t1', false, LAUNCH)
+  agents.notify('af2cf65773a3ecd19', 'completed', 'Report written to disk.')
+  await settled()
+  const row = frames.at(-1).agents[0]
+  assert.equal(row.status, 'done')
+  assert.equal(row.summary, 'Report written to disk.')
+  assert.ok(row.finishedAt)
+})
+
+test('a stopped notification is not a success', async () => {
+  const { agents, frames, settled } = tracker()
+  agents.start('t1', { description: 'Research' })
+  agents.settle('t1', false, LAUNCH)
+  agents.notify('af2cf65773a3ecd19', 'stopped', 'No completion record was found.')
+  await settled()
+  assert.equal(frames.at(-1).agents[0].status, 'interrupted')
+})
+
+test('a notification for an agent nobody tracked changes nothing', async () => {
+  const { agents, frames, settled } = tracker()
+  agents.start('t1', { description: 'Research' })
+  await settled()
+  const before = frames.length
+  agents.notify('someone-else', 'completed', 'done')
+  await settled()
+  assert.equal(frames.length, before)
+})
+
+test('resuming a stopped agent puts the same row back to running', async () => {
+  const { agents, frames, settled } = tracker()
+  agents.start('t1', { description: 'Research' })
+  agents.settle('t1', false, LAUNCH)
+  agents.notify('af2cf65773a3ecd19', 'stopped', 'Interrupted.')
+  agents.resume('af2cf65773a3ecd19')
+  await settled()
+  assert.equal(frames.at(-1).agents.length, 1)
+  assert.partialDeepStrictEqual(frames.at(-1).agents[0], { status: 'running', finishedAt: null })
+})
+
+test('resuming an agent that is already running is not a change', async () => {
+  const { agents, frames, settled } = tracker()
+  agents.start('t1', { description: 'Research' })
+  agents.settle('t1', false, LAUNCH)
+  await settled()
+  const before = frames.length
+  agents.resume('af2cf65773a3ecd19')
+  await settled()
+  assert.equal(frames.length, before)
+})
+
+test('resend reports the current list without anything having changed', async () => {
+  const { agents, frames, settled } = tracker()
+  agents.start('t1', { description: 'Research' })
+  await settled()
+  frames.length = 0
+  agents.resend()
+  await settled()
+  assert.equal(frames.length, 1)
+  assert.equal(frames[0].agents.length, 1)
+})
+
+test('it reads a task notification out of the text it arrives in', () => {
+  const note = parseTaskNotification(
+    '[SYSTEM NOTIFICATION]\n<task-notification>\n<task-id>af2cf65773a3ecd19</task-id>\n<status>stopped</status>\n<summary>No completion record was found.</summary>\n</task-notification>',
+  )
+  assert.deepEqual(note, {
+    agentId: 'af2cf65773a3ecd19',
+    status: 'stopped',
+    summary: 'No completion record was found.',
+  })
+  assert.equal(parseTaskNotification('ordinary prose'), null)
+  assert.equal(parseTaskNotification(undefined), null)
+  assert.equal(parseTaskNotification('<task-notification></task-notification>'), null)
 })

@@ -1,5 +1,6 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
+import { scheduleSchema, triggerSchema } from '../agents/schedules.mjs'
 
 /**
  * JARVIS's side of the agent service: a thin API client, the `jarvis_agents`
@@ -12,6 +13,7 @@ export const AGENTS_ENABLED = process.env.JARVIS_AGENTS === '1'
 const OFFLINE = 'The agent service is offline, so agent work is unavailable right now.'
 
 export const AGENTS_PROMPT = `Background agents:
+- For work at a future time, use schedule_create instead of goal_create. Schedules support once (an ISO timestamp with UTC offset), interval (minutes), daily or weekly (HH:mm and IANA timezone; Sunday is 0). Resolve the user's timezone before calendar scheduling, and confirm the exact next run and timezone. Never start scheduled work early. Use schedule_list, schedule_update and schedule_run for management. Pausing/deleting schedules affects future launches only. Existing worker approval requirements still apply.
 - You can hand work to background agents with the jarvis_agents tools. Create a goal with goal_create when the user asks for something that takes more than one turn: building or fixing code, research, a report, ongoing monitoring, errands. Answer simple questions yourself.
 - Confirm a new goal in one sentence and stop; the agents work while you keep talking.
 - For a status report, call status and give the headline; the detail is on the agent board.
@@ -23,6 +25,7 @@ export function agentsApi({
   base = `http://127.0.0.1:${Number(process.env.JARVIS_AGENTS_PORT) || 8788}`,
   token = process.env.JARVIS_AGENTS_TOKEN ?? '',
   fetchFn = fetch,
+  timeoutMs = 0,
 } = {}) {
   async function call(method, path, body) {
     let res
@@ -31,6 +34,7 @@ export function agentsApi({
         method,
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
         body: body ? JSON.stringify(body) : undefined,
+        ...(timeoutMs > 0 && { signal: AbortSignal.timeout(timeoutMs) }),
       })
     } catch {
       const err = new Error(OFFLINE)
@@ -45,7 +49,7 @@ export function agentsApi({
   return {
     base,
     token,
-    board: () => call('GET', '/board'),
+    board: ({ history = false } = {}) => call('GET', history ? '/board?history=1' : '/board'),
     endpoints: () => call('GET', '/endpoints'),
     createGoal: (goal) => call('POST', '/goals', goal),
     updateGoal: (id, change) => call('POST', `/goals/${at(id)}`, change),
@@ -54,6 +58,10 @@ export function agentsApi({
     approvals: () => call('GET', '/approvals'),
     decide: (id, decision, note) => call('POST', `/approvals/${at(id)}`, { decision, note }),
     cleanup: () => call('POST', '/cleanup'),
+    schedules: () => call('GET', '/schedules'),
+    createSchedule: (schedule) => call('POST', '/schedules', schedule),
+    updateSchedule: (id, change) => call('POST', `/schedules/${at(id)}`, change),
+    runSchedule: (id) => call('POST', `/schedules/${at(id)}/run`),
   }
 }
 
@@ -70,11 +78,38 @@ const wrap = (fn) => async (args) => {
 /** Words a person uses to say yes to an approval. */
 const APPROVE_WORDS = /\b(approved?|approves|yes|yeah|yep|go ahead|allow(ed)?|confirm(ed)?|do it|proceed|authori[sz]e[ds]?)\b/i
 
-export function agentsServer(api, { lastUserText = () => '' } = {}) {
+/** Session subagents in the briefing's own one-line style. */
+export function sessionAgentsLine(agents = []) {
+  const running = agents.filter((agent) => agent?.status === 'running')
+  if (!running.length) return ''
+  const names = running.map((agent) => agent.title).filter(Boolean).slice(0, 4).join('; ')
+  return `${running.length === 1 ? 'One' : running.length} session agent${running.length === 1 ? '' : 's'} running${names ? `: ${names}` : ''}.`
+}
+
+export function agentsServer(api, { lastUserText = () => '', sessionAgents = () => [] } = {}) {
   return createSdkMcpServer({
     name: 'jarvis_agents',
     version: '1.0.0',
     tools: [
+      tool('schedule_create', 'Schedule future background work without starting it now.', scheduleSchema.shape,
+        wrap(async (args) => {
+          const schedule = await api.createSchedule(args)
+          return `Schedule ${schedule.id} created: ${schedule.title}. Next run: ${schedule.nextRunAt}; timezone: ${schedule.trigger.timezone ?? 'timestamp UTC offset'}.`
+        })),
+      tool('schedule_list', 'List scheduled tasks, their states and next runs.', {},
+        wrap(async () => JSON.stringify(await api.schedules()))),
+      tool('schedule_update', 'Edit, pause, resume or delete a schedule. Existing runs are not cancelled.', {
+        scheduleId: z.string(), action: z.enum(['edit', 'pause', 'resume', 'delete']),
+        values: z.object({ title: z.string().optional(), outcome: z.string().optional(), priority: z.number().int().min(1).max(5).optional(), trigger: triggerSchema.optional() }).optional(),
+      }, wrap(async (args) => {
+        const schedule = await api.updateSchedule(args.scheduleId, { action: args.action, values: args.values })
+        return `Schedule ${schedule.id} is ${schedule.status}. Next run: ${schedule.nextRunAt ?? 'none'}.`
+      })),
+      tool('schedule_run', 'Run a schedule now, unless its previous run is still active.', { scheduleId: z.string() },
+        wrap(async (args) => {
+          const schedule = await api.runSchedule(args.scheduleId)
+          return `Scheduled work ${schedule.title} is being planned; goal ${schedule.lastGoalId}.`
+        })),
       tool(
         'goal_create',
         'Start a goal that background agents will plan and work on while you keep talking. Use for anything needing more than one turn.',
@@ -106,9 +141,19 @@ export function agentsServer(api, { lastUserText = () => '' } = {}) {
       ),
       tool(
         'status',
-        'A short briefing on agent work: every goal, or one goal in detail.',
+        'A short briefing on all agent work JARVIS started, on any provider: every goal and session agent, or one goal in detail.',
         { goalId: z.string().optional() },
-        wrap(async (a) => (await api.status(a.goalId)).text),
+        async (a) => {
+          if (a.goalId) return wrap(async () => (await api.status(a.goalId)).text)(a)
+          const session = sessionAgentsLine(sessionAgents())
+          try {
+            const { text } = await api.status()
+            if (!session) return ok(text)
+            return ok(text === 'No agent work is in progress.' ? session : `${text}\n${session}`)
+          } catch (err) {
+            return session ? ok(`${session}\n${err.message}`) : fail(err)
+          }
+        },
       ),
       tool(
         'task_cancel',

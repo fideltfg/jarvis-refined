@@ -1,8 +1,26 @@
 import type { AskHandlers } from './anthropic'
 import type { Attachment } from './attachments'
+import type { ChatSession } from './sessions'
+import type { Schedule, ScheduleRequest } from './schedules'
 import type { AgentBoardData, Blade, Panel, SessionAgent } from '../store'
 import type { AgentEvent } from './announce'
 import { BRIDGE_WS_URL, THEME } from '../config'
+import { askHiddenSession } from './hidden-session'
+import { formatStartupStatus, renderStartupStatus, summarizeStartupStatus, type StartupSnapshot } from './startup-status'
+
+const CONVERSATION_KEY = `jarvis-conversation:${BRIDGE_WS_URL}:${THEME}`
+let conversationId = ''
+try {
+  conversationId = sessionStorage.getItem(CONVERSATION_KEY) ?? ''
+} catch {}
+
+const conversationListeners = new Set<(id: string) => void>()
+export const currentConversationId = () => conversationId
+export function watchConversation(listener: (id: string) => void) {
+  conversationListeners.add(listener)
+  if (conversationId) listener(conversationId)
+  return () => { conversationListeners.delete(listener) }
+}
 
 /**
  * The bridge builds its agent session once per socket, persona included, so the
@@ -11,6 +29,7 @@ import { BRIDGE_WS_URL, THEME } from '../config'
 function socketUrl(): string {
   const url = new URL(BRIDGE_WS_URL)
   url.searchParams.set('theme', THEME)
+  if (conversationId) url.searchParams.set('conversation', conversationId)
   return url.toString()
 }
 
@@ -21,11 +40,8 @@ function socketUrl(): string {
  * brain is behind it. The difference is what's reachable: this one runs on your
  * machine, so every MCP server in your Claude Code config is in play.
  *
- * The socket is the session. The bridge holds one Claude Agent SDK query per
- * connection and the whole conversation lives inside it, so a dropped socket
- * silently wipes JARVIS's memory of the exchange while the transcript on screen
- * still shows it. That is why the reconnect below is loud rather than
- * invisible: `watchConnection` exists so the HUD can say so.
+ * The bridge checkpoints conversation state independently of the socket and
+ * resumes it using the opaque ID kept in this tab's session storage.
  */
 
 /** Anything the bridge sends. Deliberately loose — a frame from a future
@@ -53,6 +69,7 @@ type Frame = {
   models?: Record<string, string[]>
   board?: AgentBoardData | null
   online?: boolean
+  status?: string
   agents?: SessionAgent[]
 }
 
@@ -182,6 +199,34 @@ export function decideApproval(id: string, decision: 'approve' | 'deny') {
   }
 }
 
+let scheduleRequestSeq = 0
+export function scheduleRequest(request: ScheduleRequest): Promise<Schedule | Schedule[]> {
+  const ws = socket
+  if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error('The bridge is disconnected. Reconnect before changing schedules.'))
+  const requestId = `schedule-${Date.now()}-${++scheduleRequestSeq}`
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timer)
+      ws.removeEventListener('message', onMessage)
+      ws.removeEventListener('close', onClose)
+    }
+    const onClose = () => { cleanup(); reject(new Error('The bridge disconnected. Refresh schedules before retrying; the change may have been saved.')) }
+    const onMessage = (event: MessageEvent) => {
+      let reply
+      try { reply = JSON.parse(event.data as string) } catch { return }
+      if (reply.type !== 'schedule_reply' || reply.requestId !== requestId) return
+      cleanup()
+      if (reply.error) reject(new Error(reply.error))
+      else resolve(reply.result)
+    }
+    const timer = setTimeout(() => { cleanup(); reject(new Error('Schedule request timed out. Refresh before retrying; the change may have been saved.')) }, 30000)
+    ws.addEventListener('message', onMessage)
+    ws.addEventListener('close', onClose)
+    try { ws.send(JSON.stringify({ type: 'schedule_request', requestId, ...request })) }
+    catch (error) { cleanup(); reject(error) }
+  })
+}
+
 /**
  * The one request the bridge makes of us rather than the other way round.
  *
@@ -225,11 +270,12 @@ export function watchUi(fn: (op: string, args: any) => void) {
  * Connection state, for the UI.
  *
  *   'open'        — first connection of the page.
- *   'lost'        — the socket died. The agent session died with it, so
- *                   everything said so far is gone as far as JARVIS knows.
- *   'reconnected' — we're back, on a fresh session with no memory of the above.
+ *   'lost'        — the socket died; saved conversation state is retained.
+ *   'reconnected' — transport is back, awaiting recovery status.
+ *   'restored'    — the bridge restored this tab's conversation checkpoint.
+ *   'reset'       — the requested checkpoint was unavailable.
  */
-export type ConnectionState = 'open' | 'lost' | 'reconnected'
+export type ConnectionState = 'open' | 'lost' | 'reconnected' | 'restored' | 'reset' | 'storage_error'
 let onConnection: ((state: ConnectionState) => void) | null = null
 export function watchConnection(fn: (state: ConnectionState) => void) {
   onConnection = fn
@@ -254,6 +300,9 @@ function deferred() {
 /** Resolved by the socket-level dispatcher on the first `ready` of the current
  *  connection. Re-armed per connection so a reconnect re-announces. */
 let firstReady = deferred()
+let conversationReady = deferred()
+let conversationStatus = ''
+let openingConversation = false
 
 let everConnected = false
 
@@ -305,7 +354,19 @@ function dispatch(ws: WebSocket) {
       return
     }
 
-    if (msg.type === 'ready') {
+    if (msg.type === 'conversation' && msg.id) {
+      if (socket !== ws) return
+      conversationId = msg.id
+      try {
+        sessionStorage.setItem(CONVERSATION_KEY, conversationId)
+      } catch {}
+      conversationStatus = msg.status ?? ''
+      conversationReady.resolve()
+      conversationListeners.forEach((listener) => listener(conversationId))
+      if (msg.status === 'restored') onConnection?.('restored')
+      else if (msg.status === 'unavailable') onConnection?.('reset')
+      else if (msg.status === 'storage_error') onConnection?.('storage_error')
+    } else if (msg.type === 'ready') {
       // The bridge announces immediately on connect from Claude Code's config,
       // then again with live status once the agent initialises. Keep listening
       // so the later, more accurate list wins.
@@ -371,6 +432,8 @@ function connect(): Promise<WebSocket> {
   if (connecting) return connecting
 
   firstReady = deferred()
+  conversationReady = deferred()
+  conversationStatus = ''
 
   connecting = new Promise<WebSocket>((resolve, reject) => {
     const ws = new WebSocket(socketUrl())
@@ -384,7 +447,7 @@ function connect(): Promise<WebSocket> {
       if (socket !== ws) return
       socket = null
       probeConnection = null
-      pending?.fail?.(new Error('The bridge disconnected mid-answer — that session is gone.'))
+      pending?.fail?.(new Error('The bridge disconnected mid-answer. Ask me to continue after reconnecting.'))
       onConnection?.('lost')
       scheduleReconnect()
     }
@@ -494,6 +557,94 @@ export async function warmBridge(): Promise<void> {
   ])
 }
 
+export async function openConversation(session: ChatSession | null): Promise<string> {
+  if (openingConversation) throw new Error('A conversation is already being reopened.')
+  openingConversation = true
+  const previousId = conversationId
+  const replaceSocket = (id: string) => {
+    const previous = socket
+    socket = null
+    probeConnection = null
+    clearTimeout(reconnectTimer)
+    conversationId = id
+    try { sessionStorage.setItem(CONVERSATION_KEY, id) } catch {}
+    previous?.close()
+  }
+  try {
+    cancel()
+    replaceSocket(session?.conversationId ?? '')
+    const ws = await connect()
+    let timer = 0
+    try {
+      await Promise.race([
+        conversationReady.promise,
+        new Promise<void>((_resolve, reject) => {
+          timer = window.setTimeout(() => reject(new Error('The bridge did not confirm conversation recovery.')), 10_000)
+        }),
+      ])
+    } finally {
+      clearTimeout(timer)
+    }
+    if (conversationStatus === 'storage_error') throw new Error('The bridge cannot save conversations.')
+    if (session && conversationStatus !== 'restored') {
+      const id = `history-${++askSeq}`
+      await new Promise<void>((resolve, reject) => {
+        const cleanup = () => {
+          clearTimeout(timer)
+          ws.removeEventListener('message', onMessage)
+          ws.removeEventListener('close', onClose)
+        }
+        const onClose = () => { cleanup(); reject(new Error('The bridge disconnected while reopening the conversation.')) }
+        const onMessage = (event: MessageEvent) => {
+          let frame: Frame
+          try { frame = JSON.parse(event.data as string) } catch { return }
+          if (frame.id !== id) return
+          if (frame.type === 'history_restored') { cleanup(); resolve() }
+          else if (frame.type === 'history_restore_error') {
+            cleanup()
+            reject(new Error(frame.message ?? 'The conversation could not be reopened.'))
+          }
+        }
+        timer = window.setTimeout(() => { cleanup(); reject(new Error('Reopening the conversation timed out.')) }, 10_000)
+        ws.addEventListener('message', onMessage)
+        ws.addEventListener('close', onClose)
+        try {
+          ws.send(JSON.stringify({ type: 'restore_history', id, turns: session.turns }))
+        } catch (error) {
+          cleanup()
+          reject(error)
+        }
+      })
+    }
+    return conversationId
+  } catch (error) {
+    replaceSocket(previousId)
+    scheduleReconnect()
+    throw error
+  } finally {
+    openingConversation = false
+  }
+}
+
+export const startNewConversation = () => openConversation(null)
+
+export function askHidden(prompt: string): Promise<{ text: string }> {
+  const url = new URL(BRIDGE_WS_URL)
+  url.searchParams.set('theme', THEME)
+  return askHiddenSession(url.toString(), prompt, {
+    provider: selectedProvider,
+    model: modelFor(selectedProvider),
+  })
+}
+
+export async function readStartupStatus(): Promise<{ text: string; summary: string; html: string }> {
+  const url = new URL(BRIDGE_WS_URL)
+  url.searchParams.set('theme', THEME)
+  const result = await askHiddenSession(url.toString(), '', { provider: '', model: '', statusOnly: true })
+  const snapshot = JSON.parse(result.text) as StartupSnapshot
+  return { text: formatStartupStatus(snapshot), summary: summarizeStartupStatus(snapshot), html: renderStartupStatus(snapshot) }
+}
+
 // ---------------------------------------------------------------------------
 // Turns
 // ---------------------------------------------------------------------------
@@ -514,6 +665,7 @@ export async function ask(
   handlers: AskHandlers,
   attachments: readonly Attachment[] = [],
 ): Promise<{ text: string; tools: string[] }> {
+  if (openingConversation) throw new Error('The conversation is still being reopened.')
   /**
    * A new question supersedes the one in flight.
    *
@@ -596,6 +748,9 @@ export async function ask(
     const arm = () => {
       clearTimeout(timer)
       timer = window.setTimeout(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'interrupt' }))
+        }
         fail(new Error('The bridge went quiet — that turn was lost, sir.'))
       }, IDLE_TIMEOUT_MS)
     }
@@ -613,7 +768,6 @@ export async function ask(
       }
 
       if (msg.type === 'pong') return
-      arm()
 
       /**
        * Somebody else's answer.
@@ -625,6 +779,7 @@ export async function ask(
        * ask for BRAVO, and BRAVO's answer came back as "ALPHA".
        */
       if (msg.ask && msg.ask !== id) return
+      arm()
 
       try {
         switch (msg.type) {
@@ -653,7 +808,7 @@ export async function ask(
     }
 
     const onClose = () => {
-      fail(new Error('The bridge disconnected mid-answer — that session is gone.'))
+      fail(new Error('The bridge disconnected mid-answer. Ask me to continue after reconnecting.'))
     }
     const onError = () => {
       fail(new Error('The connection to the bridge failed.'))

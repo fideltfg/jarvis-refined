@@ -91,6 +91,14 @@ group write permission and a systemd writable-path exception; the recursive
 checkout hardening above removes that permission, and `ReadOnlyPaths` below
 would otherwise block it even if the mode bits allowed writes:
 
+The bridge's file tools always include the service user's home directory as a
+permitted root. JARVIS can read files there, including `~/.config/jarvis/secrets.env`,
+even in read-only mode. With writes enabled, it can also write within that root.
+File permissions do not isolate files from a process running as their owner;
+systemd `ReadOnlyPaths` can block writes but not reads. Treat data and credentials
+in this home as accessible to JARVIS, use only limited and revocable credentials,
+and keep actions read-only except during supervised sessions.
+
 ```bash
 sudo install -d -o root -g jarvis -m 2770 /home/jarvis/jarvis-refined/node_modules/.vite
 sudo chown -R root:jarvis /home/jarvis/jarvis-refined/node_modules/.vite
@@ -237,8 +245,12 @@ Most accidents begin with audio JARVIS should not have acted on.
 As the service user, with writes enabled, ask JARVIS to:
 
 1. Write a file in `~/workspace/` (should succeed).
-2. Write a file in the checkout, `~/.config/jarvis/`, or outside the home
-   directory (should be refused by the OS or the roots check).
-3. Read a file outside the roots (should be refused).
+2. Write a file in the checkout (should be refused by systemd when the
+   `ReadOnlyPaths` restriction above is applied).
+3. Write or read a path outside the home, system temporary directories, and
+   configured `JARVIS_FILE_ROOTS` (should be refused by the roots check).
+
+Do not test by exposing credentials. Reads under `~/.config/jarvis/` are
+permitted, and writes there are possible when enabled and not blocked by the OS.
 
 Then confirm the backup contains the file from step 1. Repeat after upgrades.

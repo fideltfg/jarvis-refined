@@ -41,6 +41,7 @@ export const isSessionAgentTool = (name) => SESSION_AGENT_TOOLS.includes(name)
 const SESSION_AGENT_LIMIT = 8
 const SESSION_AGENT_DELAY = 120
 const SUMMARY_LIMIT = 160
+const BRIEF_LIMIT = 240
 
 /** How many past subagents the file keeps, and for how long. */
 const HISTORY_LIMIT = 40
@@ -97,6 +98,45 @@ const resultText = (content) => {
 const trimmed = (value) => (typeof value === 'string' && value.trim() ? value.trim() : '')
 
 /**
+ * A background dispatch returns the moment the agent is launched, not when it
+ * finishes. Settling on that acknowledgement is how the board came to show a
+ * twenty-minute research run as `done` four seconds after it started — the one
+ * state it was certainly not in. Recognise the acknowledgement and keep the row
+ * running until something actually reports back.
+ */
+const LAUNCH_ACK = /launched successfully|running in the background/i
+
+/** The handle a later notification will refer to the agent by. */
+const AGENT_ID = /agentId:\s*([A-Za-z0-9_-]+)/
+
+/**
+ * The internal id is explicitly not for the user, and the raw acknowledgement is
+ * nothing but internal ids and file paths. Never let it become a row's summary.
+ */
+const launchSummary = () => 'dispatched · working in the background'
+
+/**
+ * A finished background agent is announced as a `<task-notification>` block in
+ * the next turn rather than as a tool result, so it arrives keyed by agentId
+ * with no tool_use id anywhere near it. Parse what it says.
+ */
+export function parseTaskNotification(text) {
+  if (typeof text !== 'string' || !text.includes('<task-notification>')) return null
+  const field = (name) => text.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`))?.[1]?.trim() ?? ''
+  const agentId = field('task-id')
+  if (!agentId) return null
+  return { agentId, status: field('status'), summary: field('summary') }
+}
+
+/** The notification's own word for how it ended, in the board's vocabulary. */
+const notifiedStatus = (status) => {
+  const value = String(status || '').toLowerCase()
+  if (value === 'completed' || value === 'done' || value === 'success') return 'done'
+  if (value === 'failed' || value === 'error') return 'failed'
+  return 'interrupted'
+}
+
+/**
  * Track the session's subagents and report the whole list whenever it changes.
  *
  * @param send   receives one `session_agents` frame per change
@@ -112,6 +152,9 @@ export function createSessionAgents({
   file = sessionAgentsFile(),
 } = {}) {
   const agents = new Map()
+  const owned = new Set()
+  // Which connection's Claude session is carrying each running agent.
+  const carriers = new Map()
   let timer = null
 
   // Everything the last process saw, so the board opens with a memory.
@@ -153,12 +196,15 @@ export function createSessionAgents({
   }
 
   return {
+    snapshot: () => [...agents.values()].map((agent) => ({ ...agent, live: owned.has(agent.id) })),
     /** Report the current list without waiting for a change. */
     resend: push,
 
     /** A `Task` tool_use block: a subagent has just been dispatched. */
-    start(id, input) {
+    start(id, input, { provider = 'claude', model = null, carrier = null } = {}) {
       if (!id || agents.has(id)) return
+      owned.add(id)
+      if (carrier) carriers.set(id, carrier)
       agents.set(id, {
         id,
         title: trimmed(input?.description) || 'subagent',
@@ -166,6 +212,13 @@ export function createSessionAgents({
         status: 'running',
         startedAt: now(),
         summary: null,
+        // Filled in from the launch acknowledgement, and the only handle a
+        // later task notification will name it by.
+        agentId: null,
+        provider,
+        model: trimmed(input?.model) || model,
+        brief: trimmed(input?.prompt).slice(0, BRIEF_LIMIT) || null,
+        background: input?.run_in_background === true,
       })
       // Finished agents are history; it is kept, but not without bound. Running
       // ones are never dropped — they are the live view.
@@ -180,11 +233,75 @@ export function createSessionAgents({
     settle(id, failed, content) {
       const agent = agents.get(id)
       if (!agent) return
+      const text = resultText(content).replace(/\s+/g, ' ').trim()
+
+      // A background dispatch acknowledges the launch and returns at once. The
+      // agent is still running; only a later notification can end it.
+      if (!failed && LAUNCH_ACK.test(text)) {
+        agent.agentId = text.match(AGENT_ID)?.[1] ?? agent.agentId ?? null
+        agent.summary = launchSummary()
+        push()
+        return
+      }
+
       agent.status = failed ? 'failed' : 'done'
       agent.finishedAt = now()
-      const text = resultText(content).replace(/\s+/g, ' ').trim()
       agent.summary = text ? text.slice(0, SUMMARY_LIMIT) : null
       push()
+    },
+
+    /**
+     * A `<task-notification>` for a background agent: it finished, failed or
+     * was stopped. Keyed by agentId, because by now the tool_use id that
+     * started it is several turns behind.
+     */
+    notify(agentId, status, summary) {
+      if (!agentId) return
+      const agent = [...agents.values()].find((a) => a.agentId === agentId || a.id === agentId)
+      if (!agent) return
+      owned.add(agent.id)
+      agent.status = notifiedStatus(status)
+      agent.finishedAt = now()
+      const text = trimmed(summary).replace(/\s+/g, ' ')
+      if (text) agent.summary = text.slice(0, SUMMARY_LIMIT)
+      push()
+    },
+
+    /**
+     * A stopped agent sent a message is resumed from its transcript rather than
+     * started afresh, so the row that already exists goes back to running
+     * instead of a second row appearing beside it.
+     */
+    resume(agentId, carrier = null) {
+      if (!agentId) return
+      const agent = [...agents.values()].find((a) => a.agentId === agentId || a.id === agentId)
+      if (!agent || agent.status === 'running') return
+      owned.add(agent.id)
+      if (carrier) carriers.set(agent.id, carrier)
+      agent.status = 'running'
+      agent.finishedAt = null
+      agent.summary = 'resumed · working in the background'
+      push()
+    },
+
+    /**
+     * A connection's Claude session has closed, taking its subagents with it.
+     * Anything it was still carrying can no longer report back.
+     */
+    release(carrier) {
+      if (!carrier) return
+      let changed = false
+      for (const [id, owner] of carriers) {
+        if (owner !== carrier) continue
+        carriers.delete(id)
+        const agent = agents.get(id)
+        if (agent?.status !== 'running') continue
+        agent.status = 'interrupted'
+        agent.finishedAt = now()
+        agent.summary = 'session closed before the agent reported back'
+        changed = true
+      }
+      if (changed) push()
     },
 
     /** Everything tracked, oldest first. */

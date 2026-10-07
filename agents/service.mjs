@@ -65,6 +65,7 @@ const dispatch = createDispatch({
 const scheduler = createScheduler({
   store,
   coordinator,
+  mirror,
   pool,
   maxWorkers: pool.capacity(),
   onCancel: (taskId) => approvals.expire(taskId),

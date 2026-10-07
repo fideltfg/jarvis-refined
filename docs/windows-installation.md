@@ -136,12 +136,14 @@ reported existing warnings. The executable remains unsigned and was compiled
 with Inno Setup 7.1.0 in non-commercial mode; commercial distribution requires
 appropriate compiler licensing.
 
-### Previous Full Preview Build
+### Historical Full Preview Build (0.0.8)
 
-The current full preview was rebuilt on 2026-10-05 from the current checkout
+This previous full preview was rebuilt on 2026-10-05 from the then-current checkout
 with the official Ubuntu 24.04.5 AMD64 WSL image and Node 24.21.0 Linux/Windows
 x64 runtimes. Publisher SHA-256 manifests were checked before packaging. The
-build includes the checkout's current working changes and is not a tagged release.
+build included that checkout's working changes and was not a tagged release.
+This artifact is listed for historical reference only; use the current 0.0.11
+setup tutorial above for end-user installation.
 
 The installer and checksum sidecar are stored outside `dist/`, in the persistent
 workspace `Downloads/` folder:
@@ -159,11 +161,11 @@ The executable is 969,714,207 bytes (about 925 MiB), with SHA-256:
 57b11209e1abb6fe24a53ede403a081c8489f39ff0452be2d9b6eacdc978734a
 ```
 
-### Prerequisite-First Preview Build
+### Historical Prerequisite-First Preview Build (0.0.9)
 
-The 0.0.9 preview was built from the current checkout into persistent workspace
-Downloads. It includes the application archive and setup files, but no WSL or
-Node runtime archives:
+The 0.0.9 preview was built into persistent workspace Downloads. It included the
+application archive and setup files, but no WSL or Node runtime archives. This
+superseded artifact is not for new installations:
 
 `Downloads/JarvisRefined-Prereq-0.0.9/output/JarvisRefined-Setup-0.0.9-x64.exe`
 
@@ -442,6 +444,8 @@ Before the next **full** executable build:
   embedded provisioning sources, external installer helpers and manifest from
   the latest reviewed checkout. Do not reuse an older application archive or
   compile an old `dist/.../installer` snapshot.
+3. Verify the generated manifest, payload checksums, and installer-helper
+  snapshot against the current `deploy/windows` sources before compiling.
 4. Compile the new output's `installer/jarvis.iss` with a new `ReleaseVersion`
   **without** defining `RepairOnly`. Verify executable format, record its
   checksum and return container-generated files to the build user's ownership.

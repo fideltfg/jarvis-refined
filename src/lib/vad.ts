@@ -60,7 +60,7 @@ export type Vad = {
  *  The floor tracks the room, so this is a ratio, not an absolute level. */
 const TRIGGER_OVER_FLOOR = 2.6
 /** While he is speaking, demand this much more, so residual echo is ignored. */
-const GUARD_BOOST = 3.4
+const GUARD_BOOST = 5.5
 /** Falling back below trigger×this ends the segment. Hysteresis stops a single
  *  dip mid-word from cutting a sentence in half. */
 const RELEASE_RATIO = 0.6
