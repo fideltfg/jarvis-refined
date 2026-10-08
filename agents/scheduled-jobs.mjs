@@ -1,5 +1,6 @@
 import { newId } from './store.mjs'
 import { nextRun, scheduleInput, scheduleChangesSchema } from './schedules.mjs'
+import { profileOutcome } from './profiles.mjs'
 
 export function createScheduledJobs({ store, coordinator, now = Date.now, mirror = {} }) {
   const planning = new Map()
@@ -17,10 +18,13 @@ export function createScheduledJobs({ store, coordinator, now = Date.now, mirror
     if (!occurrence || planning.has(schedule.id) || (occurrence.retryAt && Date.parse(occurrence.retryAt) > now())) return
     let goal = store.getGoal(occurrence.goalId)
     if (!goal) {
+      const profile = occurrence.profileSnapshot ?? (schedule.profileId ? store.getProfile(schedule.profileId) : null)
+      if (schedule.profileId && !profile) throw new Error('The scheduled agent profile no longer exists.')
       goal = store.newGoal({
-        id: occurrence.goalId, title: schedule.title, outcome: schedule.outcome,
+        id: occurrence.goalId, title: profile?.name ?? schedule.title, outcome: profile ? profileOutcome(profile) : schedule.outcome,
         priority: schedule.priority, scheduleId: schedule.id, occurrenceKey: occurrence.key,
-        execution: schedule.execution,
+        execution: schedule.execution ?? profile?.schedule?.execution,
+        ...(profile && { profileId: profile.id, profileSnapshot: { id: profile.id, name: profile.name, role: profile.role, instructions: profile.instructions, version: profile.updated } }),
       })
       mirror.goalCreated?.(goal)
     }
@@ -56,13 +60,18 @@ export function createScheduledJobs({ store, coordinator, now = Date.now, mirror
 
   function launch(schedule, manual = false) {
     if (schedule.pendingOccurrence || busy(schedule)) throw new Error('The previous scheduled run is still active. Resolve it on the agent board first.')
+    const profile = schedule.profileId ? store.getProfile(schedule.profileId) : null
+    if (schedule.profileId && !profile) throw new Error('The scheduled agent profile no longer exists.')
     const startedAt = new Date(now()).toISOString()
     const dueAt = manual ? startedAt : schedule.nextRunAt
     const saved = store.saveSchedule({
       ...schedule,
       status: schedule.trigger.type === 'once' ? 'completed' : schedule.status,
       nextRunAt: schedule.trigger.type === 'once' ? null : manual ? schedule.nextRunAt : nextRun(schedule.trigger, now(), dueAt),
-      pendingOccurrence: { key: `${schedule.id}:${dueAt}`, goalId: newId('g'), startedAt, attempts: 0 },
+      pendingOccurrence: {
+        key: `${schedule.id}:${dueAt}`, goalId: newId('g'), startedAt, attempts: 0,
+        ...(profile && { profileSnapshot: { id: profile.id, name: profile.name, role: profile.role, instructions: profile.instructions, version: profile.updated } }),
+      },
       error: null,
     })
     plan(saved)
@@ -81,6 +90,7 @@ export function createScheduledJobs({ store, coordinator, now = Date.now, mirror
       }
     },
     create(input) {
+      if (input.profileId && !store.getProfile(input.profileId)) throw new Error('Agent profile not found.')
       const saved = store.newSchedule(input)
       emit(saved, `Schedule created: ${saved.title}`)
       return saved

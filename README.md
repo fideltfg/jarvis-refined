@@ -115,11 +115,13 @@ for timing options, timezones, recovery and schedule controls.
 | `./scripts/install.sh [--readonly]` | Install, enable and start bridge + agents as systemd user services at boot. |
 | `npm run bridge` / `npm run bridge:writes` | Start only the bridge, without/with effectful tools. |
 | `npm run dev` | Start only the Vite frontend. |
+| `npm run start:production` | Serve an existing `dist/` build with the bridge, without Vite. |
 | `npm run agents` | Start the optional background-agent service. |
 | `npm run agents:token` | Generate the background-service bearer token. |
 | `npm run relay:token` | Generate the remote-browser relay token. |
 | `npm run package:remote` | Build the standalone remote-worker package. |
 | `npm run issue:remote -- <hostname>` | Issue a host-specific remote-worker archive and trust files. |
+| `npm run package:windows` | Build the Windows installer payload (see [Windows installer development](docs/windows-installation.md)). |
 | `npm test` | Run all Node test suites. |
 | `npm run build` | Type-check and build the frontend. |
 | `npm run preview` | Preview the production frontend build. |

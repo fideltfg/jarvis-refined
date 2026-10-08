@@ -27,6 +27,8 @@ test('deleting or moving outside the workspace needs approval', () => {
   assert.equal(decision(bash('mv report.md /etc/report.md')), 'approval')
   assert.equal(decision(bash('find /var/log -name "*.gz" -delete')), 'approval')
   assert.equal(bash('rm -rf /tmp/x').category, 'destruction')
+  assert.equal(decision(bash('printf data > ~/notes.txt')), 'allow')
+  assert.equal(decision(bash('rm -rf ~/Documents')), 'approval')
 })
 
 test('a cd before a delete is judged from where the cd lands', () => {
@@ -77,8 +79,10 @@ test('secret-shaped values never leave in a tool call', () => {
   assert.equal(decision(judge('mcp__gmail__send_email', { to: 'a@b.c', body: '-----BEGIN OPENSSH PRIVATE KEY-----' }, ctx())), 'deny')
 })
 
-test('new output stays in the workspace; existing external code edits need approval', () => {
+test('home-folder edits are allowed while credentials and outside paths stay protected', () => {
   assert.equal(decision(judge('Write', { file_path: `${WS}/notes.md` }, ctx())), 'allow')
+  assert.equal(decision(judge('Write', { file_path: `${homedir()}/Documents/notes.md` }, ctx())), 'allow')
+  assert.equal(decision(judge('Write', { file_path: `${homedir()}/.ssh/authorized_keys` }, ctx())), 'deny')
   assert.equal(decision(judge('Write', { file_path: '/home/x/.bashrc' }, ctx())), 'approval')
   assert.equal(decision(judge('Write', { file_path: '/tmp/new.txt' }, ctx({ exists: () => false }))), 'deny')
   assert.equal(decision(judge('Write', { file_path: '/tmp/new.txt' }, ctx({ kind: 'research', exists: () => false }))), 'deny')
@@ -157,16 +161,15 @@ test('F4: everyday shell forms cannot hide a delete outside the workspace', () =
     'echo ~/Documents | xargs rm -rf',
     'find ~/Documents -exec /bin/rm {} +',
     'rsync -a --delete empty/ ~/Documents/',
-    'echo > ~/.bashrc',
-    'echo hi >> ~/.bashrc',
-    'cp /dev/null ~/.bashrc',
-    'sed -i d ~/.bashrc',
     'pushd .. && rm -rf x',
     'cd - && rm -rf x',
     'eval "rm -rf ~/Documents"',
     'x=$(rm -rf ~/Documents)',
     'echo `rm -rf ~/Documents`',
   ]) assert.equal(decision(bash(c)), 'approval', c)
+  for (const c of ['echo > ~/.bashrc', 'echo hi >> ~/.bashrc', 'cp /dev/null ~/.bashrc', 'sed -i d ~/.bashrc']) {
+    assert.equal(decision(bash(c)), 'allow', c)
+  }
 })
 
 test('F4: the hardened parser still allows ordinary work', () => {
@@ -190,7 +193,7 @@ test('F4: force flags in clusters, mirror and prune pushes need approval', () =>
 })
 
 test('F4: a Write through a symlink is judged by where it really lands', () => {
-  const v = judge('Write', { file_path: `${WS}/link` }, ctx({ realpath: () => '/home/x/.bashrc' }))
+  const v = judge('Write', { file_path: `${WS}/link` }, ctx({ realpath: (path) => path === `${WS}/link` ? '/etc/passwd' : path }))
   assert.equal(v.decision, 'approval')
 })
 

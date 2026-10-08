@@ -64,7 +64,12 @@ export type Blade = {
 export type {
   AgentApproval,
   AgentBoardData,
+  AgentDecisionQuestion,
+  AgentReference,
   AgentGoal,
+  AgentProfile,
+  AgentProfileInput,
+  AgentProfileRequest,
   AgentTask,
   BoardAgent,
   BoardAgentKind,

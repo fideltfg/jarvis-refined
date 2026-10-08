@@ -26,6 +26,19 @@ test('a goal needs a title and an outcome', () => {
   assert.throws(() => store.newGoal({ title: 'x' }), /title and an outcome/)
 })
 
+test('agent profiles persist reusable instructions and reject incomplete records', () => {
+  const { store } = fresh()
+  const profile = store.newProfile({ name: '  Research  ', role: ' Analyst ', instructions: ' Check the sources. ' })
+  assert.equal(profile.name, 'Research')
+  assert.equal(profile.role, 'Analyst')
+  assert.equal(profile.instructions, 'Check the sources.')
+  assert.equal(profile.schedule, null)
+  assert.equal(store.getProfile(profile.id).instructions, 'Check the sources.')
+  assert.deepEqual(store.listProfiles().map((entry) => entry.id), [profile.id])
+  assert.throws(() => store.newProfile({ name: 'Research', role: '', instructions: 'Check' }), /needs a name, role and instructions/)
+  assert.throws(() => store.newProfile({ id: profile.id, name: 'Other', role: 'Analyst', instructions: 'Check' }), /Invalid or existing/)
+})
+
 test('a malformed recurring interval is refused at creation', () => {
   const { store } = fresh()
   assert.throws(() => store.newGoal({ title: 'x', outcome: 'y', recurring: { every: 'every 6 hours' } }), /Cannot read the interval/)

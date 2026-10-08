@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createStore } from './store.mjs'
-import { DISALLOWED, runTask, taskPrompt, workerPrompt } from './worker.mjs'
+import { DISALLOWED, runTask, taskPrompt, validateReportQuestions, workerPrompt } from './worker.mjs'
 
 function setup(taskExtra = {}) {
   const store = createStore(mkdtempSync(join(tmpdir(), 'agents-worker-')), { workDir: mkdtempSync(join(tmpdir(), 'agents-output-')) })
@@ -122,6 +122,32 @@ test('a blocked report carries its blocker, needs and risk through to the failur
   assert.deepEqual(out.failure.need, ['a token with write:packages', 'confirmation the package should be public'])
   assert.equal(out.failure.risk, 'me')
   assert.equal(out.failure.confidence, 0.9)
+})
+
+test('a decision blocker retains validated questions and document references', async () => {
+  const { store, task } = setup()
+  const question = { id: 'region', prompt: 'Which region?', options: [{ id: 'west', label: 'West' }, { id: 'east', label: 'East', recommended: true }] }
+  const reference = { title: 'Region comparison', path: 'reports/regions.csv' }
+  const out = await runTask(task, deps(store, {
+    queryFn: fake(async function* ({ options }) {
+      options.mcpServers.agent.onReport({ status: 'blocked', summary: 'Choose a region.', blocker: 'decision', questions: [question], references: [reference] })
+      yield { type: 'result', subtype: 'success' }
+    }),
+  }))
+  assert.deepEqual(out.failure.questions, [question])
+  assert.deepEqual(out.failure.references, [reference])
+})
+
+test('decision blockers cannot omit their multiple-choice direction form', () => {
+  assert.throws(
+    () => validateReportQuestions({ status: 'blocked', blocker: 'decision', summary: 'Need direction.' }),
+    /must include at least one multiple-choice question/,
+  )
+  const report = {
+    status: 'blocked', blocker: 'decision', summary: 'Choose a region.',
+    questions: [{ id: 'region', prompt: 'Which region?', options: [{ id: 'east', label: 'East' }, { id: 'west', label: 'West' }] }],
+  }
+  assert.equal(validateReportQuestions(report), report)
 })
 
 test('a spending limit overrides a done report and records cache usage', async () => {

@@ -44,7 +44,8 @@ import { filesServer } from './files.mjs'
 import { commandsServer } from './commands.mjs'
 import { AGENTS_PROMPT, agentsApi, agentsServer, subscribeAgents } from './agents-client.mjs'
 import { handleScheduleRequest } from './schedule-commands.mjs'
-import { handleGoalRequest, handleReportRequest } from './goal-commands.mjs'
+import { handleProfileRequest } from './profile-commands.mjs'
+import { handleDecisionRequest, handleGoalControlRequest, handleGoalDecisionRequest, handleGoalRequest, handleReportRequest } from './goal-commands.mjs'
 import { handleStartupStatusRequest, mergeSessionAgents } from './startup-status.mjs'
 import { personaFor as themePersona, resolveThemeId } from './themes.mjs'
 import { outputGuide, saveAgentReport, sessionWorkspace, toolOutputError, WORK_DIR } from './workspace.mjs'
@@ -1214,7 +1215,7 @@ wss.on('connection', (socket, req) => {
     ? 'storage_error' : checkpoint.restored ? 'restored' : checkpoint.unavailable ? 'unavailable' : 'new' }))
   console.log(`[jarvis] client connected (${theme})`)
   const workingDirectory = sessionWorkspace(checkpoint.id)
-  const projectRoots = [WORK_DIR, join(homedir(), 'Projects'), ...(process.env.JARVIS_PROJECT_ROOTS ?? '').split(',').map((root) => root.trim()).filter(Boolean)]
+  const projectRoots = [WORK_DIR, homedir(), ...(process.env.JARVIS_PROJECT_ROOTS ?? '').split(',').map((root) => root.trim()).filter(Boolean)]
   const systemPrompt = `${systemPromptFor(theme)}\n\n${outputGuide(workingDirectory)}`
   const memoryAtStart = memoryContext(memorySnapshot())
   let claudePrimed = saved.claudePrimed
@@ -1930,8 +1931,25 @@ wss.on('connection', (socket, req) => {
       return
     }
 
+    if (msg.type === 'profile_request') {
+      void handleProfileRequest(msg, agentApi, send).then(() => pushBoard())
+      return
+    }
+
     if (msg.type === 'goal_request') {
       void handleGoalRequest(msg, agentApi, send).then(() => pushBoard())
+    }
+    if (msg.type === 'decision_request') {
+      void handleDecisionRequest(msg, agentApi, send).then(() => pushBoard())
+      return
+    }
+    if (msg.type === 'goal_decision_request') {
+      void handleGoalDecisionRequest(msg, agentApi, send).then(() => pushBoard())
+      return
+    }
+    if (msg.type === 'goal_control_request') {
+      void handleGoalControlRequest(msg, agentApi, send).then(() => pushBoard())
+      return
     }
     if (msg.type === 'report_request') {
       void handleReportRequest(msg, agentApi, send)

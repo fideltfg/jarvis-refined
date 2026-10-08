@@ -190,18 +190,21 @@ function targetsOf(cmd, args) {
 function bashDestruction(command, workspace, startCwd = workspace, depth = 0) {
   if (depth > 3) return approval('destruction', 'a deeply nested shell command', command)
   let cwd = startCwd
-  const check = (t, cmd, seg) => {
+  const check = (t, cmd, seg, allowHome = false) => {
     if (!t) return null
     if (SAFE_SINKS.has(t)) return null
     if (unresolved(t)) return approval('destruction', `${cmd} with an unresolved path`, seg)
-    if (!inside(workspace, resolve(cwd, expandHome(t)))) return approval('destruction', `${cmd} outside the workspace`, seg)
+    const target = resolve(cwd, expandHome(t))
+    if (!inside(workspace, target) && !(allowHome && inside(HOME, target))) {
+      return approval('destruction', `${cmd} outside the workspace`, seg)
+    }
     return null
   }
 
   for (const seg of segmentsOf(normalise(command))) {
     if (/\bdrop\s+(database|table|schema)\b/i.test(seg)) return approval('destruction', 'drop a database object', seg)
     for (const t of redirections(seg)) {
-      const v = check(t, 'redirect', seg)
+      const v = check(t, 'redirect', seg, true)
       if (v) return v
     }
     let w = tokens(seg.replace(/\d*>>?\s*[^\s;&|<>]+/g, ' ').replace(/<\s*[^\s;&|<>]+/g, ' '))
@@ -241,7 +244,7 @@ function bashDestruction(command, workspace, startCwd = workspace, depth = 0) {
       continue
     }
     for (const t of targetsOf(cmd, args)) {
-      const v = check(t, cmd, seg)
+      const v = check(t, cmd, seg, !DELETERS.has(cmd) && cmd !== 'find')
       if (v) return v
     }
   }
@@ -289,6 +292,7 @@ export function judge(toolName, input = {}, ctx) {
       return deny('credentials', 'That folder contains credentials. Search inside your working folder or a project folder instead.')
     }
     if (WRITE_TOOLS.has(name) && !inside(workspace, real)) {
+      if (inside(realpath(HOME), real)) return allow()
       if (kind === 'research' || kind === 'marketing' || kind === 'admin') {
         return deny('workspace', `A ${kind} task may only write inside its own folder, ${workspace}.`)
       }

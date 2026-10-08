@@ -7,6 +7,56 @@ The project is not yet versioned, so entries are grouped by date.
 Each entry goes under **Unreleased** in one of: Added, Changed, Fixed, Removed,
 Security. When work is committed, move its entries under a dated heading.
 
+## Unreleased
+
+### Added
+
+- The agent board now has searchable task history and expandable full results,
+  saved text report previews, refresh controls and report downloads, including
+  older completed or archived tasks. Report reads stay inside each task's report
+  folder; missing files and oversized previews show an error without losing results.
+
+- Blocked tasks now have a board reply field to supply missing information and
+  resume a paused goal. Chat and voice can look up goals and blockers by title
+  without asking you for internal IDs.
+
+- Scheduled tasks can save their own Claude, OpenAI, or configured local provider
+  and model, used for both planning and workers independently of chat. OpenAI
+  and local workers use the existing tool approval policy and time/turn limits;
+  dollar-budget caps remain Claude-only.
+
+- The Agents window now shows current and saved work together in Waiting,
+  Working, Paused and Idle groups, with status-colored rows, concise goal/agent
+  labels and a highlighted selection, plus reusable profiles. Goals can be
+  paused, resumed or stopped; decision blockers use validated multiple-choice
+  forms, and the detail focuses on results, decisions and related files rather
+  than listing worker task plans.
+
+### Fixed
+
+- JARVIS and background agents can edit files throughout the owning user's home
+  folder without workspace approval; credential paths and destructive actions
+  keep their separate protections.
+- Background agents load the same project-local provider configuration as chat,
+  so configured OpenAI and local models are available in the task scheduler.
+- Agent approval cards show the exact requested command and when it was raised;
+  workers are instructed to keep command logs inside their workspace.
+- Editing a scheduled task now opens its form below that task instead of above
+  the list.
+
+### Changed
+
+- JARVIS chat and agents now organize generated output under `.jarvis-work`,
+  grouped by session or goal/task with reports, artifacts, logs and temporary
+  folders. Chat responses and worker reports are saved automatically; file
+  tools reject loose output elsewhere while preserving project edits. Existing
+  files and task paths are left in place.
+
+- LCARS buttons now use one consistent square, red-cap design across the command deck, composer, scheduler and other panels, with shared state colours and keyboard focus styling.
+- Scheduler buttons in the LCARS panel now have square corners and evenly sized red edge bars.
+- Scheduler action buttons now share consistent sizing and show text labels beside their icons.
+- Scheduler buttons now match the command operations panel's 40px height and red-cap spacing.
+
 ## 2026-10-07
 
 ### Added
@@ -18,18 +68,6 @@ Security. When work is committed, move its entries under a dated heading.
 - A Loose ends command window for viewing unfinished-work records.
 - Standalone browser relay background operation, status checks, and stop controls.
 - Project-local grilling skills for reviewing plans and design decisions.
-- The agent board now has searchable task history with concise task summaries,
-  plus a combined list of reports and artifact files with View and Download
-  controls. View opens sanitized, formatted documents in a reading blade.
-  Completed and archived tasks remain available; file reads stay inside the
-  task workspace and have a 512 KB preview limit.
-- Blocked tasks now have a board reply field to supply missing information and
-  resume a paused goal. Chat and voice can look up goals and blockers by title
-  without asking you for internal IDs.
-- Scheduled tasks can save their own Claude, OpenAI, or configured local provider
-  and model, used for both planning and workers independently of chat. OpenAI
-  and local workers use the existing tool approval policy and time/turn limits;
-  dollar-budget caps remain Claude-only.
 
 ### Changed
 
@@ -47,35 +85,6 @@ Security. When work is committed, move its entries under a dated heading.
   interrupt its answer.
 - The `jarvis_agents` tools are wired back into the bridge for Claude, OpenAI and local providers when `JARVIS_AGENTS=1`.
 - Session subagents are tracked once per bridge instead of per connection, so every window sees them and history writes no longer overwrite each other; subagents left running by a closed connection are marked interrupted.
-- Agent results now show one consolidated result per main task rather than
-  separate worker and session-subagent outputs; approvals and blockers remain
-  available when they need your attention.
-- Status report loose ends now keep descriptions readable, with long status
-  details wrapping underneath instead of squeezing text into narrow columns.
-- Background agents load the same project-local provider configuration as chat,
-  so configured OpenAI and local models are available in the task scheduler.
-- Agent approval cards show the exact requested command and when it was raised;
-  workers are instructed to keep command logs inside their workspace.
-- Editing a scheduled task now opens its form below that task instead of above
-  the list.
-
-### Changed
-
-- Agent workers now expand beneath their parent goal, with conversation subagents
-  grouped under the JARVIS session. Reply fields appear only for explicit
-  response-needed blockers or escalations, and never in History.
-- JARVIS chat and agents now organize generated output under `.jarvis-work`,
-  grouped by session or goal/task with reports, artifacts, logs and temporary
-  folders. Chat responses and worker reports are saved automatically; file
-  tools reject loose output elsewhere while preserving project edits. Existing
-  files and task paths are left in place.
-- LCARS buttons now use one consistent square, red-cap design across the command
-  deck, composer, scheduler and other panels, with shared state colours and
-  keyboard focus styling.
-- Scheduler buttons in the LCARS panel now have square corners and evenly sized
-  red edge bars. Scheduler action buttons now share consistent sizing and show
-  text labels beside their icons. Scheduler buttons now match the command
-  operations panel's 40px height and red-cap spacing.
 
 ## 2026-10-04
 

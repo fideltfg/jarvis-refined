@@ -179,20 +179,20 @@ delegate. Claude session subagent briefs receive the rules automatically.
 Conversation checkpoints, task state, memory and credentials remain in their
 existing managed configuration directories; these are not generated reports.
 
-Native Claude and shared bridge file-write tools reject paths outside the work
-root or project roots, including symlink escapes. Project source/configuration
-edits remain permitted under `~/Projects` and comma-separated
-`JARVIS_PROJECT_ROOTS`; this exemption is for task-required project changes, not
-for scattering generated reports. Background workers cannot create new files
-outside their task folder; existing external code/ops edits still require
-approval. Read access is unchanged. These checks are **not an OS sandbox**:
-shell scripts and external MCP tools can access other locations. Their output
-placement relies on the instructions and explicit destination arguments.
+Native Claude and background-agent file tools can read and write throughout the
+owning user's home directory, as well as their task workspaces. Credential
+locations remain denied, and symlinks escaping those roots are rejected. Agents
+are still instructed to keep generated reports and artifacts in their task
+folders. Shell deletes and moves outside a task workspace, money-moving actions,
+and other high-impact operations still require approval. These checks are
+**not an OS sandbox**: shell scripts and external MCP tools can access other
+locations. Their output placement relies on the instructions and explicit
+destination arguments.
 Restart both services to load changes; this does not relocate existing files.
 
 ## Tasks Needing Attention
 
-Open **Board** beside a scheduled task to see its goal and the blocked worker's
+Open **Agents** to see the goal and the blocked worker's
 result. A blocked task needs information or another change; it is not necessarily
 waiting for permission. Pending permission requests have separate **Approve** and
 **Deny** buttons.
@@ -213,6 +213,31 @@ you do not need to find internal IDs yourself. If titles are ambiguous, JARVIS
 should ask which goal you mean. `goal_update` can resume with `info` in one call.
 Editing a schedule changes future runs only: send information separately to
 an existing blocked goal.
+
+## Agent Profiles
+
+Open **Profiles** in the Agents window to create reusable profiles with a name,
+role and instructions. **Run** creates a coordinator-planned goal; editing or
+deleting a profile does not change goals that already started. An optional
+once, interval, daily or weekly schedule can be paused, resumed or run now.
+Future scheduled goals use the profile's latest instructions.
+The service exposes authenticated `GET /profiles`, `POST /profiles`,
+`POST /profiles/:id` (edit or delete), and `POST /profiles/:id/run`; browser
+requests pass through the bridge, which keeps the service token private.
+
+When a worker is blocked on a decision, it must provide at least one validated
+multiple-choice question. The choices appear on the task detail; submitting
+answers sends them to the coordinator and does not bypass approval gates. Open
+**Files & references** beneath any goal task, or open its detail, to view and
+download generated files. Task report files and structured references open in
+Jarvis. Local references are limited to the task workspace and approved
+project roots, text/PDF previews are capped at 512 KB, and public web links use
+Jarvis's sandboxed reader. Private provider links and arbitrary filesystem
+paths are not supported.
+
+A paused goal awaiting approval presents **Approve** and **Do not approve**
+choices plus an optional note. Approval resumes within the existing scope;
+declining leaves the goal paused and asks the coordinator to prepare a revision.
 
 ## Task Scheduler
 

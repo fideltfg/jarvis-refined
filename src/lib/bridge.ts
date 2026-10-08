@@ -2,7 +2,7 @@ import type { AskHandlers } from './anthropic'
 import type { Attachment } from './attachments'
 import type { ChatSession } from './sessions'
 import type { Schedule, ScheduleRequest } from './schedules'
-import type { AgentBoardData, Blade, Panel, SessionAgent } from '../store'
+import type { AgentBoardData, AgentGoal, AgentProfile, AgentProfileRequest, Blade, Panel, SessionAgent } from '../store'
 import type { AgentEvent } from './announce'
 import { BRIDGE_WS_URL, THEME } from '../config'
 import { askHiddenSession } from './hidden-session'
@@ -204,18 +204,40 @@ export function scheduleRequest(request: ScheduleRequest): Promise<Schedule | Sc
   return commandRequest('schedule', request, 'schedules')
 }
 
+export function profileRequest(request: { action: 'list' }): Promise<AgentProfile[]>
+export function profileRequest(request: { action: 'create'; profile: import('./board').AgentProfileInput }): Promise<AgentProfile>
+export function profileRequest(request: { action: 'update'; profileId: string; changes: Partial<import('./board').AgentProfileInput> }): Promise<AgentProfile>
+export function profileRequest(request: { action: 'delete'; profileId: string }): Promise<{ id: string; deleted: true }>
+export function profileRequest(request: { action: 'run'; profileId: string }): Promise<AgentGoal>
+export function profileRequest(request: AgentProfileRequest): Promise<AgentProfile[] | AgentProfile | AgentGoal | { id: string; deleted: true }> {
+  return commandRequest('profile', request, 'agent profiles')
+}
+
 export function goalRequest(request: { goalId: string; info: string; resume: boolean }): Promise<{ id: string; status: string }> {
   return commandRequest('goal', request, 'agent board')
+}
+
+export function goalControlRequest(request: { goalId: string; action: 'pause' | 'resume' | 'abandon' }): Promise<{ id: string; status: string }> {
+  return commandRequest('goal_control', request, 'agent board')
+}
+
+export function decisionRequest(request: { goalId: string; taskId: string; answers: Record<string, string>; note?: string }): Promise<{ id: string; status: string }> {
+  return commandRequest('decision', request, 'agent decision')
+}
+
+export function goalDecisionRequest(request: { goalId: string; decision: 'approve' | 'not_approve'; note?: string }): Promise<{ id: string; status: string }> {
+  return commandRequest('goal_decision', request, 'agent approval decision')
 }
 
 export type TaskReports = { result: unknown; failure: unknown; files: string[] }
 export function reportRequest(request: { action: 'history' }): Promise<AgentBoardData>
 export function reportRequest(request: { action: 'task'; taskId: string; file?: string }): Promise<TaskReports | { file: string; content: string }>
-export function reportRequest(request: { action: 'history' | 'task'; taskId?: string; file?: string }): Promise<AgentBoardData | TaskReports | { file: string; content: string }> {
+export function reportRequest(request: { action: 'reference'; taskId: string; index: number }): Promise<{ file: string; content: string }>
+export function reportRequest(request: { action: 'history' | 'task' | 'reference'; taskId?: string; file?: string; index?: number }): Promise<AgentBoardData | TaskReports | { file: string; content: string }> {
   return commandRequest('report', request, 'agent reports')
 }
 
-function commandRequest<Result>(kind: 'schedule' | 'goal' | 'report', request: object, surface: string): Promise<Result> {
+function commandRequest<Result>(kind: 'schedule' | 'goal' | 'goal_control' | 'decision' | 'goal_decision' | 'report' | 'profile', request: object, surface: string): Promise<Result> {
   const ws = socket
   if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error(`The bridge is disconnected. Reconnect before changing ${surface}.`))
   const requestId = `${kind}-${Date.now()}-${++scheduleRequestSeq}`

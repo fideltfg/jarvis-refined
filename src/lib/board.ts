@@ -41,7 +41,17 @@ export type AgentTask = {
   runtime?: AgentRuntime | null
   remote?: { endpointId: string } | null
   origin?: { label: string } | null
+  questions?: AgentDecisionQuestion[]
+  references?: AgentReference[]
+  decisionRequired?: boolean
+  failure?: { blocker?: string; questions?: AgentDecisionQuestion[] } | null
 }
+export type AgentDecisionQuestion = {
+  id: string
+  prompt: string
+  options: { id: string; label: string; detail?: string; recommended?: boolean }[]
+}
+export type AgentReference = { title: string; url?: string; path?: string }
 export type AgentGoal = {
   id: string
   title: string
@@ -53,6 +63,8 @@ export type AgentGoal = {
   tasks: AgentTask[]
   created?: string
   updated?: string
+  profileId?: string
+  profileSnapshot?: { id: string; name: string; role: string; instructions: string; version: string }
 }
 export type AgentApproval = { id: string; taskId: string; category: string; action: string; detail: string; created?: string }
 
@@ -79,6 +91,47 @@ export type AgentBoardData = {
   /** Absent from an older agent service, which has no /endpoints route. */
   capacity?: AgentCapacity | null
 }
+
+/** Keep saved work visible while live snapshots remain authoritative. */
+export function mergeBoardData(current: AgentBoardData | null, history: AgentBoardData | null): AgentBoardData | null {
+  if (!history) return current
+  if (!current) return history
+
+  const liveGoals = new Map(current.goals.map((goal) => [goal.id, goal]))
+  const goals = history.goals.map((saved) => {
+    const live = liveGoals.get(saved.id)
+    if (!live) return saved
+    liveGoals.delete(saved.id)
+    const tasks = new Map(saved.tasks.map((task) => [task.id, task]))
+    for (const task of live.tasks) tasks.set(task.id, { ...tasks.get(task.id), ...task })
+    return { ...saved, ...live, tasks: [...tasks.values()] }
+  })
+  goals.push(...liveGoals.values())
+  return { ...history, ...current, goals }
+}
+
+export type AgentProfile = {
+  id: string
+  name: string
+  role: string
+  instructions: string
+  schedule: {
+    trigger: import('./schedules').ScheduleTrigger
+    priority: number
+    execution?: import('./schedules').ScheduleExecution
+  } | null
+  scheduleId: string | null
+  created: string
+  updated: string
+}
+
+export type AgentProfileInput = Pick<AgentProfile, 'name' | 'role' | 'instructions'> & { schedule?: AgentProfile['schedule'] }
+export type AgentProfileRequest =
+  | { action: 'list' }
+  | { action: 'create'; profile: AgentProfileInput }
+  | { action: 'update'; profileId: string; changes: Partial<AgentProfileInput> }
+  | { action: 'delete'; profileId: string }
+  | { action: 'run'; profileId: string }
 
 /** A Claude Code subagent spawned inside the voice session itself. */
 export type SessionAgent = {
@@ -144,6 +197,9 @@ export type BoardAgent = {
   goal: string | null
   /** What it was asked to do, when that is more than its name. */
   brief: string | null
+  questions?: AgentDecisionQuestion[]
+  references?: AgentReference[]
+  decisionRequired?: boolean
 }
 
 const PROVIDER_LABEL: Record<string, string> = {
@@ -332,6 +388,9 @@ export function mergeBoard(board: AgentBoardData | null, session: SessionAgent[]
       model: task.runtime?.model ?? task.model ?? null,
       goal: goal.title,
       brief: null,
+      questions: task.questions ?? task.failure?.questions ?? [],
+      references: task.references ?? [],
+      decisionRequired: task.failure?.blocker === 'decision',
     }))
     units.push([goalRow, ...tasks])
   }

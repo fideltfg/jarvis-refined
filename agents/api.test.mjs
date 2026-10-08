@@ -91,7 +91,7 @@ async function setup({ pool = null, host = '127.0.0.1', tls = null } = {}) {
           headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
           body: body ? JSON.stringify(body) : undefined,
         })
-  return { store, approvals, api, base, call, calls }
+  return { store, approvals, api, base, call, calls, schedules }
 }
 
 test('the API refuses to start without a token', () => {
@@ -104,13 +104,17 @@ test('saved reports require authentication and use only the selected task worksp
   try {
     const goal = instance.store.newGoal({ title: 'Reports', outcome: 'Recall' })
     const task = instance.store.newTask({ goalId: goal.id, title: 'Research', brief: 'Read only' })
-    instance.store.saveTask({ ...task, status: 'done', archived: true, workspace: { path: workspace }, result: { summary: 'Finished' } })
+    instance.store.saveTask({ ...task, status: 'done', archived: true, workspace: { path: workspace }, result: { summary: 'Finished', references: [{ title: 'Latest report', path: 'artifacts/linked.md' }] } })
     mkdirSync(join(workspace, 'reports'))
+    mkdirSync(join(workspace, 'artifacts'))
     writeFileSync(join(workspace, 'reports', 'latest.md'), '# Finished')
+    writeFileSync(join(workspace, 'artifacts', 'linked.md'), '# Linked')
     const path = `/tasks/${task.id}/reports`
     assert.equal((await instance.call('GET', path, null, 'wrong')).status, 401)
-    assert.deepEqual(await (await instance.call('GET', path)).json(), { result: { summary: 'Finished' }, failure: null, files: ['reports/latest.md'] })
+    assert.deepEqual(await (await instance.call('GET', path)).json(), { result: { summary: 'Finished', references: [{ title: 'Latest report', path: 'artifacts/linked.md' }] }, failure: null, files: ['reports/latest.md', 'artifacts/linked.md'] })
     assert.deepEqual(await (await instance.call('GET', `${path}?file=reports/latest.md`)).json(), { file: 'reports/latest.md', content: '# Finished' })
+    assert.deepEqual(await (await instance.call('GET', `/tasks/${task.id}/reference?index=0`)).json(), { file: 'Latest report', content: '# Linked' })
+    assert.equal((await instance.call('GET', `/tasks/${task.id}/reference?index=200`)).status, 400)
     assert.equal((await instance.call('GET', `${path}?file=${encodeURIComponent('/etc/passwd')}`)).status, 400)
     assert.equal((await instance.call('GET', '/tasks/t_missing/reports')).status, 404)
     assert.equal(instance.calls.plan.length, 0)
@@ -150,6 +154,55 @@ test('schedule API persists without early work, validates changes and runs expli
     assert.equal((await instance.call('POST', `/schedules/${schedule.id}`, { action: 'delete' })).status, 200)
     assert.deepEqual(await (await instance.call('GET', '/schedules')).json(), [])
     assert.equal((await instance.call('POST', '/schedules/missing', { action: 'pause' })).status, 404)
+  } finally { await instance.api.close() }
+})
+
+test('profiles create, edit, run from a snapshot and delete their schedule', async () => {
+  const instance = await setup()
+  try {
+    assert.equal((await instance.call('POST', '/profiles', { name: 'Research', role: 'Analyst' })).status, 400)
+    const created = await instance.call('POST', '/profiles', { name: ' Research ', role: ' Analyst ', instructions: ' Find primary sources. ' })
+    assert.equal(created.status, 201)
+    const profile = await created.json()
+    assert.equal(profile.name, 'Research')
+    assert.equal((await (await instance.call('GET', '/profiles')).json())[0].id, profile.id)
+    const run = await instance.call('POST', `/profiles/${profile.id}/run`)
+    assert.equal(run.status, 201)
+    const goal = await run.json()
+    assert.equal(goal.profileSnapshot.instructions, 'Find primary sources.')
+    await instance.call('POST', `/profiles/${profile.id}`, { name: 'Updated research', instructions: 'Use official sources.' })
+    assert.equal(instance.store.getGoal(goal.id).profileSnapshot.instructions, 'Find primary sources.')
+    assert.equal((await instance.call('POST', `/profiles/${profile.id}`, { action: 'delete' })).status, 200)
+    assert.deepEqual(await (await instance.call('GET', '/profiles')).json(), [])
+    assert.equal((await instance.call('POST', `/profiles/${profile.id}/run`)).status, 404)
+  } finally { await instance.api.close() }
+})
+
+test('profile schedules use the latest profile when creating each goal', async () => {
+  const instance = await setup()
+  try {
+    const at = new Date(Date.now() + 60_000).toISOString()
+    const created = await instance.call('POST', '/profiles', {
+      name: 'Morning research', role: 'Analyst', instructions: 'Use source A.',
+      schedule: { trigger: { type: 'once', at }, priority: 2 },
+    })
+    assert.equal(created.status, 201)
+    const profile = await created.json()
+    assert.ok(profile.scheduleId)
+    const linked = instance.store.getSchedule(profile.scheduleId)
+    assert.equal(linked.profileId, profile.id)
+    await instance.call('POST', `/profiles/${profile.id}`, { instructions: 'Use source B.' })
+    const launched = await instance.call('POST', `/schedules/${profile.scheduleId}/run`)
+    assert.equal(launched.status, 200)
+    await instance.schedules?.idle?.()
+    await new Promise((resolve) => setImmediate(resolve))
+    const goal = instance.store.getGoal((await launched.json()).lastGoalId)
+    assert.equal(goal.profileSnapshot.instructions, 'Use source B.')
+    assert.equal(goal.title, 'Morning research')
+    await instance.schedules.idle()
+    const renamed = await instance.call('POST', `/profiles/${profile.id}`, { name: 'Updated research' })
+    assert.equal(renamed.status, 200)
+    assert.equal(instance.store.getSchedule(profile.scheduleId).status, 'completed')
   } finally { await instance.api.close() }
 })
 

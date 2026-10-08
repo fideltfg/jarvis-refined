@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { agentSummary, capacityLine, mainTaskRows, mergeBoard, runningAgents, statusLabel } from './board.ts'
+import { agentSummary, capacityLine, mainTaskRows, mergeBoard, mergeBoardData, runningAgents, statusLabel } from './board.ts'
 
 const task = (over = {}) => ({
   id: 't1', title: 'Task', kind: 'shell', status: 'queued', attempts: 1, summary: null,
@@ -90,6 +90,29 @@ test('a task stays under its own goal', () => {
 
   assert.deepEqual(rows.map((r) => r.kind), ['goal', 'task', 'task'])
   assert.deepEqual(rows.slice(1).map((r) => r.parentId), ['g1', 'g1'])
+})
+
+test('decision questions and document references stay attached to their task', () => {
+  const questions = [{ id: 'region', prompt: 'Choose a region', options: [{ id: 'east', label: 'East' }, { id: 'west', label: 'West' }] }]
+  const references = [{ title: 'Regional notes', path: 'reports/regions.md' }]
+  const rows = mergeBoard(board({ goals: [goal({ tasks: [task({ status: 'blocked', failure: { blocker: 'decision', questions }, references })] })] }))
+  assert.deepEqual(rows[1].questions, questions)
+  assert.deepEqual(rows[1].references, references)
+})
+
+test('one board keeps saved goals and overlays newer live task state', () => {
+  const history = board({ goals: [
+    goal({ id: 'g-live', title: 'Live goal', tasks: [task({ id: 't-live', status: 'done', summary: 'Saved result' }), task({ id: 't-old', status: 'done' })] }),
+    goal({ id: 'g-done', title: 'Completed goal', status: 'done' }),
+  ] })
+  const current = board({ goals: [
+    goal({ id: 'g-live', title: 'Live goal', tasks: [task({ id: 't-live', status: 'running', summary: null })] }),
+  ], capacity: { capacity: 3, running: 1, endpoints: [] } })
+  const merged = mergeBoardData(current, history)
+  assert.deepEqual(merged.goals.map((entry) => entry.id), ['g-live', 'g-done'])
+  assert.deepEqual(merged.goals[0].tasks.map((entry) => [entry.id, entry.status]), [['t-live', 'running'], ['t-old', 'done']])
+  assert.equal(merged.goals[1].status, 'done')
+  assert.equal(merged.capacity.running, 1)
 })
 
 test('main task results use coordinator notes and hide worker and session results', () => {

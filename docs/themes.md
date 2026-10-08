@@ -61,6 +61,7 @@ default. To preview another theme for the current browser, use a URL such as
 | **Shift+K** | Bind push-to-talk to another key or mouse button. |
 | Speak while JARVIS is talking | Interrupt speech (barge-in). |
 | **V** | Cycle the browser voice. |
+| **A** | Open or close the agent board. |
 | **Escape** | Stand down. |
 | **D** | Open live diagnostics. |
 | **T** | Run the audio self-test. |

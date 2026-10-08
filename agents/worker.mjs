@@ -118,12 +118,43 @@ Working folder: ${task.workspace.path}${branch}
 
 ${outputGuide(task.workspace.path)}
 Do not commit generated reports, logs, artifacts or scratch files into the project repository unless the brief explicitly makes them project deliverables. The coordinator automatically saves every report call to reports/latest.md and logs/reports.jsonl.
+When blocked on a decision, report concise questions with stable question and option ids. Add references as a title plus a public HTTP(S) URL or a local path inside the task workspace or an approved project root.
 
 BRIEF:
 ${task.brief}`
 }
 
 export function reportServer(onReport) {
+  const question = z.object({
+    id: z.string().regex(/^[a-zA-Z0-9_-]{1,48}$/),
+    prompt: z.string().trim().min(1).max(500),
+    options: z.array(z.object({
+      id: z.string().regex(/^[a-zA-Z0-9_-]{1,48}$/),
+      label: z.string().trim().min(1).max(200),
+      detail: z.string().trim().max(500).optional(),
+      recommended: z.boolean().optional(),
+    }).strict()).min(2).max(6),
+  }).strict().superRefine((value, ctx) => {
+    if (new Set(value.options.map((option) => option.id)).size !== value.options.length) {
+      ctx.addIssue({ code: 'custom', message: 'Decision option ids must be unique.' })
+    }
+  })
+  const reference = z.union([
+    z.object({ title: z.string().trim().min(1).max(200), url: z.string().url().max(2048) }).strict()
+      .refine((value) => ['http:', 'https:'].includes(new URL(value.url).protocol) && !new URL(value.url).username && !new URL(value.url).password, 'References must use a public HTTP(S) URL.'),
+    z.object({ title: z.string().trim().min(1).max(200), path: z.string().trim().min(1).max(2048) }).strict(),
+  ])
+  const report = z.object({
+    status: z.enum(['progress', 'done', 'blocked']),
+    summary: z.string().describe('What happened, in a few sentences.'),
+    artifacts: z.array(z.string()).optional(),
+    questions: z.array(question).max(5).optional(),
+    references: z.array(reference).max(20).optional(),
+    blocker: z.enum(BLOCKERS).optional(),
+    need: z.array(z.string()).optional(),
+    risk: z.enum(['lo', 'me', 'hi', 'cr']).optional(),
+    confidence: z.number().min(0).max(1).optional(),
+  }).strict()
   return createSdkMcpServer({
     name: 'agent',
     version: '1.0.0',
@@ -131,28 +162,28 @@ export function reportServer(onReport) {
       tool(
         'report',
         'Report progress, completion or a blocker to the coordinator.',
-        {
-          status: z.enum(['progress', 'done', 'blocked']),
-          summary: z.string().describe('What happened, in a few sentences.'),
-          artifacts: z.array(z.string()).optional().describe('File paths, branch names, PR or document URLs.'),
-          // The coordinator routes on these. Left unset they are unspecified,
-          // never inferred from the summary.
-          blocker: z.enum(BLOCKERS).optional()
-            .describe('With status "blocked": which kind of blocker. Omit it rather than choosing the nearest one.'),
-          need: z.array(z.string()).optional()
-            .describe('With status "blocked": each specific thing you need to continue, one per entry.'),
-          risk: z.enum(['lo', 'me', 'hi', 'cr']).optional()
-            .describe('How costly it would be to act on this report wrongly. Omit if you have not assessed it.'),
-          confidence: z.number().min(0).max(1).optional()
-            .describe('How sure you are that this report is accurate. Not the odds the work succeeds.'),
-        },
+        report.shape,
         async (args) => {
-          onReport(args)
+          const parsed = validateReportQuestions(report.parse(args))
+          onReport(parsed)
           return { content: [{ type: 'text', text: 'Reported.' }] }
         },
       ),
     ],
   })
+}
+
+export function validateReportQuestions(report) {
+  if (report.status === 'blocked' && report.blocker === 'decision' && !report.questions?.length) {
+    throw new Error('A decision blocker must include at least one multiple-choice question with two or more options.')
+  }
+  if (report.questions?.length && (report.status !== 'blocked' || report.blocker !== 'decision')) {
+    throw new Error('Decision questions require a blocked report with blocker "decision".')
+  }
+  if (report.questions && new Set(report.questions.map((entry) => entry.id)).size !== report.questions.length) {
+    throw new Error('Decision question ids must be unique.')
+  }
+  return report
 }
 
 const hookOut = (decision, reason) => ({
@@ -321,7 +352,11 @@ export async function runTask(task, deps) {
     return { status: 'failed', failure: { reason: 'budget', detail: `Reached the $${maxUsd} run limit.` } }
   }
   if (outcome?.status === 'done') {
-    return { status: 'done', result: { summary: outcome.summary, artifacts: outcome.artifacts ?? [] } }
+    return { status: 'done', result: {
+      summary: outcome.summary,
+      artifacts: outcome.artifacts ?? [],
+      ...(outcome.references?.length ? { references: outcome.references } : {}),
+    } }
   }
   if (outcome?.status === 'blocked') {
     return {
@@ -335,6 +370,8 @@ export async function runTask(task, deps) {
         need: outcome.need ?? [],
         risk: outcome.risk ?? 'na',
         confidence: outcome.confidence ?? null,
+        ...(outcome.questions?.length ? { questions: outcome.questions } : {}),
+        ...(outcome.references?.length ? { references: outcome.references } : {}),
       },
     }
   }

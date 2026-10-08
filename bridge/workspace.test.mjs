@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, existsSync, readFileSync, rmSync, mkdirSync, symlinkSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { outputGuide, outputWriteError, sessionWorkspace, toolOutputError } from './workspace.mjs'
 
@@ -24,16 +24,18 @@ test('bridge uses the structured workspace for Claude and every provider prompt'
   assert.match(source, /sessionWorkspace\(checkpoint.id\)/)
   assert.match(source, /cwd: workingDirectory/)
   assert.match(source, /outputGuide\(workingDirectory\)/)
+  assert.match(source, /const projectRoots = \[WORK_DIR, homedir\(\)/)
   assert.match(source, /dir: saved.claudeWorkspace \?\? homedir\(\)/)
 })
 
-test('file outputs reject home clutter, traversal and symlink escapes but allow project edits', () => {
+test('file outputs allow home edits but reject traversal and symlink escapes', () => {
   const root = mkdtempSync(join(tmpdir(), 'jarvis-output-gate-'))
   try {
     const directory = sessionWorkspace('12345678-1234-1234-1234-123456789abc', root)
     const project = join(root, 'project')
     mkdirSync(project)
     assert.equal(outputWriteError('reports/topic/final.md', directory), null)
+    assert.equal(outputWriteError(join(homedir(), 'Documents', 'notes.md'), directory, [homedir()]), null)
     assert.match(outputWriteError(join(root, 'random-report.md'), directory), /must stay/)
     assert.match(outputWriteError('../escaped.md', directory), /must stay/)
     assert.equal(outputWriteError(join(project, 'source.mjs'), directory, [project]), null)

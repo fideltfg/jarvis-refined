@@ -4,6 +4,7 @@
  */
 
 import { scheduleModels } from './text-query.mjs'
+import { taskReferences } from './reports.mjs'
 
 const VISIBLE = ['active', 'paused']
 const byPriority = (a, b) => a.priority - b.priority || a.created.localeCompare(b.created)
@@ -45,6 +46,9 @@ export function boardOf(store, running = new Set(), { history = false } = {}) {
             status: t.status,
             attempts: t.attempts,
             summary: t.result?.summary ?? t.failure?.detail ?? null,
+            questions: t.failure?.questions ?? [],
+            references: taskReferences(t),
+            failure: t.failure ?? null,
             awaitingResponse: t.status === 'blocked' && ['credential', 'decision'].includes(t.failure?.blocker),
             // The board sorts every kind of agent on one timeline, so a task
             // has to carry the same stamps a subagent does.

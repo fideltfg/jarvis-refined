@@ -1,8 +1,12 @@
 import { open, readdir, realpath } from 'node:fs/promises'
-import { isAbsolute, join, relative } from 'node:path'
+import { homedir } from 'node:os'
+import { extname, isAbsolute, join, relative } from 'node:path'
+import { extractText } from 'unpdf'
+import { WORK_DIR } from '../bridge/workspace.mjs'
 
 const MAX_BYTES = 512_000
 const DOCUMENT = /\.(md|txt|json|csv|html|xml|ya?ml|log)$/i
+const REFERENCE_DOCUMENT = /\.(md|txt|json|csv|html|xml|ya?ml|log|pdf)$/i
 const FOLDERS = ['reports', 'artifacts']
 const inside = (root, path) => {
   const suffix = relative(root, path)
@@ -63,4 +67,48 @@ export async function taskReports(task, file = null) {
   }
   result.files.sort((left, right) => left === 'reports/latest.md' ? -1 : right === 'reports/latest.md' ? 1 : left.localeCompare(right))
   return result
+}
+
+export function taskReferences(task) {
+  const refs = [...(task.result?.references ?? []), ...(task.failure?.references ?? [])]
+  const seen = new Set()
+  return refs.filter((reference) => {
+    if (!reference || typeof reference.title !== 'string' || (typeof reference.url !== 'string' && typeof reference.path !== 'string')) return false
+    const key = reference.url ?? reference.path
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  }).slice(0, 20)
+}
+
+export async function readTaskReference(task, index, { roots = [WORK_DIR, join(homedir(), 'Projects'), ...(process.env.JARVIS_PROJECT_ROOTS ?? '').split(',').map((root) => root.trim()).filter(Boolean)] } = {}) {
+  const reference = taskReferences(task)[index]
+  if (!Number.isInteger(index) || index < 0 || !reference?.path) throw new Error('This document reference is unavailable.')
+  if (!task.workspace?.path) throw new Error('This task has no approved workspace.')
+  if (reference.path.includes('\0') || !REFERENCE_DOCUMENT.test(reference.path)) throw new Error('Unsupported document type.')
+  const workspace = await realpath(task.workspace.path)
+  const asked = isAbsolute(reference.path) ? reference.path : join(workspace, reference.path)
+  const path = await realpath(asked)
+  const permitted = [workspace, ...roots]
+  let allowed = false
+  for (const rawRoot of permitted) {
+    try {
+      if (inside(await realpath(rawRoot), path)) { allowed = true; break }
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error
+    }
+  }
+  if (!allowed) throw new Error('This document is outside the task workspace and approved project roots.')
+  const handle = await open(path, 'r')
+  try {
+    const info = await handle.stat()
+    if (!info.isFile() || info.size > MAX_BYTES) throw new Error('Document exceeds the 512 KB preview limit or is not a regular file.')
+    const data = await handle.readFile()
+    const extracted = extname(path).toLowerCase() === '.pdf'
+      ? (await extractText(data, { mergePages: true })).text
+      : data.toString('utf8')
+    if (Buffer.byteLength(extracted, 'utf8') > MAX_BYTES) throw new Error('Document preview exceeds the 512 KB text limit.')
+    const content = extracted
+    return { file: reference.title, content }
+  } finally { await handle.close() }
 }

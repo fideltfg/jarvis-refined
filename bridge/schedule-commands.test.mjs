@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { handleScheduleRequest } from './schedule-commands.mjs'
+import { handleProfileRequest } from './profile-commands.mjs'
 
 test('schedule commands are validated, allowlisted and acknowledged', async () => {
   const replies = []
@@ -25,4 +26,27 @@ test('disabled and offline services return errors instead of successful replies'
   assert.match(replies[0].error, /disabled/)
   await handleScheduleRequest(message, { schedules: async () => { throw new Error('Service offline') } }, (reply) => replies.push(reply))
   assert.match(replies[1].error, /offline/)
+})
+
+test('profile commands validate IDs and route CRUD and run requests', async () => {
+  const calls = []
+  const replies = []
+  const api = {
+    profiles: async () => [{ id: 'p_1' }],
+    createProfile: async (profile) => { calls.push(['create', profile]); return { id: 'p_2', ...profile } },
+    updateProfile: async (id, changes) => { calls.push(['update', id, changes]); return { id, ...changes } },
+    deleteProfile: async (id) => { calls.push(['delete', id]); return { id, deleted: true } },
+    runProfile: async (id) => { calls.push(['run', id]); return { id: 'g_1', profileId: id } },
+  }
+  const send = (reply) => replies.push(reply)
+  await handleProfileRequest({ type: 'profile_request', requestId: 'list', action: 'list' }, api, send)
+  await handleProfileRequest({ type: 'profile_request', requestId: 'create', action: 'create', profile: { name: 'Research', role: 'Analyst', instructions: 'Use public sources.' } }, api, send)
+  await handleProfileRequest({ type: 'profile_request', requestId: 'bad', action: 'run', profileId: '../bad' }, api, send)
+  await handleProfileRequest({ type: 'profile_request', requestId: 'offline', action: 'delete', profileId: 'p_1' }, null, send)
+  assert.deepEqual(replies.map((reply) => reply.requestId), ['list', 'create', 'bad', 'offline'])
+  assert.deepEqual(replies[0].result, [{ id: 'p_1' }])
+  assert.equal(replies[2].error != null, true)
+  assert.match(replies[3].error, /disabled/)
+  assert.deepEqual(calls, [['create', { name: 'Research', role: 'Analyst', instructions: 'Use public sources.' }]])
+  assert.equal(await handleProfileRequest({ type: 'ask' }, api, send), false)
 })

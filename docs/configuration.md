@@ -163,7 +163,7 @@ temporarily avoided. See [Remote agent deployment](remote-agent.md).
 | `JARVIS_AGENTS_TLS_CA` | unset | CA bundle enabling mutual TLS. Current remote dispatch cannot present a client certificate, so do not set it on a receiving remote worker. |
 | `JARVIS_AGENTS_DIR` | `~/.config/jarvis/agents` | Persistent goal, task, approval, and event state. |
 | `JARVIS_WORK_DIR` | `~/.jarvis-work` | Shared generated-output root: `sessions/<conversation-id>` and `goals/<goal-id>/tasks/<task-id>`, each with reports, artifacts, logs and tmp folders. Set identically in bridge and agent service. Existing task paths are preserved. |
-| `JARVIS_PROJECT_ROOTS` | unset | Additional comma-separated project roots where foreground file tools may edit project files. `~/Projects` and `JARVIS_WORK_DIR` are always writable roots when writes are enabled. Does not restrict shell or external MCP access. |
+| `JARVIS_PROJECT_ROOTS` | unset | Additional comma-separated roots outside the home directory where chat file tools may edit. The home directory and `JARVIS_WORK_DIR` are writable when writes are enabled. Does not restrict shell or external MCP access. |
 | `JARVIS_AGENTS_SONNET` | `claude-sonnet-5` | Default worker model alias. |
 | `JARVIS_AGENTS_OPUS` | `claude-opus-5` | Higher-reasoning worker model alias. |
 | `JARVIS_MAX_WORKERS` | endpoint capacity, minimum `3` | Process-wide worker ceiling. Non-numeric or zero values use the calculated default. |

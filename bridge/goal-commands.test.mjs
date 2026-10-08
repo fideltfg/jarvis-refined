@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { handleGoalRequest, handleReportRequest } from './goal-commands.mjs'
+import { handleDecisionRequest, handleGoalControlRequest, handleGoalDecisionRequest, handleGoalRequest, handleReportRequest } from './goal-commands.mjs'
 
 test('report recall reads history and task files with correlated errors and no mutations', async () => {
   const replies = []
@@ -8,6 +8,7 @@ test('report recall reads history and task files with correlated errors and no m
   const api = {
     board: async (options) => { calls.push(options); return { goals: [] } },
     taskReports: async (id, file) => { calls.push({ id, file }); return { file, content: 'Saved report' } },
+    taskReference: async (id, index) => { calls.push({ id, index }); return { file: 'Reference', content: 'Saved document' } },
   }
   const send = (reply) => replies.push(reply)
   await handleReportRequest({ type: 'report_request', requestId: 'history', action: 'history' }, api, send)
@@ -15,6 +16,8 @@ test('report recall reads history and task files with correlated errors and no m
   assert.deepEqual(replies[0], { type: 'report_reply', requestId: 'history', result: { goals: [] } })
   await handleReportRequest({ type: 'report_request', requestId: 'file', action: 'task', taskId: 't_123', file: 'latest.md' }, api, send)
   assert.deepEqual(calls[1], { id: 't_123', file: 'latest.md' })
+  await handleReportRequest({ type: 'report_request', requestId: 'reference', action: 'reference', taskId: 't_123', index: 0 }, api, send)
+  assert.deepEqual(calls[2], { id: 't_123', index: 0 })
   for (const message of [
     { action: 'unknown' }, { action: 'task', taskId: '../../private' }, { action: 'task', taskId: 't_123', file: '' },
   ]) {
@@ -23,7 +26,73 @@ test('report recall reads history and task files with correlated errors and no m
   }
   await handleReportRequest({ type: 'report_request', requestId: 'offline', action: 'history' }, null, send)
   assert.match(replies.at(-1).error, /disabled/)
-  assert.equal(calls.length, 2)
+  assert.equal(calls.length, 3)
+})
+
+test('decision answers must match every option on a currently blocked task', async () => {
+  const replies = []
+  const calls = []
+  const goal = { id: 'g_123', status: 'paused', tasks: [{
+    id: 't_123', title: 'Choose deployment region', status: 'blocked',
+    failure: { blocker: 'decision', questions: [{ id: 'region', prompt: 'Which region?', options: [{ id: 'west', label: 'West' }, { id: 'east', label: 'East', detail: 'Closer to users' }] }] },
+  }] }
+  const api = {
+    board: async () => ({ goals: [goal] }),
+    updateGoal: async (id, change) => { calls.push({ id, change }); return { id, status: 'active' } },
+  }
+  const message = { type: 'decision_request', requestId: 'answer', goalId: 'g_123', taskId: 't_123', answers: { region: 'east' }, note: 'Keep rollback risk minimal.' }
+  await handleDecisionRequest(message, api, (reply) => replies.push(reply))
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].change.action, 'resume')
+  assert.match(calls[0].change.info, /Which region\?: East \(Closer to users\)/)
+  assert.ok(calls[0].change.info.includes('\n- Which region?: East'))
+  assert.match(calls[0].change.info, /Additional note: Keep rollback risk minimal\./)
+  assert.deepEqual(replies[0], { type: 'decision_reply', requestId: 'answer', result: { id: 'g_123', status: 'active' } })
+  await handleDecisionRequest({ ...message, answers: { region: 'other' } }, api, (reply) => replies.push(reply))
+  assert.match(replies.at(-1).error, /option is no longer available/)
+  await handleDecisionRequest(message, { ...api, board: async () => ({ goals: [{ ...goal, tasks: [{ ...goal.tasks[0], status: 'done' }] }] }) }, (reply) => replies.push(reply))
+  assert.match(replies.at(-1).error, /no longer waiting/)
+  assert.equal(await handleDecisionRequest({ type: 'ask' }, api, () => {}), false)
+})
+
+test('goal controls pause, resume and abandon only live goals', async () => {
+  const replies = []
+  const calls = []
+  let status = 'active'
+  const api = {
+    board: async () => ({ goals: [{ id: 'g_123', status }] }),
+    updateGoal: async (id, change) => { calls.push({ id, change }); status = change.action === 'pause' ? 'paused' : change.action === 'resume' ? 'active' : 'abandoned'; return { id, status } },
+  }
+  const send = (reply) => replies.push(reply)
+  await handleGoalControlRequest({ type: 'goal_control_request', requestId: 'pause', goalId: 'g_123', action: 'pause' }, api, send)
+  await handleGoalControlRequest({ type: 'goal_control_request', requestId: 'resume', goalId: 'g_123', action: 'resume' }, api, send)
+  await handleGoalControlRequest({ type: 'goal_control_request', requestId: 'stop', goalId: 'g_123', action: 'abandon' }, api, send)
+  assert.deepEqual(calls.map((call) => call.change.action), ['pause', 'resume', 'abandon'])
+  assert.equal(replies.at(-1).result.status, 'abandoned')
+  await handleGoalControlRequest({ type: 'goal_control_request', requestId: 'stale', goalId: 'g_123', action: 'resume' }, api, send)
+  assert.match(replies.at(-1).error, /can no longer be changed/)
+  assert.equal(await handleGoalControlRequest({ type: 'ask' }, api, send), false)
+})
+
+test('goal-level approval presents an approve/deny decision without running rejected work', async () => {
+  const calls = []
+  const replies = []
+  const api = {
+    board: async () => ({ goals: [{ id: 'g_123', title: 'Release readiness', status: 'paused', awaitingResponse: true }] }),
+    updateGoal: async (id, change) => { calls.push({ id, change }); return { id, status: change.action === 'resume' ? 'active' : 'paused' } },
+  }
+  const send = (reply) => replies.push(reply)
+  await handleGoalDecisionRequest({ type: 'goal_decision_request', requestId: 'approve', goalId: 'g_123', decision: 'approve', note: 'Proceed with docs only.' }, api, send)
+  assert.equal(calls[0].change.action, 'resume')
+  assert.match(calls[0].change.info, /approved the proposed plan/)
+  assert.match(calls[0].change.info, /\n\nUser note: Proceed with docs only\./)
+  await handleGoalDecisionRequest({ type: 'goal_decision_request', requestId: 'deny', goalId: 'g_123', decision: 'not_approve' }, api, send)
+  assert.equal(calls[1].change.action, undefined)
+  assert.match(calls[1].change.info, /did not approve/)
+  assert.match(calls[1].change.info, /keep this goal paused/)
+  assert.deepEqual(replies.map((reply) => reply.type), ['goal_decision_reply', 'goal_decision_reply'])
+  await handleGoalDecisionRequest({ type: 'goal_decision_request', requestId: 'stale', goalId: 'g_123', decision: 'approve' }, { ...api, board: async () => ({ goals: [{ id: 'g_123', status: 'done' }] }) }, send)
+  assert.match(replies.at(-1).error, /no longer waiting/)
 })
 
 test('attention reply identifies the goal and combines information with resume', async () => {

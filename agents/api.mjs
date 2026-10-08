@@ -3,7 +3,9 @@ import https from 'node:https'
 import { isLoopback, TRAVELLING_KINDS } from '../bridge/endpoints.mjs'
 import { boardOf, briefing } from './briefing.mjs'
 import { BUDGETS } from './config.mjs'
-import { taskReports } from './reports.mjs'
+import { profileChanges, profileInput, profileOutcome } from './profiles.mjs'
+import { scheduleInput } from './schedules.mjs'
+import { readTaskReference, taskReports } from './reports.mjs'
 
 /**
  * The agent service's only door: HTTP with a bearer token, plus an SSE stream
@@ -159,6 +161,93 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
     return { id: saved.id, goalId: goal.id }
   }
 
+  const scheduleForProfile = (profile, schedule) => ({
+    title: profile.name,
+    outcome: `Use the latest instructions from agent profile ${profile.id}.`,
+    profileId: profile.id,
+    trigger: schedule.trigger,
+    priority: schedule.priority,
+    ...(schedule.execution && { execution: schedule.execution }),
+  })
+
+  function createProfile(body) {
+    const input = profileInput.parse(body)
+    if (input.schedule) scheduleInput(scheduleForProfile({ ...input, id: 'p_validation' }, input.schedule), new Date())
+    let profile = store.newProfile({ ...input, schedule: input.schedule ?? null })
+    try {
+      if (profile.schedule) {
+        const schedule = scheduler.schedules.create(scheduleForProfile(profile, profile.schedule))
+        profile = store.saveProfile({ ...profile, scheduleId: schedule.id })
+      }
+    } catch (err) {
+      store.deleteProfile(profile.id)
+      throw err
+    }
+    store.appendEvent({ type: 'profile_created', text: `Agent profile created: ${profile.name}`, data: { profileId: profile.id, title: profile.name } })
+    return profile
+  }
+
+  function updateProfile(id, body) {
+    const current = store.getProfile(id)
+    if (!current) throw new NotFound('Agent profile not found.')
+    const changes = profileChanges.parse(body)
+    const next = { ...current, ...changes, schedule: Object.hasOwn(changes, 'schedule') ? changes.schedule : current.schedule }
+    const profileFieldsChanged = ['name', 'role', 'instructions'].some((key) => Object.hasOwn(changes, key))
+    const scheduleChanged = Object.hasOwn(changes, 'schedule') && JSON.stringify(next.schedule) !== JSON.stringify(current.schedule)
+    if (next.schedule) scheduleInput(scheduleForProfile(next, next.schedule), new Date())
+    let scheduleId = current.scheduleId ?? null
+    if (current.scheduleId && !next.schedule) {
+      const schedule = store.getSchedule(current.scheduleId)
+      if (schedule && schedule.status !== 'deleted') scheduler.schedules.update(schedule.id, { action: 'delete' })
+      scheduleId = null
+    } else if (next.schedule && scheduleId) {
+      const schedule = store.getSchedule(scheduleId)
+      if (!schedule || schedule.status === 'deleted') scheduleId = null
+      else if (profileFieldsChanged || scheduleChanged) {
+        const { profileId: linkedProfileId, ...values } = scheduleForProfile(next, next.schedule)
+        void linkedProfileId
+        if (!scheduleChanged) delete values.trigger
+        scheduler.schedules.update(scheduleId, { action: 'edit', values })
+      }
+    }
+    if (next.schedule && !scheduleId) {
+      const schedule = scheduler.schedules.create(scheduleForProfile(next, next.schedule))
+      scheduleId = schedule.id
+    }
+    const saved = store.saveProfile({ ...next, scheduleId })
+    store.appendEvent({ type: 'profile_changed', text: `Agent profile updated: ${saved.name}`, data: { profileId: saved.id, title: saved.name } })
+    return saved
+  }
+
+  function deleteProfile(id) {
+    const profile = store.getProfile(id)
+    if (!profile) throw new NotFound('Agent profile not found.')
+    if (profile.scheduleId) {
+      const schedule = store.getSchedule(profile.scheduleId)
+      if (schedule && schedule.status !== 'deleted') scheduler.schedules.update(schedule.id, { action: 'delete' })
+    }
+    store.deleteProfile(id)
+    store.appendEvent({ type: 'profile_deleted', text: `Agent profile deleted: ${profile.name}`, data: { profileId: id, title: profile.name } })
+    return { id, deleted: true }
+  }
+
+  function runProfile(id) {
+    const profile = store.getProfile(id)
+    if (!profile) throw new NotFound('Agent profile not found.')
+    const goal = store.newGoal({
+      title: profile.name,
+      outcome: profileOutcome(profile),
+      priority: profile.schedule?.priority ?? 3,
+      execution: profile.schedule?.execution,
+      profileId: profile.id,
+      profileSnapshot: { id: profile.id, name: profile.name, role: profile.role, instructions: profile.instructions, version: profile.updated },
+    })
+    store.appendEvent({ type: 'goal_created', goalId: goal.id, text: `New goal from agent profile: ${goal.title}`, data: { title: goal.title, profileId: profile.id } })
+    mirror.goalCreated?.(goal)
+    coordinator.plan(goal.id).catch(warn)
+    return goal
+  }
+
   /** How a delegated task is watched from the host that sent it. */
   function taskState(id, since) {
     const task = store.getTask(id)
@@ -216,6 +305,15 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
           return send(200, { text: briefing(store, url.searchParams.get('goal') || undefined) })
         case 'GET /schedules':
           return send(200, store.listSchedules().filter((schedule) => schedule.status !== 'deleted'))
+        case 'GET /profiles':
+          return send(200, store.listProfiles())
+        case 'POST /profiles':
+          return send(201, createProfile(body))
+        case 'POST /profiles/:id':
+          if (body.action === 'delete') return send(200, deleteProfile(id))
+          return send(200, updateProfile(id, body))
+        case 'POST /profiles/:id/run':
+          return send(201, runProfile(id))
         case 'POST /schedules':
           return send(201, scheduler.schedules.create(body))
         case 'POST /schedules/:id':
@@ -248,6 +346,13 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
           const task = store.getTask(id)
           if (!task) throw new NotFound(`No task ${id}.`)
           return send(200, await taskReports(task, url.searchParams.get('file')))
+        }
+        case 'GET /tasks/:id/reference': {
+          const task = store.getTask(id)
+          if (!task) throw new NotFound(`No task ${id}.`)
+          const asked = url.searchParams.get('index') ?? ''
+          if (!/^(0|[1-9]\\d{0,2})$/.test(asked)) throw new Error('Invalid document reference.')
+          return send(200, await readTaskReference(task, Number(asked)))
         }
         case 'POST /tasks/:id/cancel':
           if (!scheduler.cancel(id)) throw new NotFound(`No cancellable task ${id}.`)

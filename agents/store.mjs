@@ -1,5 +1,5 @@
 import {
-  appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync,
+  appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync,
 } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
@@ -54,6 +54,7 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
     tasks: join(root, 'tasks'),
     approvals: join(root, 'approvals'),
     schedules: join(root, 'schedules'),
+    profiles: join(root, 'profiles'),
   }
   for (const dir of Object.values(dirs)) mkdirSync(dir, { recursive: true })
   const eventsFile = join(root, 'events.jsonl')
@@ -93,6 +94,30 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
     listSchedules: () => list('schedules'),
     getSchedule: (id) => get('schedules', id),
     saveSchedule: (schedule) => save('schedules', schedule),
+    listProfiles: () => list('profiles'),
+    getProfile: (id) => get('profiles', id),
+    saveProfile: (profile) => save('profiles', profile),
+    deleteProfile(id) {
+      const path = join(dirs.profiles, `${id}.json`)
+      if (!existsSync(path)) return false
+      unlinkSync(path)
+      return true
+    },
+    newProfile({ name, role, instructions, id = newId('p'), schedule = null, scheduleId = null }) {
+      if (!String(name ?? '').trim() || !String(role ?? '').trim() || !String(instructions ?? '').trim()) {
+        throw new Error('An agent profile needs a name, role and instructions.')
+      }
+      if (!/^p_[a-z0-9]+$/.test(id) || get('profiles', id)) throw new Error('Invalid or existing agent profile id.')
+      return save('profiles', {
+        id,
+        name: String(name).trim(),
+        role: String(role).trim(),
+        instructions: String(instructions).trim(),
+        schedule,
+        scheduleId,
+        created: stamp(),
+      })
+    },
     newSchedule(input) {
       return save('schedules', {
         ...scheduleInput(input, now()), id: newId('s'), status: 'active',
@@ -100,7 +125,7 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
       })
     },
 
-    newGoal({ title, outcome, priority = 3, recurring = null, taskCap = DEFAULT_TASK_CAP, id = newId('g'), scheduleId, occurrenceKey, execution }) {
+    newGoal({ title, outcome, priority = 3, recurring = null, taskCap = DEFAULT_TASK_CAP, id = newId('g'), scheduleId, occurrenceKey, execution, profileId, profileSnapshot }) {
       if (!title || !outcome) throw new Error('A goal needs a title and an outcome.')
       if (!/^g_[a-z0-9]+$/.test(id) || get('goals', id)) throw new Error('Invalid or existing goal id.')
       if (recurring?.every) parseEvery(recurring.every)
@@ -108,6 +133,7 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
         id,
         ...(scheduleId ? { scheduleId, occurrenceKey } : {}),
         ...(execution ? { execution: { ...execution } } : {}),
+        ...(profileId ? { profileId, profileSnapshot: { ...profileSnapshot } } : {}),
         title: String(title),
         outcome: String(outcome),
         status: 'active',

@@ -1,6 +1,6 @@
 # Audio credits
 
-All three tracks are by **Kevin MacLeod** (incompetech.com), licensed
+These tracks are by **Kevin MacLeod** (incompetech.com), licensed
 **Creative Commons Attribution 4.0**. Free to use commercially — including in a
 monetised YouTube video — provided the attribution below appears somewhere the
 audience can see it (a description box is fine).
@@ -8,18 +8,25 @@ audience can see it (a description box is fine).
 | File | Track | Used for |
 |---|---|---|
 | `boot-music.mp3` | *Impact Prelude* | The swell when the reactor comes up |
-| `ambient.mp3` | *Ossuary 6 – Air* | Low bed looping under the interface |
 | `work.mp3` | *Mechanolith* | Rises while a tool is running |
+
+`ambient.mp3` (the low bed looping under the interface, *Ossuary 6 – Air* by the
+same artist and licence) is not currently bundled in this folder; this theme's
+`sound.music` is on, so until that file is added, the music-bed loop stays
+silent instead of falling back to the synthesised room tone. Add it here, named
+`ambient.mp3`, to enable it; see [Audio](../../../../docs/themes.md#audio).
 
 ## Attribution to paste into a video description
 
 ```
 Music by Kevin MacLeod (incompetech.com)
   "Impact Prelude"    — Licensed under Creative Commons: By Attribution 4.0
-  "Ossuary 6 - Air"   — Licensed under Creative Commons: By Attribution 4.0
   "Mechanolith"       — Licensed under Creative Commons: By Attribution 4.0
 http://creativecommons.org/licenses/by/4.0/
 ```
+
+Add the "Ossuary 6 - Air" line back to the attribution block above if you add
+`ambient.mp3`.
 
 ## Why not the actual Iron Man score
 

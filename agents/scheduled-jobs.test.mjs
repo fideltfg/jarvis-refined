@@ -141,3 +141,25 @@ test('execution choices reach goals and every task and edits affect future runs 
   assert.equal(edited.execution.provider, 'claude')
   assert.deepEqual(h.store.getGoal(goal.id).execution, execution)
 })
+
+test('a reserved profile occurrence recovers from its snapshot if the profile is removed', async () => {
+  const h = harness()
+  const profile = h.store.newProfile({ name: 'Research', role: 'Analyst', instructions: 'Use the latest public sources.' })
+  const schedule = h.jobs.create({
+    title: profile.name,
+    outcome: 'Use the latest instructions from the linked profile.',
+    profileId: profile.id,
+    trigger: { type: 'interval', minutes: 30 },
+  })
+  h.store.saveSchedule({ ...schedule, pendingOccurrence: {
+    key: 'reserved-profile-run', goalId: newId('g'), startedAt: schedule.nextRunAt,
+    profileSnapshot: { id: profile.id, name: profile.name, role: profile.role, instructions: profile.instructions, version: profile.updated },
+  } })
+  h.store.deleteProfile(profile.id)
+  const recovered = createScheduledJobs(h.dependencies)
+  recovered.tick()
+  await recovered.idle()
+  const goal = h.store.listGoals()[0]
+  assert.equal(goal.title, 'Research')
+  assert.equal(goal.profileSnapshot.instructions, 'Use the latest public sources.')
+})

@@ -26,7 +26,7 @@
   flex-direction: column;
   gap: 14px;
   width: -webkit-fill-available;
-  padding: 10px 2%;
+  padding: 10px 8px;
   overflow-x: hidden;
   overflow-y: auto;
   pointer-events: auto;
@@ -902,6 +902,40 @@
   background: var(--dark-gray);
   color: var(--lc-tan);
   scrollbar-color: var(--lc-window-edge) #000;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+[data-theme='lcars'] .agent-board .ab-workspace {
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 0;
+}
+[data-theme='lcars'] .agent-board .ab-roster {
+  color: var(--lc-tan);
+  border-color: var(--lc-window-edge);
+}
+[data-theme='lcars'] .agent-board .ab-detail {
+  color: var(--lc-tan);
+  padding-left: 8px;
+}
+
+[data-theme='lcars'] .agent-board .ab-roster-row,
+[data-theme='lcars'] .agent-board .ab-roster-name,
+[data-theme='lcars'] .agent-board .ab-roster-sub {
+  min-width: 0;
+}
+
+@container agent-board (max-width: 700px) {
+  [data-theme='lcars'] .agent-board .ab-workspace {
+    height: min(64vh, 640px);
+    min-height: 320px;
+  }
+  [data-theme='lcars'] .agent-board .ab-roster {
+    max-height: none;
+    min-height: 0;
+  }
 }
 
 [data-theme='lcars'] .command-palette-inline {
@@ -3138,6 +3172,7 @@
   border-radius: 0;
   background: #000;
   scrollbar-color: var(--lc-window-edge) #000;
+  padding-left: 8px;
 }
 
 [data-theme='lcars'] .lcars-loose-window {
@@ -3329,4 +3364,15 @@
 [data-theme='lcars'] :is(button, select):is([data-function-error='true'], [aria-invalid='true']) {
   --lc-button-color: var(--lc-button-error);
   --lc-button-text: #fff;
+}
+
+[data-theme='lcars'] .agent-board .ab-roster-row {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  height: 40px;
+  padding: 4px 10px 4px 12px;
+  line-height: 1.2;
 }
