@@ -231,7 +231,7 @@ across restarts. There is no claim of unattended operation before Windows sign-i
 
 **Provider and integration onboarding is not yet automated.** The Configure
 Jarvis shortcut opens the dedicated Linux user's shell. Set provider keys and
-settings in `~/.config/jarvis/secrets.env` and `service.env`; do not put secrets
+settings in `~/.config/jarvis/secrets.env` and `config.toml`; do not put secrets
 in frontend build variables. For Claude, install the official Claude Code CLI
 as that Linux user, complete its login and configure MCP servers there:
 

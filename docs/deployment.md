@@ -108,8 +108,9 @@ What it does, in order:
 2. **Dependencies** — runs `npm ci` only when `node_modules` is missing or
    older than `package-lock.json`.
 3. **Token** — runs `scripts/agents-token.mjs`; an existing token is kept.
-4. **Service environment** — creates `~/.config/jarvis/service.env` if missing
-   and ensures `JARVIS_AGENTS=1` so the bridge uses the agent service.
+4. **Settings** — creates `~/.config/jarvis/config.toml` if missing (migrating
+   any existing `service.env` into it) and ensures `agents = true` so the
+   bridge uses the agent service.
 5. **Units** — writes `jarvis-agents.service` and `jarvis.service` to
    `~/.config/systemd/user/`, verifies them, then enables and restarts both.
 6. **Health checks** — waits for the agent API, the bridge `/health` endpoint
@@ -126,7 +127,7 @@ the services are restarted to pick up new code and mode. The installer accepts
 |---|---|
 | `~/.config/systemd/user/jarvis.service` | Bridge + face (`scripts/start.mjs`). Starts after the agent service. |
 | `~/.config/systemd/user/jarvis-agents.service` | Background-agent service (`agents/service.mjs`). |
-| `~/.config/jarvis/service.env` | Host settings for both units: `JARVIS_HOST`, `JARVIS_TLS_CERT`/`KEY`, `JARVIS_ALLOWED_ORIGINS`, ports, `JARVIS_AGENTS`. |
+| `~/.config/jarvis/config.toml` | Non-secret settings for both units: `[bridge]` host, TLS, allowed origins, ports, `agents`, and `[frontend]` browser settings. |
 | `~/.config/jarvis/secrets.env` | Tokens and keys (unchanged location). |
 | `~/.config/jarvis/backups/<timestamp>-<pid>/` | Copies of any file a run replaced. |
 
@@ -137,11 +138,13 @@ Changes from the earlier hand-installed units:
   `deploy/jarvis-agents.service` remains only as a reference.
 - Host-specific `Environment=` lines no longer belong in the unit files. On
   first run, settings from a hand-written `jarvis.service` are migrated into
-  `service.env`. Edit `service.env` and re-run the installer (or
+  `config.toml`. Edit `config.toml` and re-run the installer (or
   `systemctl --user restart jarvis jarvis-agents`) to change them; manual edits
   to the unit files are replaced on the next run.
-- Both units load `secrets.env` first and `service.env` second, so a value in
-  `service.env` wins.
+- Both processes read `secrets.env` and then `config.toml` themselves. A
+  leftover `service.env` is still loaded by the units and wins over
+  `config.toml`; the installer renames it to `service.env.migrated` when it
+  creates `config.toml`.
 
 ### Failure and rollback
 

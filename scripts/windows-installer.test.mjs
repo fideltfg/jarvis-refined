@@ -38,16 +38,16 @@ test('WSL provisioning repairs root-owned config parents without changing existi
 }, () => {
   const source = readFileSync('deploy/windows/provision.sh', 'utf8')
   const start = source.indexOf('    CONF_DIR="/home/$OWNER/.config/jarvis"')
-  const end = source.indexOf('    if [[ ! -f $CONF_DIR/service.env ]]; then', start)
+  const end = source.indexOf('    if [[ ! -f $CONF_DIR/config.toml && ! -f $CONF_DIR/service.env ]]; then', start)
   assert.ok(start >= 0 && end > start)
   const command = `set -Eeuo pipefail
     umask 077
     useradd --create-home --shell /bin/bash jarvis
     OWNER=jarvis
     install -d -m 700 -o jarvis -g jarvis /home/jarvis/.config/jarvis
-    touch /home/jarvis/.config/jarvis/service.env
-    chown jarvis:jarvis /home/jarvis/.config/jarvis/service.env
-    chmod 600 /home/jarvis/.config/jarvis/service.env
+    touch /home/jarvis/.config/jarvis/config.toml
+    chown jarvis:jarvis /home/jarvis/.config/jarvis/config.toml
+    chmod 600 /home/jarvis/.config/jarvis/config.toml
     test "$(stat -c %U /home/jarvis/.config)" = root
     if runuser -u jarvis -- mkdir /home/jarvis/.config/systemd; then exit 1; fi
     ${source.slice(start, end)}
@@ -57,7 +57,7 @@ test('WSL provisioning repairs root-owned config parents without changing existi
       test "$(stat -c %U:%G "$directory")" = jarvis:jarvis
       test "$(stat -c %a "$directory")" = 700
     done
-    test "$(stat -c %U:%G:%a /home/jarvis/.config/jarvis/service.env)" = jarvis:jarvis:600
+    test "$(stat -c %U:%G:%a /home/jarvis/.config/jarvis/config.toml)" = jarvis:jarvis:600
     ${source.slice(start, end)}
     test -f /home/jarvis/.config/systemd/user/test.service
   `

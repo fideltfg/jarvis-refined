@@ -5,8 +5,8 @@
 #
 #   scripts/install.sh [--readonly] [--production]
 #
-# Host-specific settings (LAN host, TLS, origins, ports) live in
-# ~/.config/jarvis/service.env; secrets stay in ~/.config/jarvis/secrets.env.
+# Host-specific settings (LAN host, TLS, origins, ports) live in the [bridge] section of
+# ~/.config/jarvis/config.toml; secrets stay in ~/.config/jarvis/secrets.env.
 set -Eeuo pipefail
 umask 077
 
@@ -25,7 +25,8 @@ done
 
 REPO=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 CONF_DIR="$HOME/.config/jarvis"
-ENV_FILE="$CONF_DIR/service.env"
+CONFIG_FILE="${JARVIS_CONFIG_FILE:-$CONF_DIR/config.toml}"
+LEGACY_ENV="$CONF_DIR/service.env"
 UNIT_DIR="$HOME/.config/systemd/user"
 UNITS=(jarvis-agents.service jarvis.service)
 MARKER='# Managed by jarvis-refined/scripts/install.sh'
@@ -168,33 +169,58 @@ if ! grep -qs '^JARVIS_AGENTS_TOKEN=' "$CONF_DIR/secrets.env"; then backup_file 
 chmod 600 "$CONF_DIR/secrets.env"
 ok "JARVIS_AGENTS_TOKEN present in $CONF_DIR/secrets.env"
 
-step 'Service environment'
-if [[ ! -f $ENV_FILE ]]; then
-  backup_file "$ENV_FILE"
-  {
-    echo '# Host settings for jarvis.service / jarvis-agents.service (systemd EnvironmentFile syntax).'
-    echo '# For LAN access set JARVIS_HOST=0.0.0.0, JARVIS_TLS_CERT/KEY and JARVIS_ALLOWED_ORIGINS.'
+step 'Settings'
+if [[ ! -f $CONFIG_FILE ]]; then
+  backup_file "$CONFIG_FILE"
+  backup_file "$CONF_DIR/secrets.env"
+  : > "$WORK/legacy.env"
+  if [[ -f $LEGACY_ENV ]]; then
+    cat "$LEGACY_ENV" >> "$WORK/legacy.env"
+  elif [[ -f $UNIT_DIR/jarvis.service ]] && ! grep -qF "$MARKER" "$UNIT_DIR/jarvis.service"; then
     # Carry over settings from a hand-written jarvis.service so the migration loses nothing.
-    if [[ -f $UNIT_DIR/jarvis.service ]] && ! grep -qF "$MARKER" "$UNIT_DIR/jarvis.service"; then
-      grep -E '^Environment=' "$UNIT_DIR/jarvis.service" | sed -E 's/^Environment=//' \
-        | grep -vE '^"?(PATH|NO_COLOR)=' | sed -E "s/^\"(.*)\"\$/\1/; s#%h#$HOME#g" || true
-    fi
-  } > "$ENV_FILE"
-  ok "created $ENV_FILE"
+    { grep -E '^Environment=' "$UNIT_DIR/jarvis.service" | sed -E 's/^Environment=//' \
+      | grep -vE '^"?(PATH|NO_COLOR)=' | sed -E "s/^\"(.*)\"\$/\1/; s#%h#$HOME#g" || true; } >> "$WORK/legacy.env"
+  fi
+  if ! grep -qE '^JARVIS_AGENTS=' "$WORK/legacy.env"; then echo 'JARVIS_AGENTS=1' >> "$WORK/legacy.env"; fi
+  (cd "$REPO" && JARVIS_CONFIG_FILE="$CONFIG_FILE" "$NODE" scripts/migrate-config.mjs --env "$WORK/legacy.env") >/dev/null \
+    || die 'could not create config.toml.'
+  if [[ -f $LEGACY_ENV ]]; then
+    backup_file "$LEGACY_ENV"
+    mv "$LEGACY_ENV" "$LEGACY_ENV.migrated"
+    note "service.env migrated into $CONFIG_FILE (original kept as service.env.migrated)"
+  fi
+  ok "created $CONFIG_FILE"
+elif ! grep -qE '^[[:space:]]*agents[[:space:]]*=' "$CONFIG_FILE"; then
+  backup_file "$CONFIG_FILE"
+  if grep -qE '^\[bridge\]' "$CONFIG_FILE"; then
+    sed -i '/^\[bridge\]/a agents = true' "$CONFIG_FILE"
+  else
+    printf '\n[bridge]\nagents = true\n' >> "$CONFIG_FILE"
+  fi
 fi
-if ! grep -qE '^JARVIS_AGENTS=' "$ENV_FILE"; then
-  backup_file "$ENV_FILE"
-  if [[ -s $ENV_FILE && $(tail -c1 "$ENV_FILE") != '' ]]; then echo >> "$ENV_FILE"; fi
-  echo 'JARVIS_AGENTS=1' >> "$ENV_FILE"
+chmod 600 "$CONFIG_FILE"
+if [[ -f $LEGACY_ENV ]]; then
+  note "$LEGACY_ENV still exists and overrides config.toml; move its settings into config.toml (or secrets.env) and delete it."
 fi
-chmod 600 "$ENV_FILE"
-grep -qE '^JARVIS_AGENTS=1$' "$ENV_FILE" || note "JARVIS_AGENTS is not 1 in $ENV_FILE; the bridge will not use the agent service."
-ok "bridge -> agent service enabled via $ENV_FILE"
 
-env_value() { grep -E "^$1=" "$ENV_FILE" | tail -n1 | cut -d= -f2- | tr -d '"' || true; }
-BRIDGE_PORT=$(env_value JARVIS_BRIDGE_PORT); BRIDGE_PORT=${BRIDGE_PORT:-8787}
-AGENTS_PORT=$(env_value JARVIS_AGENTS_PORT); AGENTS_PORT=${AGENTS_PORT:-8788}
-FACE_PORT=$(env_value PORT); FACE_PORT=${FACE_PORT:-5173}
+cfg_value() {
+  [[ -f $CONFIG_FILE ]] || return 0
+  (cd "$REPO" && "$NODE" --input-type=module -e 'import { readFileSync } from "node:fs"; import { parse } from "smol-toml"; const v = parse(readFileSync(process.argv[1], "utf8")).bridge?.[process.argv[2]]; if (v !== undefined) console.log(v)' "$CONFIG_FILE" "$1") || true
+}
+# setting <toml key> <ENV NAME>: a leftover service.env wins, as it does under systemd.
+setting() {
+  local v
+  v=$(grep -E "^$2=" "$LEGACY_ENV" 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d '"' || true)
+  [[ -n $v ]] || v=$(cfg_value "$1")
+  printf '%s' "$v"
+}
+[[ $(setting agents JARVIS_AGENTS) =~ ^(true|1)$ ]] \
+  || note "agents is not enabled in $CONFIG_FILE; the bridge will not use the agent service."
+ok "bridge -> agent service enabled via $CONFIG_FILE"
+
+BRIDGE_PORT=$(setting bridge_port JARVIS_BRIDGE_PORT); BRIDGE_PORT=${BRIDGE_PORT:-8787}
+AGENTS_PORT=$(setting agents_port JARVIS_AGENTS_PORT); AGENTS_PORT=${AGENTS_PORT:-8788}
+FACE_PORT=$(setting face_port PORT); FACE_PORT=${FACE_PORT:-5173}
 
 # ---- unit files ----------------------------------------------------------------
 step 'systemd units'
@@ -309,10 +335,10 @@ for u in "${UNITS[@]}"; do
 done
 
 CHANGED=0
-SCHEME=http; [[ -n $(env_value JARVIS_TLS_CERT) ]] && SCHEME=https
+SCHEME=http; [[ -n $(setting tls_cert JARVIS_TLS_CERT) ]] && SCHEME=https
 printf '\n%sJARVIS is installed and running.%s\n' "$G" "$N"
 echo "  face:      $SCHEME://localhost:$FACE_PORT  (mode: ${MODE:---readonly})"
 echo "  services:  ${UNITS[*]} (enabled at boot)"
-echo "  config:    $ENV_FILE"
+echo "  config:    $CONFIG_FILE"
 echo "  logs:      journalctl --user -u jarvis -u jarvis-agents -f"
 if [[ -d $BACKUP_DIR ]]; then echo "  backups:   $BACKUP_DIR (files replaced by this run)"; fi

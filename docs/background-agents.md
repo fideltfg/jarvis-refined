@@ -29,8 +29,8 @@ JARVIS_AGENTS=1 npm start
 ```
 
 To run the agent service and the bridge under systemd and start them at boot,
-use `./scripts/install.sh`. It generates the token, sets `JARVIS_AGENTS=1` in
-`~/.config/jarvis/service.env`, and installs both units; see
+use `./scripts/install.sh`. It generates the token, sets `agents = true` in
+`~/.config/jarvis/config.toml`, and installs both units; see
 [Run as services at boot](deployment.md#run-as-services-at-boot-scriptsinstallsh).
 Configure the service port and state paths with the variables in the
 [Configuration reference](configuration.md).
@@ -269,8 +269,8 @@ support function tools. The OpenAI/local worker provides gated file read/write,
 exact text edits, public-page fetches, and (for code tasks) shell commands, plus
 the configured MCP integrations for ops/admin work. It has no native web-search
 tool or Claude Skills. Local calls are pinned to the leased endpoint.
-The bridge and agent service both load `.env.local`, followed by
-`~/.config/jarvis/secrets.env`, without overriding explicit service/shell
+The bridge and agent service both load `~/.config/jarvis/secrets.env`, then
+`~/.config/jarvis/config.toml`, without overriding explicit service/shell
 environment values. Restart both services after changing provider settings.
 
 Chat/voice uses `schedule_create`, `schedule_list`, `schedule_update` and

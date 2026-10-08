@@ -9,6 +9,22 @@ Security. When work is committed, move its entries under a dated heading.
 
 ## Unreleased
 
+### Added
+
+- One settings file, `~/.config/jarvis/config.toml`, holds every non-secret
+  setting in `[frontend]` (compiled into the browser) and `[bridge]` sections;
+  credentials stay in `~/.config/jarvis/secrets.env`. Credential-looking or
+  unknown keys in `config.toml` are ignored with a warning. `.env.local` still
+  loads as the lowest-priority fallback. Migrate with
+  `node scripts/migrate-config.mjs [--retire]`; see `config.example.toml`.
+  `scripts/install.sh` and the Windows provisioning now write `config.toml`
+  instead of `service.env` (an existing `service.env` is migrated), the
+  launchers load it, `.env.example` is now the secrets template, and the
+  direct-mode `model`, `fast_mode` and extra MCP servers
+  (`[[frontend.mcp_servers]]`) are configurable there.
+- The LCARS Loose ends list can manually close an entry and persist the change
+  to the local ledger.
+
 ### Changed
 
 - Agent tasks and chat sessions can no longer write generated files anywhere in

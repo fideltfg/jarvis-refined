@@ -83,10 +83,10 @@ case "$ACTION" in
     install -d -m 700 -o "$OWNER" -g "$OWNER" \
       "/home/$OWNER/.config" "$CONF_DIR" \
       "/home/$OWNER/.config/systemd" "/home/$OWNER/.config/systemd/user"
-    if [[ ! -f $CONF_DIR/service.env ]]; then
-      printf 'PORT=%s\nJARVIS_AGENTS=1\n' "$FACE_PORT" > "$CONF_DIR/service.env"
-      chown "$OWNER:$OWNER" "$CONF_DIR/service.env"
-      chmod 600 "$CONF_DIR/service.env"
+    if [[ ! -f $CONF_DIR/config.toml && ! -f $CONF_DIR/service.env ]]; then
+      printf '[bridge]\nface_port = %s\nagents = true\n' "$FACE_PORT" > "$CONF_DIR/config.toml"
+      chown "$OWNER:$OWNER" "$CONF_DIR/config.toml"
+      chmod 600 "$CONF_DIR/config.toml"
     fi
     for ATTEMPT in {1..30}; do
       [[ ! -S /run/user/$UID_NUMBER/bus ]] || break

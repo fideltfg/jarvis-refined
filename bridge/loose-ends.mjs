@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -49,7 +49,7 @@ function fields(rest) {
 export function parse(text) {
   const items = []
   let heading = null
-  for (const raw of String(text ?? '').split('\n')) {
+  for (const [lineNumber, raw] of String(text ?? '').split('\n').entries()) {
     const line = raw.trim()
     const head = line.match(/^##\s+(.*)$/)
     if (head) { heading = head[1].trim() || null; continue }
@@ -58,7 +58,7 @@ export function parse(text) {
     const status = STATUS[bullet[1] ?? ''] ?? 'open'
     const parsed = fields(bullet[2])
     if (!parsed) continue
-    items.push({ ...parsed, project: parsed.project || heading, status })
+    items.push({ line: lineNumber, ...parsed, project: parsed.project || heading, status })
   }
   return items
 }
@@ -77,4 +77,27 @@ export function load(file = LOOSE_ENDS_FILE) {
   }
   const items = parse(text)
   return { items, open: items.filter((item) => item.status !== 'done').length, missing: false }
+}
+
+/** Mark one unchanged ledger entry closed, refusing stale list snapshots. */
+export function close(file = LOOSE_ENDS_FILE, expected) {
+  if (!expected || !Number.isInteger(expected.line) || expected.line < 0) return null
+  let text
+  try {
+    text = readFileSync(file, 'utf8')
+  } catch (err) {
+    if (err.code === 'ENOENT') return null
+    throw err
+  }
+
+  const target = parse(text).find((item) => item.line === expected.line)
+  if (!target || ['date', 'project', 'action', 'state', 'status'].some((key) => target[key] !== expected[key])) return null
+  if (target.status === 'done') return load(file)
+
+  const lines = text.split('\n')
+  const bullet = lines[target.line].match(/^(\s*[-*]\s+)(?:\[(?: |~|x|X)?\]\s*)?(.*)$/)
+  if (!bullet) return null
+  lines[target.line] = `${bullet[1]}[x] ${bullet[2]}`
+  writeFileSync(file, lines.join('\n'), 'utf8')
+  return load(file)
 }

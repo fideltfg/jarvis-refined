@@ -27,7 +27,7 @@ import { visionServer } from './vision.mjs'
 import { SESSION_AGENT_TOOLS, createSessionAgents, parseTaskNotification } from './session-agents.mjs'
 import { historyServer, refreshSummaries, save as saveHistory } from './history.mjs'
 import { load as loadMemory, MEMORY_GUIDE, memoryServer, memorySnapshot, MEMORY_FILE } from './memory.mjs'
-import { load as loadLooseEnds, LOOSE_ENDS_FILE } from './loose-ends.mjs'
+import { close as closeLooseEnd, load as loadLooseEnds, LOOSE_ENDS_FILE } from './loose-ends.mjs'
 import { homedir, tmpdir } from 'node:os'
 import { createReadStream, readFileSync, realpathSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
@@ -794,6 +794,44 @@ const handleRequest = async (req, res) => {
     }
     res.writeHead(200, { ...cors, 'content-type': 'application/json', 'cache-control': 'no-store' })
     return res.end(JSON.stringify(payload))
+  }
+
+  if (req.method === 'POST' && req.url === '/memory/loose-ends/close') {
+    if (!origin && !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)) {
+      res.writeHead(403, cors)
+      return res.end('forbidden')
+    }
+    let body = ''
+    for await (const chunk of req) {
+      body += chunk
+      if (body.length > 8 * 1024) {
+        res.writeHead(413, cors)
+        return res.end('body too large')
+      }
+    }
+    let item
+    try {
+      ;({ item } = JSON.parse(body || '{}'))
+    } catch {
+      res.writeHead(400, cors)
+      return res.end('bad json')
+    }
+    if (!item || !Number.isInteger(item.line) || typeof item.action !== 'string') {
+      res.writeHead(400, cors)
+      return res.end('invalid item')
+    }
+    try {
+      const payload = closeLooseEnd(LOOSE_ENDS_FILE, item)
+      if (!payload) {
+        res.writeHead(409, { ...cors, 'content-type': 'application/json' })
+        return res.end(JSON.stringify({ error: 'The ledger entry changed. Refresh and try again.' }))
+      }
+      res.writeHead(200, { ...cors, 'content-type': 'application/json', 'cache-control': 'no-store' })
+      return res.end(JSON.stringify(payload))
+    } catch (err) {
+      res.writeHead(500, { ...cors, 'content-type': 'application/json' })
+      return res.end(JSON.stringify({ error: err.message }))
+    }
   }
 
   // Serve local image files to the page. Screenshots and generated art land on

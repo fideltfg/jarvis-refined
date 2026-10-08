@@ -11,9 +11,9 @@ For other topologies, continue with the [Deployment guide](deployment.md).
 - One model provider:
   - **Claude:** install Claude Code, run `claude`, and complete login. The bridge
     reuses that login; no separate Anthropic key is needed.
-  - **OpenAI:** set `OPENAI_API_KEY` in `.env.local` or in the bridge process.
-  - **Local:** run an OpenAI-compatible server and set `JARVIS_LOCAL_URL` plus
-    `JARVIS_LOCAL_MODEL`.
+  - **OpenAI:** set `OPENAI_API_KEY` in `~/.config/jarvis/secrets.env` or in the bridge process.
+  - **Local:** run an OpenAI-compatible server and set `local_url` plus
+    `local_model` in the `[bridge]` section of `~/.config/jarvis/config.toml`.
 
 Speech credentials are optional. Browser recognition and local Kokoro speech
 work without ElevenLabs or OpenAI transcription.
@@ -30,13 +30,16 @@ npm run setup
 The preflight is advisory and changes nothing. It checks Node, Claude Code,
 configured MCP servers, and optional ElevenLabs availability.
 
-Copy the example only when you need to change a setting:
+Settings live in two files. Copy the templates only when you need to change
+something:
 
 ```bash
-cp .env.example .env.local
+mkdir -p ~/.config/jarvis
+cp config.example.toml ~/.config/jarvis/config.toml        # non-secret settings
+cp .env.example ~/.config/jarvis/secrets.env && chmod 600 ~/.config/jarvis/secrets.env  # API keys
 ```
 
-Blank entries behave as unset. Add only the values you use, never commit real
+Add only the values you use, never commit real
 credentials, and consult the [Configuration reference](configuration.md) for
 defaults and security implications.
 

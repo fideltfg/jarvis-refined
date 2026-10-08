@@ -3202,19 +3202,23 @@
 [data-theme='lcars'] .lcars-loose-count { color: var(--lc-orange); font: 12px 'JetBrains Mono', monospace; white-space: nowrap; }
 [data-theme='lcars'] .lcars-loose-count[data-clear] { color: var(--lc-tan); }
 [data-theme='lcars'] .lcars-loose-list { flex: 1 1 0; min-height: 0; overflow-y: auto; margin: 0; padding: 0; list-style: none; scrollbar-color: var(--lc-window-edge) #000; }
-[data-theme='lcars'] .lcars-loose-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: start; gap: 10px; padding: 14px 12px; border-bottom: 1px solid var(--dark-gray); }
+[data-theme='lcars'] .lcars-loose-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto auto; align-items: start; gap: 10px; padding: 14px 12px; border-bottom: 1px solid var(--dark-gray); }
 [data-theme='lcars'] .lcars-loose-idx { color: var(--lc-violet); font: 11px 'JetBrains Mono', monospace; }
 [data-theme='lcars'] .lcars-loose-main { min-width: 0; overflow-wrap: anywhere; }
 [data-theme='lcars'] .lcars-loose-main strong { display: block; font-size: 13px; line-height: 1.4; }
 [data-theme='lcars'] .lcars-loose-main small { display: block; margin-top: 5px; color: var(--lc-peach); font-size: 11px; line-height: 1.5; }
 [data-theme='lcars'] .lcars-loose-meta { display: grid; gap: 5px; color: var(--lc-orange); text-align: right; font: 10px 'JetBrains Mono', monospace; white-space: nowrap; }
 [data-theme='lcars'] .lcars-loose-meta i { color: var(--lc-tan); font-style: normal; }
+[data-theme='lcars'] .lcars-loose-close { min-height: 30px; padding: 4px 8px; border: 1px solid var(--lc-orange); border-radius: 0; background: transparent; color: var(--lc-orange); font: 10px 'JetBrains Mono', monospace; cursor: pointer; }
+[data-theme='lcars'] .lcars-loose-close:hover:not(:disabled), [data-theme='lcars'] .lcars-loose-close:focus-visible { background: var(--lc-orange); color: #000; }
+[data-theme='lcars'] .lcars-loose-close:disabled { opacity: .55; cursor: wait; }
 [data-theme='lcars'] .lcars-loose-row[data-status='done'] .lcars-loose-main strong { text-decoration: line-through; }
 [data-theme='lcars'] .lcars-loose-row[data-status='done'] .lcars-loose-meta b { color: var(--lc-tan); }
 [data-theme='lcars'] .lcars-loose-empty { margin: 0; padding: 18px 12px; color: var(--lc-peach); font-size: 13px; line-height: 1.5; }
 @media (max-width: 900px) {
-  [data-theme='lcars'] .lcars-loose-row { grid-template-columns: 26px minmax(0, 1fr); }
+  [data-theme='lcars'] .lcars-loose-row { grid-template-columns: 26px minmax(0, 1fr) auto; }
   [data-theme='lcars'] .lcars-loose-meta { grid-column: 2; display: flex; flex-wrap: wrap; gap: 12px; text-align: left; }
+  [data-theme='lcars'] .lcars-loose-close { grid-column: 3; grid-row: 2; }
 }
 
 [data-theme='lcars'] .task-scheduler-inline {

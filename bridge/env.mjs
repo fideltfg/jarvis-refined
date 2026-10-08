@@ -1,6 +1,7 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { defaultConfigPath, loadSettingsFile } from './settings.mjs'
 
 export function loadEnvFile(path, { quiet = false, env = process.env, readFile = readFileSync } = {}) {
   try {
@@ -17,5 +18,13 @@ export function loadEnvFile(path, { quiet = false, env = process.env, readFile =
   }
 }
 
+// Earlier sources win: process env, then secrets, then config.toml, then the legacy project file.
+const secretsPath = join(homedir(), '.config', 'jarvis', 'secrets.env')
+try {
+  if (process.platform !== 'win32' && statSync(secretsPath).mode & 0o077) {
+    console.warn(`[jarvis] ${secretsPath} is readable by other users; run: chmod 600 ${secretsPath}`)
+  }
+} catch {}
+loadEnvFile(secretsPath)
+loadSettingsFile(defaultConfigPath())
 loadEnvFile('.env.local')
-loadEnvFile(join(homedir(), '.config', 'jarvis', 'secrets.env'))

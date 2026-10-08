@@ -702,7 +702,7 @@ export default function App() {
 
     if (!usingBridge && !env.anthropicKey) {
       s.setError(
-        'No Anthropic API key — copy .env.example to .env.local and set VITE_ANTHROPIC_API_KEY.',
+        'No Anthropic API key — set VITE_ANTHROPIC_API_KEY in ~/.config/jarvis/secrets.env.',
       )
     }
 

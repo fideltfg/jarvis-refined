@@ -45,7 +45,7 @@ before an action runs.
 - **One model provider:**
   - **Claude:** install Claude Code, run `claude`, and sign in once. The bridge
     reuses that login; no separate Anthropic key is needed.
-  - **OpenAI:** set `OPENAI_API_KEY` in `.env.local`.
+  - **OpenAI:** set `OPENAI_API_KEY` in `~/.config/jarvis/secrets.env`.
   - **Local:** run an OpenAI-compatible server and set `JARVIS_LOCAL_URL` and
     `JARVIS_LOCAL_MODEL`.
 - **Optional:** ElevenLabs or OpenAI keys for cloud speech and transcription,

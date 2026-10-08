@@ -47,7 +47,7 @@ Resulting layout, all inside `/home/jarvis`:
 ```text
 /home/jarvis/
   jarvis-refined/        code checkout (read-only at runtime, see below)
-  .config/jarvis/        secrets.env, service.env, agents/ state, backups/
+  .config/jarvis/        secrets.env, config.toml, agents/ state, backups/
   .jarvis-work/          disposable agent workspaces
   workspace/             the only place JARVIS should create or edit your files
 ```
