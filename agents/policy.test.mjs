@@ -27,7 +27,8 @@ test('deleting or moving outside the workspace needs approval', () => {
   assert.equal(decision(bash('mv report.md /etc/report.md')), 'approval')
   assert.equal(decision(bash('find /var/log -name "*.gz" -delete')), 'approval')
   assert.equal(bash('rm -rf /tmp/x').category, 'destruction')
-  assert.equal(decision(bash('printf data > ~/notes.txt')), 'allow')
+  assert.equal(decision(bash('printf data > ~/Projects/app/notes.txt')), 'allow')
+  assert.equal(decision(bash('printf data > ~/notes.txt')), 'approval')
   assert.equal(decision(bash('rm -rf ~/Documents')), 'approval')
 })
 
@@ -79,9 +80,11 @@ test('secret-shaped values never leave in a tool call', () => {
   assert.equal(decision(judge('mcp__gmail__send_email', { to: 'a@b.c', body: '-----BEGIN OPENSSH PRIVATE KEY-----' }, ctx())), 'deny')
 })
 
-test('home-folder edits are allowed while credentials and outside paths stay protected', () => {
+test('generated files stay in the work folder; only project folders may be edited elsewhere', () => {
   assert.equal(decision(judge('Write', { file_path: `${WS}/notes.md` }, ctx())), 'allow')
-  assert.equal(decision(judge('Write', { file_path: `${homedir()}/Documents/notes.md` }, ctx())), 'allow')
+  assert.equal(decision(judge('Write', { file_path: `${homedir()}/Projects/app/src/index.mjs` }, ctx())), 'allow')
+  assert.notEqual(decision(judge('Write', { file_path: `${homedir()}/Documents/notes.md` }, ctx({ exists: () => false }))), 'allow')
+  assert.equal(decision(judge('Write', { file_path: `${homedir()}/Documents/notes.md` }, ctx({ kind: 'research' }))), 'deny')
   assert.equal(decision(judge('Write', { file_path: `${homedir()}/.ssh/authorized_keys` }, ctx())), 'deny')
   assert.equal(decision(judge('Write', { file_path: '/home/x/.bashrc' }, ctx())), 'approval')
   assert.equal(decision(judge('Write', { file_path: '/tmp/new.txt' }, ctx({ exists: () => false }))), 'deny')
@@ -168,7 +171,7 @@ test('F4: everyday shell forms cannot hide a delete outside the workspace', () =
     'echo `rm -rf ~/Documents`',
   ]) assert.equal(decision(bash(c)), 'approval', c)
   for (const c of ['echo > ~/.bashrc', 'echo hi >> ~/.bashrc', 'cp /dev/null ~/.bashrc', 'sed -i d ~/.bashrc']) {
-    assert.equal(decision(bash(c)), 'allow', c)
+    assert.equal(decision(bash(c)), 'approval', c)
   }
 })
 

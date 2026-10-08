@@ -5,6 +5,7 @@ import { CommandPalette } from './ui/CommandPalette'
 import { Timeline } from './ui/Timeline'
 import { SessionHistory } from './ui/SessionHistory'
 import { TaskScheduler } from './ui/TaskScheduler'
+import { FileBrowser } from './ui/FileBrowser'
 import { reopenHistorySession, restoreLastSession, sessionHistory } from './ui/sessionHistory'
 import type { ChatSession } from './lib/sessions'
 import { Launcher } from './ui/Launcher'
@@ -983,6 +984,14 @@ export default function App() {
         return
       }
 
+      // Shift+F opens the file browser.
+      if (e.key === 'F' && e.shiftKey && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault()
+        const state = store.getState()
+        state.setCommandWindow(state.commandWindow === 'files' ? null : 'files')
+        return
+      }
+
       // Shift+H opens the session history.
       if (e.key === 'H' && e.shiftKey && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault()
@@ -1149,6 +1158,7 @@ export default function App() {
       {activeTheme().id !== 'lcars' && <Timeline />}
       {activeTheme().id !== 'lcars' && <SessionHistory />}
       {activeTheme().id !== 'lcars' && <TaskScheduler />}
+      {activeTheme().id !== 'lcars' && <FileBrowser />}
       {activeTheme().id !== 'lcars' && <Launcher />}
       <ThemeBoot />
       {activeTheme().id !== 'lcars' && <Diagnostics />}

@@ -17,6 +17,7 @@ export function Launcher() {
   const timelineOpen = useStore((s) => s.timelineOpen)
   const toggleHistory = useStore((s) => s.toggleHistory)
   const historyOpen = useStore((s) => s.historyOpen)
+  const filesOpen = useStore((s) => s.commandWindow === 'files')
   const calls = useStore((s) => s.toolEvents.length)
   const running = useStore((s) => s.toolEvents.some((event) => event.endedAt === null))
 
@@ -56,6 +57,17 @@ export function Launcher() {
         <span aria-hidden="true">☰</span>
         <span className="launch-label">History</span>
         <kbd>⇧H</kbd>
+      </button>
+      <button
+        type="button"
+        className="launch-btn"
+        aria-pressed={filesOpen}
+        onClick={() => useStore.getState().setCommandWindow(filesOpen ? null : 'files')}
+        title="Browse files made by Jarvis and his agents (Shift+F)"
+      >
+        <span aria-hidden="true">▤</span>
+        <span className="launch-label">Files</span>
+        <kbd>⇧F</kbd>
       </button>
     </div>
   )

@@ -236,7 +236,7 @@ function defined<T extends object>(patch: T | undefined): Partial<T> {
  */
 const MAX_ORBITS = 8
 
-export type CommandWindow = 'agents' | 'diagnostics' | 'history' | 'loose-ends' | 'palette' | 'scheduler' | 'timeline' | 'status' | 'voice'
+export type CommandWindow = 'agents' | 'diagnostics' | 'files' | 'history' | 'loose-ends' | 'palette' | 'scheduler' | 'timeline' | 'status' | 'voice'
 
 const commandWindowState = (commandWindow: CommandWindow | null) => ({
   commandWindow,

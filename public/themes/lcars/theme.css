@@ -3153,7 +3153,7 @@
    Every one of them sits in exactly the same box and carries exactly the same
    edge: the left border is a status channel, not decoration, so the resting
    colour is uniform and only a status rule may override it. */
-[data-theme='lcars'] .lcars-deck-history > :is(.agent-board, .command-palette-inline, .timeline-inline, .session-history-inline, .task-scheduler-inline, .diag, .lcars-report-window, .lcars-loose-window) {
+[data-theme='lcars'] .lcars-deck-history > :is(.agent-board, .command-palette-inline, .timeline-inline, .session-history-inline, .task-scheduler-inline, .file-browser-inline, .diag, .lcars-report-window, .lcars-loose-window) {
   position: absolute;
   z-index: 3;
   top: 40px;
@@ -3238,8 +3238,25 @@
 [data-theme='lcars'] .task-scheduler-inline .ts-state-completed { color: var(--lc-tan); }
 [data-theme='lcars'] .task-scheduler-inline .ts-error { color: var(--lc-red); }
 
+[data-theme='lcars'] .file-browser-inline {
+  --fb-line: var(--dark-gray);
+  --accent: var(--lc-blue);
+  border: 0;
+  border-left: var(--lc-window-edge-width) solid var(--lc-window-edge);
+  border-radius: 0;
+  color: var(--lc-tan);
+  font-family: 'Chakra Petch', sans-serif;
+}
+[data-theme='lcars'] .file-browser-inline .fb-head { color: var(--lc-orange); }
+[data-theme='lcars'] .file-browser-inline .fb-head h2 { font-family: 'Antonio', sans-serif; }
+[data-theme='lcars'] .file-browser-inline .fb-folder { color: var(--lc-violet); }
+[data-theme='lcars'] .file-browser-inline .fb-row[aria-pressed='true'] { background: var(--dark-gray); color: var(--lc-orange); }
+[data-theme='lcars'] .file-browser-inline .fb-notice { color: var(--lc-blue); }
+[data-theme='lcars'] .file-browser-inline .fb-error { color: var(--lc-red); }
+[data-theme='lcars'] .file-browser-inline .fb-preview { background: #000; }
+
 @media (min-width: 1800px) and (min-aspect-ratio: 21/9) {
-  [data-theme='lcars'] .lcars-deck-history > :is(.agent-board, .command-palette-inline, .timeline-inline, .session-history-inline, .task-scheduler-inline, .diag, .lcars-report-window, .lcars-loose-window) {
+  [data-theme='lcars'] .lcars-deck-history > :is(.agent-board, .command-palette-inline, .timeline-inline, .session-history-inline, .task-scheduler-inline, .file-browser-inline, .diag, .lcars-report-window, .lcars-loose-window) {
     position: relative;
     grid-column: 2;
     grid-row: 2 / -1;
@@ -3256,7 +3273,7 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  [data-theme='lcars'] .lcars-deck-history:has(> :is(.agent-board, .command-palette-inline, .timeline-inline, .session-history-inline, .task-scheduler-inline, .diag, .lcars-report-window, .lcars-loose-window)) {
+  [data-theme='lcars'] .lcars-deck-history:has(> :is(.agent-board, .command-palette-inline, .timeline-inline, .session-history-inline, .task-scheduler-inline, .file-browser-inline, .diag, .lcars-report-window, .lcars-loose-window)) {
     height: calc(100dvh - 140px);
     min-height: 320px;
   }

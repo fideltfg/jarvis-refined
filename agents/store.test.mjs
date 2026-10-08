@@ -145,6 +145,20 @@ test('deleting a goal takes its tasks and their approvals and leaves nothing orp
   assert.equal(store.deleteGoal(goal.id), null)
 })
 
+test('deleting a goal id that was never created is a clean no-op, not a throw, and touches nothing', () => {
+  const { root, store } = fresh()
+  const other = store.newGoal({ title: 'Keep it', outcome: 'Kept' })
+  const task = store.newTask({ goalId: other.id, title: 'Unrelated' })
+  store.newApproval({ taskId: task.id, category: 'shell', action: 'ls', detail: 'list' })
+
+  assert.equal(store.deleteGoal('g_never_existed'), null)
+  assert.deepEqual(store.listGoals().map((entry) => entry.id), [other.id])
+  assert.equal(store.listTasks({ goalId: other.id }).length, 1)
+  assert.equal(store.listApprovals().length, 1)
+  assert.deepEqual(readdirSync(join(root, 'goals')), [`${other.id}.json`])
+  assert.deepEqual(readdirSync(join(root, 'tasks')), [`${task.id}.json`])
+})
+
 test('a goal output directory is named under the work dir, not the record root', () => {
   const { root, store } = fresh({ workDir: '/tmp/work-dir' })
   const goal = store.newGoal({ title: 'Ship it', outcome: 'Released' })

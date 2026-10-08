@@ -9,7 +9,23 @@ Security. When work is committed, move its entries under a dated heading.
 
 ## Unreleased
 
+### Changed
+
+- Agent tasks and chat sessions can no longer write generated files anywhere in
+  the home folder. Writes outside `~/.jarvis-work` are limited to `~/Projects`
+  (plus `JARVIS_PROJECT_ROOTS`); other home paths now need approval for agent
+  shell commands and are refused for file tools. Restart the bridge and
+  `jarvis-agents` to apply it.
+
 ### Added
+
+- A themed file browser (Files button, Shift+F, command palette) lists the files
+  agents have written under `~/.jarvis-work/goals/*/tasks`, with in-panel
+  preview of text, images and PDF, download, and deletion. Deleting requires
+  writes to be enabled and is refused for files of queued or running tasks.
+  The `sessions` folder, hidden files and folders, and `node_modules` are never
+  listed or served, nor reachable through symlinks; HTML and SVG preview as
+  plain text. Restart the bridge to enable it.
 
 - The agent board now has searchable task history and expandable full results,
   saved text report previews, refresh controls and report downloads, including

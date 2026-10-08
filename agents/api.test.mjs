@@ -510,3 +510,51 @@ test('an abandoned goal can be erased and its event names what went', async () =
     rmSync(workDir, { recursive: true, force: true })
   }
 })
+
+test('erasing a goal id that was never created fails cleanly with 404, no event and no store change', async () => {
+  const s = await setup()
+  try {
+    const kept = s.store.newGoal({ title: 'Keep it', outcome: 'Kept' })
+    s.store.newTask({ goalId: kept.id, title: 'Unrelated', brief: 'b' })
+    const eventsBefore = s.store.readEvents().length
+
+    const missing = await s.call('POST', '/goals/g_never_existed', { action: 'erase' })
+    assert.equal(missing.status, 404)
+    assert.ok(s.store.listGoals().map((entry) => entry.id).includes(kept.id))
+    assert.equal(s.store.listTasks({ goalId: kept.id }).length, 1)
+    assert.equal(s.store.readEvents().length, eventsBefore)
+  } finally {
+    await s.api.close()
+  }
+})
+
+test('erasing one finished goal never touches another goal, its tasks, approvals or saved workspace', async () => {
+  const workDir = mkdtempSync(join(tmpdir(), 'agents-work-'))
+  const s = await setup({ workDir })
+  try {
+    const gone = s.store.newGoal({ title: 'Ship it', outcome: 'Released' })
+    s.store.newTask({ goalId: gone.id, title: 'Research', brief: 'b' })
+    s.store.saveGoal({ ...s.store.getGoal(gone.id), status: 'done' })
+
+    const kept = s.store.newGoal({ title: 'Still active', outcome: 'Later' })
+    const keptTask = s.store.newTask({ goalId: kept.id, title: 'Unrelated', brief: 'b' })
+    const keptApproval = s.store.newApproval({ taskId: keptTask.id, category: 'shell', action: 'ls', detail: 'list' })
+    mkdirSync(keptTask.workspace.path, { recursive: true })
+    writeFileSync(join(keptTask.workspace.path, 'report.md'), 'kept output')
+
+    const erased = await s.call('POST', `/goals/${gone.id}`, { action: 'erase' })
+    assert.equal(erased.status, 200)
+
+    assert.equal(s.store.getGoal(kept.id).id, kept.id)
+    assert.deepEqual(s.store.listTasks({ goalId: kept.id }).map((entry) => entry.id), [keptTask.id])
+    assert.deepEqual(s.store.listApprovals().map((entry) => entry.id), [keptApproval.id])
+    assert.equal(existsSync(keptTask.workspace.path), true)
+    assert.equal(existsSync(join(keptTask.workspace.path, 'report.md')), true)
+    assert.equal(existsSync(s.store.goalOutputDir(kept.id)), true)
+    assert.equal(s.store.getGoal(gone.id), null)
+    assert.deepEqual(s.store.listTasks({ goalId: gone.id }), [])
+  } finally {
+    await s.api.close()
+    rmSync(workDir, { recursive: true, force: true })
+  }
+})
