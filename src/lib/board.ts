@@ -64,7 +64,7 @@ export type AgentGoal = {
   created?: string
   updated?: string
   profileId?: string
-  profileSnapshot?: { id: string; name: string; role: string; instructions: string; version: string }
+  profileSnapshot?: { id: string; name: string; role: string; instructions: string; skills?: string[]; version: string }
 }
 export type AgentApproval = { id: string; taskId: string; category: string; action: string; detail: string; created?: string }
 
@@ -110,11 +110,16 @@ export function mergeBoardData(current: AgentBoardData | null, history: AgentBoa
   return { ...history, ...current, goals }
 }
 
+/** An installed skill a profile may choose, as GET /skills reports it. */
+export type InstalledSkill = { id: string; name: string; description: string }
+
 export type AgentProfile = {
   id: string
   name: string
   role: string
   instructions: string
+  /** Skill ids — their directory names, never paths. Empty on profiles saved before skills existed. */
+  skills: string[]
   schedule: {
     trigger: import('./schedules').ScheduleTrigger
     priority: number
@@ -125,9 +130,10 @@ export type AgentProfile = {
   updated: string
 }
 
-export type AgentProfileInput = Pick<AgentProfile, 'name' | 'role' | 'instructions'> & { schedule?: AgentProfile['schedule'] }
+export type AgentProfileInput = Pick<AgentProfile, 'name' | 'role' | 'instructions'> & { skills?: string[]; schedule?: AgentProfile['schedule'] }
 export type AgentProfileRequest =
   | { action: 'list' }
+  | { action: 'skills' }
   | { action: 'create'; profile: AgentProfileInput }
   | { action: 'update'; profileId: string; changes: Partial<AgentProfileInput> }
   | { action: 'delete'; profileId: string }

@@ -50,3 +50,21 @@ test('profile commands validate IDs and route CRUD and run requests', async () =
   assert.deepEqual(calls, [['create', { name: 'Research', role: 'Analyst', instructions: 'Use public sources.' }]])
   assert.equal(await handleProfileRequest({ type: 'ask' }, api, send), false)
 })
+
+test('the skills a profile may choose from come over the same channel, and an older service answers with none', async () => {
+  const replies = []
+  const send = (reply) => replies.push(reply)
+  const skills = [{ id: 'loose-ends', name: 'loose-ends', description: 'Close out unfinished work.' }]
+  await handleProfileRequest({ type: 'profile_request', requestId: 'skills', action: 'skills' }, { skills: async () => skills }, send)
+  assert.deepEqual(replies[0].result, skills)
+  // A service that predates GET /skills has no skills method; an empty list
+  // leaves the picker showing nothing rather than an error over a saved profile.
+  await handleProfileRequest({ type: 'profile_request', requestId: 'old', action: 'skills' }, { profiles: async () => [] }, send)
+  assert.deepEqual(replies[1].result, [])
+  // A selection of skills still has to be names, not paths, to be accepted.
+  await handleProfileRequest({
+    type: 'profile_request', requestId: 'pathed', action: 'create',
+    profile: { name: 'Briefer', role: 'Analyst', instructions: 'Check.', skills: ['/home/me/.claude/skills/loose-ends'] },
+  }, { createProfile: async () => assert.fail('a pathed skill must not reach the service') }, send)
+  assert.equal(replies[2].error != null, true)
+})

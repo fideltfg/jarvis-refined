@@ -32,10 +32,13 @@ async function selfSigned() {
   return { cert: readFileSync(certPath), key: readFileSync(keyPath) }
 }
 
-async function setup({ pool = null, host = '127.0.0.1', tls = null, workDir = '/work' } = {}) {
+async function setup({ pool = null, host = '127.0.0.1', tls = null, workDir = '/work', skills = [] } = {}) {
   const store = createStore(mkdtempSync(join(tmpdir(), 'agents-api-')), { workDir })
   const approvals = createApprovals(store)
   const calls = { plan: [], redirect: [], cancel: [], mirror: [] }
+  // What this machine has installed, in a mutable box, so a test can uninstall
+  // a skill between two requests the way a user would between two edits.
+  const installed = { list: skills.map((id) => ({ id, name: id, description: `The ${id} skill.`, dir: `/skills/${id}`, file: `/skills/${id}/SKILL.md` })) }
   // What the scheduler claims to be running, so a test can make a task look
   // live without starting one.
   const running = new Set()
@@ -52,6 +55,7 @@ async function setup({ pool = null, host = '127.0.0.1', tls = null, workDir = '/
     },
     cleanup: () => ['t_1'],
     mirror: { goalCreated: (g) => calls.mirror.push(g.id) },
+    installedSkills: () => installed.list,
     host,
     tls,
   })
@@ -94,7 +98,7 @@ async function setup({ pool = null, host = '127.0.0.1', tls = null, workDir = '/
           headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
           body: body ? JSON.stringify(body) : undefined,
         })
-  return { store, approvals, api, base, call, calls, schedules, running }
+  return { store, approvals, api, base, call, calls, schedules, running, installed }
 }
 
 test('the API refuses to start without a token', () => {
@@ -178,6 +182,118 @@ test('profiles create, edit, run from a snapshot and delete their schedule', asy
     assert.equal((await instance.call('POST', `/profiles/${profile.id}`, { action: 'delete' })).status, 200)
     assert.deepEqual(await (await instance.call('GET', '/profiles')).json(), [])
     assert.equal((await instance.call('POST', `/profiles/${profile.id}/run`)).status, 404)
+  } finally { await instance.api.close() }
+})
+
+test('the installed skills a profile may choose from are offered by name and description, without saying where they live', async () => {
+  const instance = await setup({ skills: ['loose-ends', 'llm-wiki'] })
+  try {
+    const listed = await instance.call('GET', '/skills')
+    assert.equal(listed.status, 200)
+    const skills = await listed.json()
+    assert.deepEqual(skills.map((skill) => skill.id), ['loose-ends', 'llm-wiki'])
+    assert.equal(skills[0].name, 'loose-ends')
+    assert.equal(skills[0].description, 'The loose-ends skill.')
+    // The directory each skill came from is this machine's business, not the browser's.
+    assert.deepEqual(Object.keys(skills[0]).sort(), ['description', 'id', 'name'])
+  } finally { await instance.api.close() }
+})
+
+test('a profile saves the skills it selected, by name, and drops them again when deselected', async () => {
+  const instance = await setup({ skills: ['loose-ends', 'llm-wiki'] })
+  try {
+    const created = await instance.call('POST', '/profiles', {
+      name: 'Briefer', role: 'Analyst', instructions: 'Check.', skills: ['llm-wiki', 'loose-ends'],
+    })
+    assert.equal(created.status, 201)
+    const profile = await created.json()
+    assert.deepEqual(profile.skills, ['llm-wiki', 'loose-ends'])
+    assert.deepEqual(instance.store.getProfile(profile.id).skills, ['llm-wiki', 'loose-ends'])
+    // An edit that never mentions skills leaves the selection alone.
+    const renamed = await instance.call('POST', `/profiles/${profile.id}`, { name: 'Renamed' })
+    assert.deepEqual((await renamed.json()).skills, ['llm-wiki', 'loose-ends'])
+    const narrowed = await instance.call('POST', `/profiles/${profile.id}`, { skills: ['loose-ends'] })
+    assert.deepEqual((await narrowed.json()).skills, ['loose-ends'])
+    const cleared = await instance.call('POST', `/profiles/${profile.id}`, { skills: [] })
+    assert.deepEqual((await cleared.json()).skills, [])
+  } finally { await instance.api.close() }
+})
+
+test('a skill nobody has installed is refused at save time, and the refusal says which name is wrong', async () => {
+  const instance = await setup({ skills: ['loose-ends'] })
+  try {
+    const bad = await instance.call('POST', '/profiles', { name: 'Briefer', role: 'Analyst', instructions: 'Check.', skills: ['invented'] })
+    assert.equal(bad.status, 400)
+    assert.match((await bad.json()).error, /No installed skill named invented/)
+    assert.deepEqual(await (await instance.call('GET', '/profiles')).json(), [])
+    // A path is not a name, and is refused by the schema before it reaches the disk.
+    const pathed = await instance.call('POST', '/profiles', {
+      name: 'Briefer', role: 'Analyst', instructions: 'Check.', skills: ['/home/me/.claude/skills/loose-ends'],
+    })
+    assert.equal(pathed.status, 400)
+    const good = await instance.call('POST', '/profiles', { name: 'Briefer', role: 'Analyst', instructions: 'Check.', skills: ['loose-ends'] })
+    const profile = await good.json()
+    const added = await instance.call('POST', `/profiles/${profile.id}`, { skills: ['loose-ends', 'invented'] })
+    assert.equal(added.status, 400)
+    assert.match((await added.json()).error, /No installed skill named invented/)
+    assert.deepEqual(instance.store.getProfile(profile.id).skills, ['loose-ends'])
+  } finally { await instance.api.close() }
+})
+
+test('a saved skill that later leaves the disk keeps loading and stays editable, and is not quietly dropped', async () => {
+  const instance = await setup({ skills: ['loose-ends', 'llm-wiki'] })
+  try {
+    const profile = await (await instance.call('POST', '/profiles', {
+      name: 'Briefer', role: 'Analyst', instructions: 'Check.', skills: ['loose-ends', 'llm-wiki'],
+    })).json()
+    // The user uninstalls one of them from ~/.claude/skills.
+    instance.installed.list = instance.installed.list.filter((skill) => skill.id !== 'llm-wiki')
+    const listed = await instance.call('GET', '/profiles')
+    assert.equal(listed.status, 200)
+    assert.deepEqual((await listed.json())[0].skills, ['loose-ends', 'llm-wiki'])
+    // Editing something else keeps the missing name, rather than refusing the edit.
+    const renamed = await instance.call('POST', `/profiles/${profile.id}`, { name: 'Renamed' })
+    assert.equal(renamed.status, 200)
+    assert.deepEqual((await renamed.json()).skills, ['loose-ends', 'llm-wiki'])
+    // Re-sending the same selection is still allowed: it is what is already saved.
+    const resent = await instance.call('POST', `/profiles/${profile.id}`, { skills: ['loose-ends', 'llm-wiki'] })
+    assert.equal(resent.status, 200)
+    // Deselecting it is how it goes away, and it cannot be brought back once gone.
+    const dropped = await instance.call('POST', `/profiles/${profile.id}`, { skills: ['loose-ends'] })
+    assert.deepEqual((await dropped.json()).skills, ['loose-ends'])
+    const readded = await instance.call('POST', `/profiles/${profile.id}`, { skills: ['loose-ends', 'llm-wiki'] })
+    assert.equal(readded.status, 400)
+  } finally { await instance.api.close() }
+})
+
+test('a profile saved before skills existed loads, runs and edits with an empty selection', async () => {
+  const instance = await setup({ skills: ['loose-ends'] })
+  try {
+    // The file the way it looked before this field existed: no skills key at all.
+    const profile = { id: 'p_legacy', name: 'Legacy', role: 'Analyst', instructions: 'Check.', schedule: null, scheduleId: null, created: '2025-01-01T00:00:00.000Z', updated: '2025-01-01T00:00:00.000Z' }
+    writeFileSync(join(instance.store.root, 'profiles', 'p_legacy.json'), JSON.stringify(profile))
+    assert.deepEqual((await (await instance.call('GET', '/profiles')).json())[0].skills, [])
+    assert.equal((await instance.call('POST', `/profiles/${profile.id}/run`)).status, 201)
+    const edited = await instance.call('POST', `/profiles/${profile.id}`, { instructions: 'Check twice.' })
+    assert.equal(edited.status, 200)
+    assert.deepEqual((await edited.json()).skills, [])
+  } finally { await instance.api.close() }
+})
+
+test('a run freezes the skills it was started with, so editing the profile cannot change it mid-flight', async () => {
+  const instance = await setup({ skills: ['loose-ends', 'llm-wiki'] })
+  try {
+    const profile = await (await instance.call('POST', '/profiles', {
+      name: 'Briefer', role: 'Analyst', instructions: 'Check.', skills: ['llm-wiki', 'loose-ends'],
+    })).json()
+    const goal = await (await instance.call('POST', `/profiles/${profile.id}/run`)).json()
+    assert.deepEqual(goal.profileSnapshot.skills, ['llm-wiki', 'loose-ends'])
+    await instance.call('POST', `/profiles/${profile.id}`, { skills: [] })
+    assert.deepEqual(instance.store.getGoal(goal.id).profileSnapshot.skills, ['llm-wiki', 'loose-ends'])
+    // A profile that chose nothing records nothing, not an absent field.
+    const plain = await (await instance.call('POST', '/profiles', { name: 'Plain', role: 'R', instructions: 'I.' })).json()
+    const other = await (await instance.call('POST', `/profiles/${plain.id}/run`)).json()
+    assert.deepEqual(other.profileSnapshot.skills, [])
   } finally { await instance.api.close() }
 })
 

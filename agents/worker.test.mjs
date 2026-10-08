@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -273,6 +273,55 @@ test('research workers only allow explicitly named skills', async () => {
       yield { type: 'result', subtype: 'success' }
     }),
   }))
+})
+
+test("a profile's selected skills reach the run as instructions, read fresh from disk", async () => {
+  const { store, task } = setup()
+  const skillRoot = mkdtempSync(join(tmpdir(), 'agents-skills-'))
+  mkdirSync(join(skillRoot, 'loose-ends'))
+  writeFileSync(join(skillRoot, 'loose-ends', 'SKILL.md'), '---\nname: loose-ends\ndescription: Close things out.\n---\nList what is unfinished.\n')
+  const goal = store.newGoal({
+    title: 'Weekly sweep',
+    outcome: 'Loose ends closed',
+    profileId: 'p_1',
+    profileSnapshot: { id: 'p_1', name: 'Sweeper', role: 'Closer', instructions: 'Sweep.', skills: ['loose-ends', 'uninstalled'], version: 'v1' },
+  })
+  const run = async () => {
+    let seen = null
+    await runTask({ ...task, goalId: goal.id }, deps(store, {
+      skillRoot,
+      queryFn: fake(async function* ({ options }) {
+        seen = options.systemPrompt
+        options.mcpServers.agent.onReport({ status: 'done', summary: 'ok' })
+        yield { type: 'result', subtype: 'success' }
+      }),
+    }))
+    return seen
+  }
+  const first = await run()
+  assert.match(first, /## Skill: loose-ends/)
+  assert.match(first, /List what is unfinished\./)
+  // The description is metadata for choosing a skill; the body is the guidance.
+  assert.doesNotMatch(first, /Close things out\./)
+  // A skill the user has since uninstalled is skipped, not a failed run.
+  assert.doesNotMatch(first, /uninstalled/)
+
+  writeFileSync(join(skillRoot, 'loose-ends', 'SKILL.md'), '---\nname: loose-ends\n---\nRewritten between runs.\n')
+  assert.match(await run(), /Rewritten between runs\./)
+})
+
+test('a goal with no profile skills gets the prompt it got before skills existed', async () => {
+  const { store, task } = setup()
+  let seen = null
+  await runTask(task, deps(store, {
+    queryFn: fake(async function* ({ options }) {
+      seen = options.systemPrompt
+      options.mcpServers.agent.onReport({ status: 'done', summary: 'ok' })
+      yield { type: 'result', subtype: 'success' }
+    }),
+  }))
+  assert.equal(seen, workerPrompt(task.kind))
+  assert.doesNotMatch(seen, /SKILLS/)
 })
 
 test('the task prompt states the goal and the folder; the system prompt carries the injection rule', () => {

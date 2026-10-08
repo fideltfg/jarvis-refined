@@ -205,11 +205,12 @@ export function scheduleRequest(request: ScheduleRequest): Promise<Schedule | Sc
 }
 
 export function profileRequest(request: { action: 'list' }): Promise<AgentProfile[]>
+export function profileRequest(request: { action: 'skills' }): Promise<import('./board').InstalledSkill[]>
 export function profileRequest(request: { action: 'create'; profile: import('./board').AgentProfileInput }): Promise<AgentProfile>
 export function profileRequest(request: { action: 'update'; profileId: string; changes: Partial<import('./board').AgentProfileInput> }): Promise<AgentProfile>
 export function profileRequest(request: { action: 'delete'; profileId: string }): Promise<{ id: string; deleted: true }>
 export function profileRequest(request: { action: 'run'; profileId: string }): Promise<AgentGoal>
-export function profileRequest(request: AgentProfileRequest): Promise<AgentProfile[] | AgentProfile | AgentGoal | { id: string; deleted: true }> {
+export function profileRequest(request: AgentProfileRequest): Promise<AgentProfile[] | AgentProfile | AgentGoal | import('./board').InstalledSkill[] | { id: string; deleted: true }> {
   return commandRequest('profile', request, 'agent profiles')
 }
 

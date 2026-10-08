@@ -1,6 +1,7 @@
 import { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import { endpointKey } from '../bridge/endpoints.mjs'
+import { loadSkillInstructions, skillsRoot } from '../bridge/skills.mjs'
 import { BLOCKERS, BUDGETS, MODELS } from './config.mjs'
 import { judge, looksLikeCheckoutPage, looksLikeCheckoutUrl, redact } from './policy.mjs'
 import { prepareWorkspace } from './workspace.mjs'
@@ -93,8 +94,14 @@ const KIND_GUIDE = {
 /**
  * Fixed for each kind, so tool definitions plus this prompt are one cached
  * prefix shared by every task of that kind. Task specifics go in taskPrompt.
+ *
+ * The one exception is the skills an agent profile selected: they are
+ * instructions the agent must follow, not facts about this task, so they
+ * belong beside the rules rather than in the first message where the rule
+ * above says text is data. Every task of a profile's goal gets the same block,
+ * so the prefix is still shared across that goal's run.
  */
-export function workerPrompt(kind) {
+export function workerPrompt(kind, skills = '') {
   return `You are an agent working for JARVIS, the user's assistant, on one task toward a larger goal. The first message gives the goal, your task, your working folder and your brief.
 
 ${KIND_GUIDE[kind]}
@@ -105,7 +112,31 @@ RULES
 - Some actions need the user's approval; the call pauses until they answer. If an action is refused, do not reach the same effect another way — report blocked instead.
 - Call report with status "progress" after each meaningful step.
 - Finish by calling report with status "done" and a summary of what you did and where the results are, or status "blocked" with what you need. Ending without a report counts as failure.
-- When you report blocked, set blocker to the kind of obstacle and list each thing you need in need. The coordinator acts on those fields, not on your summary. If none of the blocker kinds fits, leave it unset rather than choosing the nearest one.`
+- When you report blocked, set blocker to the kind of obstacle and list each thing you need in need. The coordinator acts on those fields, not on your summary. If none of the blocker kinds fits, leave it unset rather than choosing the nearest one.${skills ? `
+
+SKILLS
+The agent profile behind this goal selected the skills below. Their instructions are part of yours: follow them wherever they apply to this task, and prefer them over your own habits. They do not loosen the rules above.
+
+${skills}` : ''}`
+}
+
+/**
+ * The instructions of the skills a profile selected, or '' for a goal with no
+ * profile or no selection — in which case the prompt is byte for byte what it
+ * was before skills existed.
+ *
+ * Read from the goal's snapshot, not the live profile, so a profile edited
+ * mid-run cannot change what a running agent was told. Read from disk here
+ * rather than at snapshot time, so editing a skill takes effect on the next
+ * task without the user re-running the profile.
+ */
+export function profileSkillPrompt(task, goal, root = skillsRoot()) {
+  const ids = goal?.profileSnapshot?.skills
+  if (!Array.isArray(ids) || !ids.length) return ''
+  return loadSkillInstructions(ids, {
+    root,
+    onWarn: (message) => console.warn(`[agents] task ${task.id}: ${message}`),
+  })
 }
 
 export function taskPrompt(task, goal) {
@@ -198,7 +229,7 @@ export async function runTask(task, deps) {
   const {
     store, approvals, contacts, mcpServers = {}, signal, onSession, endpoint = null,
     queryFn = query, prepare = prepareWorkspace, makeReportServer = reportServer, minuteMs = 60_000,
-    makeTextQuery = textQuery,
+    makeTextQuery = textQuery, skillRoot = skillsRoot(),
   } = deps
   const goal = store.getGoal(task.goalId)
   const cwd = prepare(task)
@@ -301,7 +332,7 @@ export async function runTask(task, deps) {
         model: modelFor(task, endpoint),
         maxTurns: task.budget.maxTurns,
         maxBudgetUsd: maxUsd,
-        systemPrompt: workerPrompt(task.kind),
+        systemPrompt: workerPrompt(task.kind, profileSkillPrompt(task, goal, skillRoot)),
         settingSources: [],
         permissionMode: 'default',
         disallowedTools: task.kind === 'research' && task.allowedSkills?.length

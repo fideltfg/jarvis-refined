@@ -39,6 +39,44 @@ test('agent profiles persist reusable instructions and reject incomplete records
   assert.throws(() => store.newProfile({ id: profile.id, name: 'Other', role: 'Analyst', instructions: 'Check' }), /Invalid or existing/)
 })
 
+test('a profile keeps its chosen skills by name, never by path', () => {
+  const { store } = fresh()
+  const plain = store.newProfile({ name: 'Research', role: 'Analyst', instructions: 'Check.' })
+  assert.deepEqual(plain.skills, [])
+  const skilled = store.newProfile({
+    name: 'Briefer',
+    role: 'Analyst',
+    instructions: 'Check.',
+    // Duplicates, padding and a path are all things a caller might hand over.
+    skills: [' loose-ends ', 'loose-ends', '/home/me/.claude/skills/llm-wiki'],
+  })
+  assert.deepEqual(skilled.skills, ['loose-ends'])
+  assert.deepEqual(store.getProfile(skilled.id).skills, ['loose-ends'])
+  const saved = store.saveProfile({ ...skilled, skills: ['llm-wiki', 'llm-wiki'] })
+  assert.deepEqual(saved.skills, ['llm-wiki'])
+  assert.deepEqual(store.listProfiles().find((entry) => entry.id === skilled.id).skills, ['llm-wiki'])
+})
+
+test('a profile written before skills existed reads back with an empty selection, not a missing field', () => {
+  const { root, store } = fresh()
+  // Exactly what is on disk today: no skills key at all, and no migration step.
+  writeFileSync(join(root, 'profiles', 'p_old.json'), JSON.stringify({
+    id: 'p_old', name: 'Legacy', role: 'Analyst', instructions: 'Check.', schedule: null, scheduleId: null, created: '2025-01-01T00:00:00.000Z',
+  }))
+  assert.deepEqual(store.getProfile('p_old').skills, [])
+  assert.deepEqual(store.listProfiles().find((entry) => entry.id === 'p_old').skills, [])
+  assert.equal(store.getProfile('p_old').instructions, 'Check.')
+})
+
+test('a profile keeps naming a skill that has since left the disk, so nothing is dropped behind the user', () => {
+  const { store } = fresh()
+  const profile = store.newProfile({ name: 'Briefer', role: 'Analyst', instructions: 'Check.', skills: ['since-uninstalled'] })
+  // The store knows nothing about what is installed; it is a record, not a gate.
+  assert.deepEqual(store.getProfile(profile.id).skills, ['since-uninstalled'])
+  const renamed = store.saveProfile({ ...store.getProfile(profile.id), name: 'Renamed' })
+  assert.deepEqual(renamed.skills, ['since-uninstalled'])
+})
+
 test('a malformed recurring interval is refused at creation', () => {
   const { store } = fresh()
   assert.throws(() => store.newGoal({ title: 'x', outcome: 'y', recurring: { every: 'every 6 hours' } }), /Cannot read the interval/)
