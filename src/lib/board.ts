@@ -64,7 +64,7 @@ export type AgentGoal = {
   created?: string
   updated?: string
   profileId?: string
-  profileSnapshot?: { id: string; name: string; role: string; instructions: string; version: string }
+  profileSnapshot?: { id: string; name: string; role: string; instructions: string; skills?: string[]; version: string }
 }
 export type AgentApproval = { id: string; taskId: string; category: string; action: string; detail: string; created?: string }
 

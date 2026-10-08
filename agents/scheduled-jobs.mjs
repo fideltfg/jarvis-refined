@@ -1,6 +1,6 @@
 import { newId } from './store.mjs'
 import { nextRun, scheduleInput, scheduleChangesSchema } from './schedules.mjs'
-import { profileOutcome } from './profiles.mjs'
+import { profileOutcome, profileSnapshot } from './profiles.mjs'
 
 export function createScheduledJobs({ store, coordinator, now = Date.now, mirror = {} }) {
   const planning = new Map()
@@ -24,7 +24,7 @@ export function createScheduledJobs({ store, coordinator, now = Date.now, mirror
         id: occurrence.goalId, title: profile?.name ?? schedule.title, outcome: profile ? profileOutcome(profile) : schedule.outcome,
         priority: schedule.priority, scheduleId: schedule.id, occurrenceKey: occurrence.key,
         execution: schedule.execution ?? profile?.schedule?.execution,
-        ...(profile && { profileId: profile.id, profileSnapshot: { id: profile.id, name: profile.name, role: profile.role, instructions: profile.instructions, version: profile.updated } }),
+        ...(profile && { profileId: profile.id, profileSnapshot: profileSnapshot(profile) }),
       })
       mirror.goalCreated?.(goal)
     }
@@ -70,7 +70,7 @@ export function createScheduledJobs({ store, coordinator, now = Date.now, mirror
       nextRunAt: schedule.trigger.type === 'once' ? null : manual ? schedule.nextRunAt : nextRun(schedule.trigger, now(), dueAt),
       pendingOccurrence: {
         key: `${schedule.id}:${dueAt}`, goalId: newId('g'), startedAt, attempts: 0,
-        ...(profile && { profileSnapshot: { id: profile.id, name: profile.name, role: profile.role, instructions: profile.instructions, version: profile.updated } }),
+        ...(profile && { profileSnapshot: profileSnapshot(profile) }),
       },
       error: null,
     })

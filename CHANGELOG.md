@@ -27,9 +27,15 @@ Security. When work is committed, move its entries under a dated heading.
   the message says which one; a selected skill that is later uninstalled keeps
   loading and stays editable, shown as **(missing)** until it is unticked. The
   agent service gains an authenticated `GET /skills` route returning ids, names
-  and descriptions only — no filesystem paths leave the machine. Selected skills
-  do not yet reach a running agent; that wiring comes next. Restart
-  `jarvis-agents` and the bridge to apply it.
+  and descriptions only — no filesystem paths leave the machine. Running the
+  profile records the selection on the goal, and every worker on that goal gets
+  those skills' instructions appended to its system prompt, read from disk as
+  each task starts so an edited skill applies to the next run. A skill that has
+  been uninstalled or cannot be read is logged and skipped rather than failing
+  the run; instructions are injected in name order; and the block is capped at
+  20,000 characters per skill and 60,000 together. A profile with no skills
+  selected gets exactly the prompt it did before. Restart `jarvis-agents` and
+  the bridge to apply it.
 
 - A themed file browser (Files button, Shift+F, command palette) lists the files
   agents have written under `~/.jarvis-work/goals/*/tasks`, with in-panel

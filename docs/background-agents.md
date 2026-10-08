@@ -242,6 +242,30 @@ profile still loads and stays editable: the name is kept and shown as
 route lists what is installed as ids, names and descriptions; the directory each
 skill came from stays on the machine and is never sent to the browser.
 
+Running the profile copies its selection onto the goal, beside the role and
+instructions it already freezes, so editing the profile afterwards does not
+change a run already under way. Every worker on that goal then gets those
+skills' instructions appended to its system prompt under a **SKILLS** heading —
+automatically, without the agent having to invoke anything. The bodies are read
+from disk as each task starts, so editing a `SKILL.md` applies to the next task
+without re-running the profile.
+
+Three things keep that injection safe. A skill is named, so a name holding a
+path or a `..` is refused before anything is read, and a resolved path outside
+the skills root is skipped. A skill that has been uninstalled, cannot be read,
+or has nothing below its frontmatter is logged to the service journal and
+skipped — never a failed run. And the block is bounded: 20,000 characters per
+skill (longer ones are cut off with a pointer to the file) and 60,000 for all of
+them together, injected in name order so the same selection always produces the
+same prompt. A goal with no profile, or a profile with nothing selected, gets
+exactly the prompt it would have had before skills existed.
+
+Skills are instructions here, not tools: the text reaches the agent whichever
+provider the profile runs on, including the OpenAI and local endpoints that have
+no `Skill` tool at all. What a selection does *not* do is unblock the `Skill`
+tool for research and marketing tasks; that gate is still the per-task
+`allowedSkills` list described above.
+
 When a worker is blocked on a decision, it must provide at least one validated
 multiple-choice question. The choices appear on the task detail; submitting
 answers sends them to the coordinator and does not bypass approval gates. Open

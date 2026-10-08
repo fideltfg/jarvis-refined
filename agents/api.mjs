@@ -4,7 +4,7 @@ import { isLoopback, TRAVELLING_KINDS } from '../bridge/endpoints.mjs'
 import { listInstalledSkills, unknownSkills } from '../bridge/skills.mjs'
 import { boardOf, briefing } from './briefing.mjs'
 import { BUDGETS } from './config.mjs'
-import { profileChanges, profileInput, profileOutcome } from './profiles.mjs'
+import { profileChanges, profileInput, profileOutcome, profileSnapshot } from './profiles.mjs'
 import { scheduleInput } from './schedules.mjs'
 import { readTaskReference, taskReports } from './reports.mjs'
 import { removeWorkspace } from './workspace.mjs'
@@ -294,7 +294,7 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
       priority: profile.schedule?.priority ?? 3,
       execution: profile.schedule?.execution,
       profileId: profile.id,
-      profileSnapshot: { id: profile.id, name: profile.name, role: profile.role, instructions: profile.instructions, version: profile.updated },
+      profileSnapshot: profileSnapshot(profile),
     })
     store.appendEvent({ type: 'goal_created', goalId: goal.id, text: `New goal from agent profile: ${goal.title}`, data: { title: goal.title, profileId: profile.id } })
     mirror.goalCreated?.(goal)

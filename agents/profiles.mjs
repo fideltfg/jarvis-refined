@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { MAX_PROFILE_SKILLS, SKILL_ID } from '../bridge/skills.mjs'
+import { MAX_PROFILE_SKILLS, SKILL_ID, normalizeSkills } from '../bridge/skills.mjs'
 import { triggerSchema } from './schedules.mjs'
 
 const execution = z.object({
@@ -34,4 +34,24 @@ export const profileChanges = profileInput.partial().strict().refine((value) => 
 
 export function profileOutcome(profile) {
   return `Role: ${profile.role}\n\nInstructions:\n${profile.instructions}`
+}
+
+/**
+ * What a goal keeps of the profile it came from, frozen at the moment the run
+ * started. Editing a profile must not change a run already under way, so the
+ * selected skills are recorded here alongside the instructions rather than
+ * read back off the profile when a worker starts.
+ *
+ * Takes either a stored profile or an earlier snapshot of one, since a pending
+ * scheduled occurrence carries its own.
+ */
+export function profileSnapshot(profile) {
+  return {
+    id: profile.id,
+    name: profile.name,
+    role: profile.role,
+    instructions: profile.instructions,
+    skills: normalizeSkills(profile.skills),
+    version: profile.updated,
+  }
 }

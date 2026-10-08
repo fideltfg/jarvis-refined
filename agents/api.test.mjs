@@ -280,6 +280,23 @@ test('a profile saved before skills existed loads, runs and edits with an empty 
   } finally { await instance.api.close() }
 })
 
+test('a run freezes the skills it was started with, so editing the profile cannot change it mid-flight', async () => {
+  const instance = await setup({ skills: ['loose-ends', 'llm-wiki'] })
+  try {
+    const profile = await (await instance.call('POST', '/profiles', {
+      name: 'Briefer', role: 'Analyst', instructions: 'Check.', skills: ['llm-wiki', 'loose-ends'],
+    })).json()
+    const goal = await (await instance.call('POST', `/profiles/${profile.id}/run`)).json()
+    assert.deepEqual(goal.profileSnapshot.skills, ['llm-wiki', 'loose-ends'])
+    await instance.call('POST', `/profiles/${profile.id}`, { skills: [] })
+    assert.deepEqual(instance.store.getGoal(goal.id).profileSnapshot.skills, ['llm-wiki', 'loose-ends'])
+    // A profile that chose nothing records nothing, not an absent field.
+    const plain = await (await instance.call('POST', '/profiles', { name: 'Plain', role: 'R', instructions: 'I.' })).json()
+    const other = await (await instance.call('POST', `/profiles/${plain.id}/run`)).json()
+    assert.deepEqual(other.profileSnapshot.skills, [])
+  } finally { await instance.api.close() }
+})
+
 test('profile schedules use the latest profile when creating each goal', async () => {
   const instance = await setup()
   try {
