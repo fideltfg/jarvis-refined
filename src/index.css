@@ -2503,6 +2503,12 @@ kbd {
 .ab-weekdays legend { margin-bottom: 4px; font-size: 11px; }
 .ab-weekdays label { display: inline-flex; align-items: center; gap: 4px; }
 .ab-weekdays input { width: auto; min-height: 0; accent-color: var(--accent); }
+/* A machine can hold many skills, so the picker scrolls rather than pushing the rest of the form off the blade. */
+.ab-skills { gap: 4px 12px; max-height: 148px; overflow-y: auto; }
+.ab-skills :is(p, label) { font-size: 11px; }
+.ab-skills p { width: 100%; margin: 0; opacity: 0.65; }
+/* A skill a profile still names but this machine no longer has: kept, shown, not pretended away. */
+.ab-skill-missing { opacity: 0.6; text-decoration: line-through dotted; }
 .ab-profile-actions { display: flex; gap: 6px; }
 .ab-profile-instructions { margin-top: 12px; }
 .ab-profile-instructions summary { min-height: 34px; cursor: pointer; font-size: 12px; }

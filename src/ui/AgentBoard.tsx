@@ -4,7 +4,7 @@ import { ArrowUpRight, Download, Eye, FileText, Pause, Pencil, Play, Plus, Refre
 import { useStore } from '../store'
 import { decideApproval } from '../lib/brain'
 import { decisionRequest, goalControlRequest, goalDecisionRequest, goalRequest, profileRequest, reportRequest, scheduleRequest, type TaskReports } from '../lib/bridge'
-import { ago, agentSummary, capacityLine, deleteBlockReason, mainTaskRows, mergeBoard, mergeBoardData, stateGroup, statusLabel, type AgentBoardData, type AgentDecisionQuestion, type AgentProfile, type AgentProfileInput, type AgentReference, type BoardAgent } from '../lib/board'
+import { ago, agentSummary, capacityLine, deleteBlockReason, mainTaskRows, mergeBoard, mergeBoardData, stateGroup, statusLabel, type AgentBoardData, type AgentDecisionQuestion, type AgentProfile, type AgentProfileInput, type AgentReference, type BoardAgent, type InstalledSkill } from '../lib/board'
 import { reportDocumentHtml } from '../lib/report-document'
 import { localDateTime, onceFromLocal, type ScheduleTrigger } from '../lib/schedules'
 
@@ -358,6 +358,9 @@ function ProfileEditor({ profile, onSave, onCancel }: { profile: AgentProfile | 
   const [name, setName] = useState(profile?.name ?? '')
   const [role, setRole] = useState(profile?.role ?? '')
   const [instructions, setInstructions] = useState(profile?.instructions ?? '')
+  const [skills, setSkills] = useState<string[]>(profile?.skills ?? [])
+  const [installed, setInstalled] = useState<InstalledSkill[] | null>(null)
+  const [skillsError, setSkillsError] = useState('')
   const priorTrigger = profile?.schedule?.trigger
   const [scheduleKind, setScheduleKind] = useState<'none' | 'once' | 'interval' | 'daily' | 'weekly'>(priorTrigger?.type ?? 'none')
   const [at, setAt] = useState(priorTrigger?.type === 'once' ? localDateTime(priorTrigger.at) : '')
@@ -366,6 +369,34 @@ function ProfileEditor({ profile, onSave, onCancel }: { profile: AgentProfile | 
   const [days, setDays] = useState<number[]>(priorTrigger?.type === 'weekly' ? priorTrigger.days : [1, 2, 3, 4, 5])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    let live = true
+    profileRequest({ action: 'skills' })
+      .then((list) => { if (live) setInstalled(list) })
+      .catch((err: unknown) => { if (live) { setInstalled([]); setSkillsError(err instanceof Error ? err.message : String(err)) } })
+    return () => { live = false }
+  }, [])
+
+  /**
+   * Everything the user can tick: what is installed now, plus anything this
+   * profile already chose that is no longer on disk. A skill that has gone
+   * stays visible and stays selected, so saving an unrelated edit cannot
+   * quietly drop it. Nothing is called missing until the list has arrived,
+   * or every saved choice would be libelled while the request is in flight.
+   */
+  const choices = useMemo(() => {
+    if (installed === null) return []
+    const list = installed.map((skill) => ({ ...skill, missing: false }))
+    const known = new Set(list.map((skill) => skill.id))
+    const gone = skills.filter((skillId) => !known.has(skillId))
+      .map((skillId) => ({ id: skillId, name: skillId, description: 'Not installed on this machine.', missing: true }))
+    return [...list, ...gone]
+  }, [installed, skills])
+
+  const toggleSkill = (skillId: string, on: boolean) =>
+    setSkills((previous) => on ? [...previous.filter((value) => value !== skillId), skillId].sort() : previous.filter((value) => value !== skillId))
+
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setBusy(true)
@@ -386,7 +417,7 @@ function ProfileEditor({ profile, onSave, onCancel }: { profile: AgentProfile | 
         trigger = { type: 'weekly', time, timezone, days }
       }
       if (trigger) schedule = { trigger, priority: profile?.schedule?.priority ?? 3, ...(profile?.schedule?.execution && { execution: profile.schedule.execution }) }
-      await onSave({ name, role, instructions, schedule })
+      await onSave({ name, role, instructions, skills, schedule })
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
     finally { setBusy(false) }
   }
@@ -394,6 +425,15 @@ function ProfileEditor({ profile, onSave, onCancel }: { profile: AgentProfile | 
     <label htmlFor={`${id}-name`}>Name<input id={`${id}-name`} value={name} maxLength={100} required disabled={busy} onChange={(event) => setName(event.target.value)} /></label>
     <label htmlFor={`${id}-role`}>Role<input id={`${id}-role`} value={role} maxLength={500} required disabled={busy} onChange={(event) => setRole(event.target.value)} /></label>
     <label htmlFor={`${id}-instructions`}>Instructions<textarea id={`${id}-instructions`} value={instructions} maxLength={10000} rows={4} required disabled={busy} onChange={(event) => setInstructions(event.target.value)} /></label>
+    <fieldset className="ab-weekdays ab-skills"><legend>Skills</legend>
+      {installed === null && <p role="status">Loading skills...</p>}
+      {installed !== null && !choices.length && <p>No skills are installed.</p>}
+      {choices.map((skill) => <label key={skill.id} className={skill.missing ? 'ab-skill-missing' : undefined} title={skill.description}>
+        <input type="checkbox" checked={skills.includes(skill.id)} disabled={busy} onChange={(event) => toggleSkill(skill.id, event.target.checked)} />
+        {skill.name}{skill.missing ? ' (missing)' : ''}
+      </label>)}
+      {skillsError && <p role="alert">{skillsError}</p>}
+    </fieldset>
     <label htmlFor={`${id}-schedule`}>Schedule<select id={`${id}-schedule`} value={scheduleKind} disabled={busy} onChange={(event) => setScheduleKind(event.target.value as typeof scheduleKind)}>
       <option value="none">Manual</option><option value="once">Once</option><option value="interval">Interval</option><option value="daily">Daily</option><option value="weekly">Weekly</option>
     </select></label>
