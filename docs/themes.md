@@ -46,7 +46,7 @@ browser. Production deployments need a new build to include the theme.
 
 ### ORIN
 ![ORIN THEME](../public/themes/orin/orin.png)
-Set `VITE_THEME` in `.env.local` and restart the dev server to change the
+Set `theme` in the `[frontend]` section of `~/.config/jarvis/config.toml` and restart the dev server to change the
 default. To preview another theme for the current browser, use a URL such as
 `http://localhost:5173/?theme=hal`. The browser remembers the URL selection.
 

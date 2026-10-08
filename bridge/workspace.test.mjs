@@ -24,18 +24,18 @@ test('bridge uses the structured workspace for Claude and every provider prompt'
   assert.match(source, /sessionWorkspace\(checkpoint.id\)/)
   assert.match(source, /cwd: workingDirectory/)
   assert.match(source, /outputGuide\(workingDirectory\)/)
-  assert.match(source, /const projectRoots = \[WORK_DIR, homedir\(\)/)
+  assert.match(source, /const projectRoots = \[WORK_DIR, join\(homedir\(\), 'Projects'\)/)
   assert.match(source, /dir: saved.claudeWorkspace \?\? homedir\(\)/)
 })
 
-test('file outputs allow home edits but reject traversal and symlink escapes', () => {
+test('file outputs allow project edits but reject home files, traversal and symlink escapes', () => {
   const root = mkdtempSync(join(tmpdir(), 'jarvis-output-gate-'))
   try {
     const directory = sessionWorkspace('12345678-1234-1234-1234-123456789abc', root)
     const project = join(root, 'project')
     mkdirSync(project)
     assert.equal(outputWriteError('reports/topic/final.md', directory), null)
-    assert.equal(outputWriteError(join(homedir(), 'Documents', 'notes.md'), directory, [homedir()]), null)
+    assert.match(outputWriteError(join(homedir(), 'Documents', 'notes.md'), directory, [join(homedir(), 'Projects')]), /must stay/)
     assert.match(outputWriteError(join(root, 'random-report.md'), directory), /must stay/)
     assert.match(outputWriteError('../escaped.md', directory), /must stay/)
     assert.equal(outputWriteError(join(project, 'source.mjs'), directory, [project]), null)

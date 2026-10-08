@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import https from 'node:https'
@@ -32,17 +32,20 @@ async function selfSigned() {
   return { cert: readFileSync(certPath), key: readFileSync(keyPath) }
 }
 
-async function setup({ pool = null, host = '127.0.0.1', tls = null } = {}) {
-  const store = createStore(mkdtempSync(join(tmpdir(), 'agents-api-')), { workDir: '/work' })
+async function setup({ pool = null, host = '127.0.0.1', tls = null, workDir = '/work' } = {}) {
+  const store = createStore(mkdtempSync(join(tmpdir(), 'agents-api-')), { workDir })
   const approvals = createApprovals(store)
   const calls = { plan: [], redirect: [], cancel: [], mirror: [] }
+  // What the scheduler claims to be running, so a test can make a task look
+  // live without starting one.
+  const running = new Set()
   const schedules = createScheduledJobs({ store, coordinator: { plan: async (id) => { calls.plan.push(id) } } })
   const api = createApi({
     store,
     approvals,
     pool,
     token: TOKEN,
-    scheduler: { schedules, running: () => new Set(), cancel: (id) => { calls.cancel.push(id); return true } },
+    scheduler: { schedules, running: () => running, cancel: (id) => { calls.cancel.push(id); return true } },
     coordinator: {
       plan: async (id) => { calls.plan.push(id) },
       redirect: async (id, text) => { calls.redirect.push([id, text]) },
@@ -91,7 +94,7 @@ async function setup({ pool = null, host = '127.0.0.1', tls = null } = {}) {
           headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
           body: body ? JSON.stringify(body) : undefined,
         })
-  return { store, approvals, api, base, call, calls, schedules }
+  return { store, approvals, api, base, call, calls, schedules, running }
 }
 
 test('the API refuses to start without a token', () => {
@@ -435,5 +438,123 @@ test('with no pool configured the readout still answers, from the running set', 
     assert.deepEqual(body, { capacity: null, running: 0, endpoints: [] })
   } finally {
     await s.api.close()
+  }
+})
+
+test('erasing a goal is refused while it is live and removes everything once it is not', async () => {
+  const workDir = mkdtempSync(join(tmpdir(), 'agents-work-'))
+  const s = await setup({ workDir })
+  try {
+    const goal = s.store.newGoal({ title: 'Ship it', outcome: 'Released' })
+    const task = s.store.newTask({ goalId: goal.id, title: 'Research', brief: 'b' })
+    s.approvals.request({ task, category: 'money', action: 'pay', detail: 'x' })
+    mkdirSync(task.workspace.path, { recursive: true })
+    writeFileSync(join(task.workspace.path, 'report.md'), 'saved output')
+
+    // Active: the guard is the service's, not the button's.
+    const live = await s.call('POST', `/goals/${goal.id}`, { action: 'erase' })
+    assert.equal(live.status, 400)
+    assert.match((await live.json()).error, /still active/)
+    assert.equal(s.store.getGoal(goal.id).id, goal.id)
+
+    s.store.saveGoal({ ...s.store.getGoal(goal.id), status: 'done' })
+
+    // Stopped goal, but a task the scheduler still has in flight.
+    s.store.saveTask({ ...s.store.getTask(task.id), status: 'running' })
+    const busy = await s.call('POST', `/goals/${goal.id}`, { action: 'erase' })
+    assert.equal(busy.status, 400)
+    assert.match((await busy.json()).error, /Research.*still running/)
+    assert.equal(s.store.listTasks({ goalId: goal.id }).length, 1)
+
+    // Still refused when only the live running set knows the task is busy.
+    s.store.saveTask({ ...s.store.getTask(task.id), status: 'queued' })
+    s.running.add(task.id)
+    assert.equal((await s.call('POST', `/goals/${goal.id}`, { action: 'erase' })).status, 400)
+    s.running.delete(task.id)
+
+    s.store.saveTask({ ...s.store.getTask(task.id), status: 'done' })
+    const erased = await s.call('POST', `/goals/${goal.id}`, { action: 'erase' })
+    assert.equal(erased.status, 200)
+    assert.deepEqual(await erased.json(), { id: goal.id, deleted: true, tasks: 1 })
+    assert.equal(s.store.getGoal(goal.id), null)
+    assert.deepEqual(s.store.listTasks({ goalId: goal.id }), [])
+    assert.deepEqual(s.store.listApprovals(), [])
+    assert.equal(existsSync(task.workspace.path), false)
+    assert.equal(existsSync(s.store.goalOutputDir(goal.id)), false)
+    assert.equal(s.store.readEvents().filter((event) => event.type === 'goal_deleted').length, 1)
+    assert.equal(boardOf(s.store, new Set(), { history: true }).goals.length, 0)
+
+    // Gone is gone: a repeat is a 404, not a second cascade.
+    assert.equal((await s.call('POST', `/goals/${goal.id}`, { action: 'erase' })).status, 404)
+  } finally {
+    await s.api.close()
+    rmSync(workDir, { recursive: true, force: true })
+  }
+})
+
+test('an abandoned goal can be erased and its event names what went', async () => {
+  const workDir = mkdtempSync(join(tmpdir(), 'agents-work-'))
+  const s = await setup({ workDir })
+  try {
+    const goal = s.store.newGoal({ title: 'Stale plan', outcome: 'O' })
+    s.store.newTask({ goalId: goal.id, title: 'One', brief: 'b' })
+    s.store.newTask({ goalId: goal.id, title: 'Two', brief: 'b' })
+    assert.equal((await (await s.call('POST', `/goals/${goal.id}`, { action: 'abandon' })).json()).status, 'abandoned')
+    const erased = await (await s.call('POST', `/goals/${goal.id}`, { action: 'erase' })).json()
+    assert.deepEqual(erased, { id: goal.id, deleted: true, tasks: 2 })
+    const event = s.store.readEvents().find((entry) => entry.type === 'goal_deleted')
+    assert.equal(event.goalId, goal.id)
+    assert.deepEqual(event.data, { title: 'Stale plan', tasks: 2 })
+  } finally {
+    await s.api.close()
+    rmSync(workDir, { recursive: true, force: true })
+  }
+})
+
+test('erasing a goal id that was never created fails cleanly with 404, no event and no store change', async () => {
+  const s = await setup()
+  try {
+    const kept = s.store.newGoal({ title: 'Keep it', outcome: 'Kept' })
+    s.store.newTask({ goalId: kept.id, title: 'Unrelated', brief: 'b' })
+    const eventsBefore = s.store.readEvents().length
+
+    const missing = await s.call('POST', '/goals/g_never_existed', { action: 'erase' })
+    assert.equal(missing.status, 404)
+    assert.ok(s.store.listGoals().map((entry) => entry.id).includes(kept.id))
+    assert.equal(s.store.listTasks({ goalId: kept.id }).length, 1)
+    assert.equal(s.store.readEvents().length, eventsBefore)
+  } finally {
+    await s.api.close()
+  }
+})
+
+test('erasing one finished goal never touches another goal, its tasks, approvals or saved workspace', async () => {
+  const workDir = mkdtempSync(join(tmpdir(), 'agents-work-'))
+  const s = await setup({ workDir })
+  try {
+    const gone = s.store.newGoal({ title: 'Ship it', outcome: 'Released' })
+    s.store.newTask({ goalId: gone.id, title: 'Research', brief: 'b' })
+    s.store.saveGoal({ ...s.store.getGoal(gone.id), status: 'done' })
+
+    const kept = s.store.newGoal({ title: 'Still active', outcome: 'Later' })
+    const keptTask = s.store.newTask({ goalId: kept.id, title: 'Unrelated', brief: 'b' })
+    const keptApproval = s.store.newApproval({ taskId: keptTask.id, category: 'shell', action: 'ls', detail: 'list' })
+    mkdirSync(keptTask.workspace.path, { recursive: true })
+    writeFileSync(join(keptTask.workspace.path, 'report.md'), 'kept output')
+
+    const erased = await s.call('POST', `/goals/${gone.id}`, { action: 'erase' })
+    assert.equal(erased.status, 200)
+
+    assert.equal(s.store.getGoal(kept.id).id, kept.id)
+    assert.deepEqual(s.store.listTasks({ goalId: kept.id }).map((entry) => entry.id), [keptTask.id])
+    assert.deepEqual(s.store.listApprovals().map((entry) => entry.id), [keptApproval.id])
+    assert.equal(existsSync(keptTask.workspace.path), true)
+    assert.equal(existsSync(join(keptTask.workspace.path, 'report.md')), true)
+    assert.equal(existsSync(s.store.goalOutputDir(kept.id)), true)
+    assert.equal(s.store.getGoal(gone.id), null)
+    assert.deepEqual(s.store.listTasks({ goalId: gone.id }), [])
+  } finally {
+    await s.api.close()
+    rmSync(workDir, { recursive: true, force: true })
   }
 })

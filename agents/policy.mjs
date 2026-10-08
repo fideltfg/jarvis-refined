@@ -21,6 +21,9 @@ import { isAbsolute, join, relative, resolve } from 'node:path'
 
 const HOME = homedir()
 const HOME_VAR = /\$HOME\b|\$\{HOME\}/g
+// Generated output belongs in the work folder; only project source may be edited elsewhere.
+const projectRoots = () => [join(HOME, 'Projects'), ...(process.env.JARVIS_PROJECT_ROOTS ?? '').split(',').map((root) => root.trim()).filter(Boolean)]
+const inProjectRoot = (path) => projectRoots().some((root) => inside(root, path))
 
 const SECRET_PATH = new RegExp(
   [
@@ -195,7 +198,7 @@ function bashDestruction(command, workspace, startCwd = workspace, depth = 0) {
     if (SAFE_SINKS.has(t)) return null
     if (unresolved(t)) return approval('destruction', `${cmd} with an unresolved path`, seg)
     const target = resolve(cwd, expandHome(t))
-    if (!inside(workspace, target) && !(allowHome && inside(HOME, target))) {
+    if (!inside(workspace, target) && !(allowHome && inProjectRoot(target))) {
       return approval('destruction', `${cmd} outside the workspace`, seg)
     }
     return null
@@ -292,7 +295,7 @@ export function judge(toolName, input = {}, ctx) {
       return deny('credentials', 'That folder contains credentials. Search inside your working folder or a project folder instead.')
     }
     if (WRITE_TOOLS.has(name) && !inside(workspace, real)) {
-      if (inside(realpath(HOME), real)) return allow()
+      if (inProjectRoot(real)) return allow()
       if (kind === 'research' || kind === 'marketing' || kind === 'admin') {
         return deny('workspace', `A ${kind} task may only write inside its own folder, ${workspace}.`)
       }

@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { Activity, AudioLines, CalendarClock, Camera, ClipboardList, FileText, History, ListTodo, MessageSquarePlus, Mic, MicOff, Paperclip, Search, Send, ShieldCheck, UserRound } from 'lucide-react'
+import { Activity, AudioLines, CalendarClock, Camera, ClipboardList, FileText, FolderOpen, History, ListTodo, MessageSquarePlus, Mic, MicOff, Paperclip, Search, Send, ShieldCheck, UserRound } from 'lucide-react'
 import { providerState, selectProvider, selectModel, usingBridge, watchProviders } from '../../../src/lib/brain'
 import { useStore, type Phase } from '../../../src/store'
 import { mergeBoard, runningAgents } from '../../../src/lib/board'
@@ -8,6 +8,7 @@ import { CommandPalette } from '../../../src/ui/CommandPalette'
 import { Timeline } from '../../../src/ui/Timeline'
 import { SessionHistory } from '../../../src/ui/SessionHistory'
 import { TaskScheduler } from '../../../src/ui/TaskScheduler'
+import { FileBrowser } from '../../../src/ui/FileBrowser'
 import { Diagnostics } from '../../../src/ui/Diagnostics'
 import { AttachmentNames, AttachmentTray } from '../../../src/ui/AttachmentTray'
 import { useAttachments } from '../../../src/ui/useAttachments'
@@ -227,6 +228,7 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
                 <button type="button" data-function-off={!gestures} aria-pressed={gestures} onClick={() => window.dispatchEvent(new Event('jarvis:toggle-hands'))} disabled={unavailable} title="Toggle camera gesture tracking"><Camera size={17} /> Camera <b>{gestures ? 'ON' : 'OFF'}</b></button>
                 <button type="button" data-command-window="agents" aria-pressed={boardOpen} onClick={toggleBoard} disabled={!agentsSeen && !sessionAgents.length} title="Open agent board"><ClipboardList size={17} /> Agents <b>{agentCount}</b></button>
                 <button type="button" data-command-window="scheduler" aria-pressed={commandWindow === 'scheduler'} onClick={() => setCommandWindow(commandWindow === 'scheduler' ? null : 'scheduler')} title="Manage scheduled tasks"><CalendarClock size={17} /> Task scheduler</button>
+                <button type="button" data-command-window="files" aria-pressed={commandWindow === 'files'} onClick={() => setCommandWindow(commandWindow === 'files' ? null : 'files')} title="Browse files made by Jarvis and his agents (Shift+F)"><FolderOpen size={17} /> Files</button>
                 <button type="button" data-command-window="voice" aria-pressed={enrolling} onClick={() => window.dispatchEvent(new Event('jarvis:voice-profile'))} disabled={unavailable} title="Manage voice profile"><UserRound size={17} /> Voice profile <b>{enrolling ? 'OPEN' : 'SET'}</b></button>
                 <button type="button" data-command-window="diagnostics" aria-pressed={diagnosticsOpen} onClick={() => window.dispatchEvent(new Event('jarvis:toggle-diagnostics'))} title="Toggle voice diagnostics"><ShieldCheck size={17} /> Diagnostics</button>
                 <button type="button" data-command-window="status" aria-pressed={statusReportOpen} onClick={() => setCommandWindow(statusReportOpen ? null : 'status')} title="Open status report"><FileText size={17} /> Status report</button>
@@ -256,6 +258,7 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
               <Timeline inline />
               <SessionHistory inline />
               <TaskScheduler inline />
+              <FileBrowser inline />
               <Diagnostics inline />
               {statusReportOpen && <StatusReport onClose={() => setCommandWindow(null)} />}
               {looseEndsOpen && <LooseEnds onClose={() => setCommandWindow(null)} />}

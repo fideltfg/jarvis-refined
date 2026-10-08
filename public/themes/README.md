@@ -17,7 +17,7 @@ public/themes/my-theme/
   Reactor.tsx    optional — live reactor imported by theme.tsx
 ```
 
-Select it with `VITE_THEME=my-theme` in `.env.local`, or try it without editing
+Select it with `theme = "my-theme"` under `[frontend]` in `~/.config/jarvis/config.toml`, or try it without editing
 anything by loading `http://localhost:5173/?theme=my-theme`. The choice sticks
 in that browser until another one is given.
 

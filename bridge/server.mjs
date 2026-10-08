@@ -16,6 +16,7 @@
  */
 
 import './env.mjs'
+import { fileHeaders, handleFilesRequest, resolveFile } from './filebrowser.mjs'
 import { WebSocketServer } from 'ws'
 import { getSessionInfo, query } from '@anthropic-ai/claude-agent-sdk'
 import { displayServer } from './panels.mjs'
@@ -26,9 +27,9 @@ import { visionServer } from './vision.mjs'
 import { SESSION_AGENT_TOOLS, createSessionAgents, parseTaskNotification } from './session-agents.mjs'
 import { historyServer, refreshSummaries, save as saveHistory } from './history.mjs'
 import { load as loadMemory, MEMORY_GUIDE, memoryServer, memorySnapshot, MEMORY_FILE } from './memory.mjs'
-import { load as loadLooseEnds, LOOSE_ENDS_FILE } from './loose-ends.mjs'
+import { close as closeLooseEnd, load as loadLooseEnds, LOOSE_ENDS_FILE } from './loose-ends.mjs'
 import { homedir, tmpdir } from 'node:os'
-import { readFileSync, realpathSync } from 'node:fs'
+import { createReadStream, readFileSync, realpathSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
@@ -795,6 +796,44 @@ const handleRequest = async (req, res) => {
     return res.end(JSON.stringify(payload))
   }
 
+  if (req.method === 'POST' && req.url === '/memory/loose-ends/close') {
+    if (!origin && !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)) {
+      res.writeHead(403, cors)
+      return res.end('forbidden')
+    }
+    let body = ''
+    for await (const chunk of req) {
+      body += chunk
+      if (body.length > 8 * 1024) {
+        res.writeHead(413, cors)
+        return res.end('body too large')
+      }
+    }
+    let item
+    try {
+      ;({ item } = JSON.parse(body || '{}'))
+    } catch {
+      res.writeHead(400, cors)
+      return res.end('bad json')
+    }
+    if (!item || !Number.isInteger(item.line) || typeof item.action !== 'string') {
+      res.writeHead(400, cors)
+      return res.end('invalid item')
+    }
+    try {
+      const payload = closeLooseEnd(LOOSE_ENDS_FILE, item)
+      if (!payload) {
+        res.writeHead(409, { ...cors, 'content-type': 'application/json' })
+        return res.end(JSON.stringify({ error: 'The ledger entry changed. Refresh and try again.' }))
+      }
+      res.writeHead(200, { ...cors, 'content-type': 'application/json', 'cache-control': 'no-store' })
+      return res.end(JSON.stringify(payload))
+    } catch (err) {
+      res.writeHead(500, { ...cors, 'content-type': 'application/json' })
+      return res.end(JSON.stringify({ error: err.message }))
+    }
+  }
+
   // Serve local image files to the page. Screenshots and generated art land on
   // disk as absolute paths, and a page served over http can't read file:// —
   // so the bridge, which can, hands them over.
@@ -834,6 +873,30 @@ const handleRequest = async (req, res) => {
         'x-content-type-options': 'nosniff',
       })
       return res.end(body)
+    } catch {
+      res.writeHead(404, cors)
+      return res.end('not found')
+    }
+  }
+
+  // Files made by JARVIS and his agents, confined to the work directory.
+  if (req.method === 'GET' && req.url?.startsWith('/files/raw?')) {
+    const query = new URL(req.url, 'http://x').searchParams
+    // Same loopback rule as /memory/status: links and iframes carry no Origin.
+    if (!origin && !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)) {
+      res.writeHead(403, cors)
+      return res.end('forbidden')
+    }
+    try {
+      const file = await resolveFile(query.get('path') ?? '')
+      if (file.info.size > MAX_FILE_BYTES) {
+        res.writeHead(413, cors)
+        return res.end('too large')
+      }
+      res.writeHead(200, { ...cors, ...fileHeaders(file.parts.join('/'), file.info.size, query.get('download') === '1') })
+      const stream = createReadStream(file.real)
+      stream.on('error', () => res.destroy())
+      return stream.pipe(res)
     } catch {
       res.writeHead(404, cors)
       return res.end('not found')
@@ -1215,7 +1278,7 @@ wss.on('connection', (socket, req) => {
     ? 'storage_error' : checkpoint.restored ? 'restored' : checkpoint.unavailable ? 'unavailable' : 'new' }))
   console.log(`[jarvis] client connected (${theme})`)
   const workingDirectory = sessionWorkspace(checkpoint.id)
-  const projectRoots = [WORK_DIR, homedir(), ...(process.env.JARVIS_PROJECT_ROOTS ?? '').split(',').map((root) => root.trim()).filter(Boolean)]
+  const projectRoots = [WORK_DIR, join(homedir(), 'Projects'), ...(process.env.JARVIS_PROJECT_ROOTS ?? '').split(',').map((root) => root.trim()).filter(Boolean)]
   const systemPrompt = `${systemPromptFor(theme)}\n\n${outputGuide(workingDirectory)}`
   const memoryAtStart = memoryContext(memorySnapshot())
   let claudePrimed = saved.claudePrimed
@@ -1953,6 +2016,10 @@ wss.on('connection', (socket, req) => {
     }
     if (msg.type === 'report_request') {
       void handleReportRequest(msg, agentApi, send)
+      return
+    }
+    if (msg.type === 'files_request') {
+      void handleFilesRequest(msg, { api: agentApi, allowWrites: ALLOW_WRITES, send })
       return
     }
 

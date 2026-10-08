@@ -1,9 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { load, parse } from './loose-ends.mjs'
+import { close, load, parse } from './loose-ends.mjs'
 
 const LEDGER = `# Loose Ends
 
@@ -22,6 +22,7 @@ test('parses status, date, project, action and state', () => {
   const items = parse(LEDGER)
   assert.equal(items.length, 4)
   assert.deepEqual(items[0], {
+    line: 4,
     date: '2026-10-06',
     project: 'UnifiGuard',
     action: 'push commit 115c883',
@@ -43,7 +44,7 @@ test('falls back to the heading when a line names no project', () => {
 
 test('reads a bare line with no box and no date', () => {
   const items = parse('- push the branch\n')
-  assert.deepEqual(items, [{ date: null, project: null, action: 'push the branch', state: null, status: 'open' }])
+  assert.deepEqual(items, [{ line: 0, date: null, project: null, action: 'push the branch', state: null, status: 'open' }])
 })
 
 test('drops lines it cannot read rather than throwing', () => {
@@ -65,4 +66,29 @@ test('counts only unfinished items as open', () => {
 test('a missing ledger means nothing outstanding, not an error', () => {
   const ledger = load(join(tmpdir(), 'loose-ends-absent-' + Date.now(), 'x.md'))
   assert.deepEqual(ledger, { items: [], open: 0, missing: true })
+})
+
+test('closes the selected open item in the markdown ledger', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'loose-close-'))
+  const file = join(dir, 'loose-ends.md')
+  writeFileSync(file, LEDGER)
+  const item = load(file).items[0]
+
+  const result = close(file, item)
+
+  assert.equal(result.open, 2)
+  assert.equal(result.items[0].status, 'done')
+  assert.match(readFileSync(file, 'utf8'), /- \[x\] 2026-10-06 · UnifiGuard · push commit 115c883/)
+  assert.match(readFileSync(file, 'utf8'), /- \[~\] 2026-10-05 · UnifiGuard · tag a release/)
+})
+
+test('refuses to close an entry if its ledger line has changed', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'loose-stale-'))
+  const file = join(dir, 'loose-ends.md')
+  writeFileSync(file, LEDGER)
+  const item = load(file).items[0]
+  writeFileSync(file, LEDGER.replace('push commit 115c883', 'push commit 9abc'))
+
+  assert.equal(close(file, item), null)
+  assert.match(readFileSync(file, 'utf8'), /- \[ \] 2026-10-06 · UnifiGuard · push commit 9abc/)
 })

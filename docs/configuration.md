@@ -1,12 +1,31 @@
 # Configuration Reference
 
-This is the canonical list of supported settings. `.env.example` is a copyable
-template; this page explains the behavior and trade-offs.
+This is the canonical list of supported settings. `config.example.toml` is the
+template for non-secret settings and `.env.example` the template for
+credentials; this page explains the behavior and trade-offs.
 
-The bridge loads `.env.local` and `~/.config/jarvis/secrets.env`. Values already
-present in the process environment take precedence. Vite also reads `.env.local`
-and exposes only `VITE_*` names to frontend code. Treat every `VITE_*` value as
-public: it is compiled into browser JavaScript.
+Settings live in two files. `~/.config/jarvis/config.toml` holds every
+non-secret setting; `~/.config/jarvis/secrets.env` holds API keys and tokens
+(`chmod 600`; the bridge warns otherwise). See `config.example.toml`. In
+`config.toml`, `[frontend]` keys become the `VITE_*` variables below and are
+compiled into the browser bundle, while `[bridge]` keys become the `JARVIS_*`
+(and `OPENAI_MODEL`, `PORT`, ...) variables and stay server-side. Keys are the
+lower-case names listed in `bridge/settings.mjs`; credential-looking or unknown
+keys are ignored with a warning. `JARVIS_CONFIG_FILE` overrides the path.
+
+Precedence, highest first: process environment, `secrets.env`, `config.toml`,
+legacy `.env.local` (still read, deprecated). Migrate an existing setup with
+`node scripts/migrate-config.mjs --retire`. Vite exposes only `VITE_*` names to
+frontend code; treat every `VITE_*` value as public.
+
+Each variable named below has a `config.toml` key: `[frontend]` takes
+`theme`, `backend`, `bridge_url`, `tts_engine`, `kokoro_voice`, `use_elevenlabs`,
+`elevenlabs_voice_id`, `model`, `fast_mode` (the last two apply to direct mode)
+and `[[frontend.mcp_servers]]` (see below); `[bridge]` takes the variable name
+without its `JARVIS_` prefix in lower case (`JARVIS_ALLOWED_ORIGINS` is
+`allowed_origins`), plus `openai_model`, `openai_transcribe_model`,
+`auto_compact_window`, `face_port` (`PORT`) and `bridge_port`. Credentials stay
+in `secrets.env`.
 
 When installed as services with `scripts/install.sh`, both systemd units also
 load `~/.config/jarvis/secrets.env` and then `~/.config/jarvis/service.env`
@@ -100,6 +119,17 @@ These settings are read only by the browser-direct configuration. Every token
 or credential-bearing URL becomes visible in the built JavaScript and browser
 developer tools. Use them only for a private local demo; bridge mode with MCP
 servers configured in Claude Code is the secure default.
+
+To add a direct-mode server without editing code, add an entry to
+`config.toml`; `token_env` names a `VITE_*` variable in `secrets.env`, and an
+entry with a built-in's name replaces that built-in:
+
+```toml
+[[frontend.mcp_servers]]
+name = "docs"
+url = "https://mcp.example.com/mcp"
+token_env = "VITE_DOCS_TOKEN"
+```
 
 | Variable | Enables | Notes |
 |---|---|---|

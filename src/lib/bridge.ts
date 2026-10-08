@@ -217,7 +217,11 @@ export function goalRequest(request: { goalId: string; info: string; resume: boo
   return commandRequest('goal', request, 'agent board')
 }
 
-export function goalControlRequest(request: { goalId: string; action: 'pause' | 'resume' | 'abandon' }): Promise<{ id: string; status: string }> {
+/** What the service reports back once a goal and its task history are gone. */
+export type GoalErased = { id: string; deleted: true; tasks: number }
+export function goalControlRequest(request: { goalId: string; action: 'pause' | 'resume' | 'abandon' }): Promise<{ id: string; status: string }>
+export function goalControlRequest(request: { goalId: string; action: 'erase' }): Promise<GoalErased>
+export function goalControlRequest(request: { goalId: string; action: 'pause' | 'resume' | 'abandon' | 'erase' }): Promise<{ id: string; status: string } | GoalErased> {
   return commandRequest('goal_control', request, 'agent board')
 }
 
@@ -229,6 +233,13 @@ export function goalDecisionRequest(request: { goalId: string; decision: 'approv
   return commandRequest('goal_decision', request, 'agent approval decision')
 }
 
+export type WorkFile = { path: string; size: number; modified: string; scope: string; owner: string; task: string | null; preview: 'text' | 'image' | 'pdf' | null }
+export function filesRequest(request: { action: 'list' }): Promise<{ files: WorkFile[]; truncated: boolean; canDelete: boolean }>
+export function filesRequest(request: { action: 'delete'; path: string }): Promise<{ path: string; deleted: true }>
+export function filesRequest(request: { action: 'list' | 'delete'; path?: string }): Promise<{ files: WorkFile[]; truncated: boolean; canDelete: boolean } | { path: string; deleted: true }> {
+  return commandRequest('files', request, 'files')
+}
+
 export type TaskReports = { result: unknown; failure: unknown; files: string[] }
 export function reportRequest(request: { action: 'history' }): Promise<AgentBoardData>
 export function reportRequest(request: { action: 'task'; taskId: string; file?: string }): Promise<TaskReports | { file: string; content: string }>
@@ -237,7 +248,7 @@ export function reportRequest(request: { action: 'history' | 'task' | 'reference
   return commandRequest('report', request, 'agent reports')
 }
 
-function commandRequest<Result>(kind: 'schedule' | 'goal' | 'goal_control' | 'decision' | 'goal_decision' | 'report' | 'profile', request: object, surface: string): Promise<Result> {
+function commandRequest<Result>(kind: 'schedule' | 'goal' | 'goal_control' | 'decision' | 'goal_decision' | 'report' | 'profile' | 'files', request: object, surface: string): Promise<Result> {
   const ws = socket
   if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error(`The bridge is disconnected. Reconnect before changing ${surface}.`))
   const requestId = `${kind}-${Date.now()}-${++scheduleRequestSeq}`

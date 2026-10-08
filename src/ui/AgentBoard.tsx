@@ -4,7 +4,7 @@ import { ArrowUpRight, Download, Eye, FileText, Pause, Pencil, Play, Plus, Refre
 import { useStore } from '../store'
 import { decideApproval } from '../lib/brain'
 import { decisionRequest, goalControlRequest, goalDecisionRequest, goalRequest, profileRequest, reportRequest, scheduleRequest, type TaskReports } from '../lib/bridge'
-import { ago, agentSummary, capacityLine, mainTaskRows, mergeBoard, mergeBoardData, statusLabel, type AgentBoardData, type AgentDecisionQuestion, type AgentProfile, type AgentProfileInput, type AgentReference, type BoardAgent } from '../lib/board'
+import { ago, agentSummary, capacityLine, deleteBlockReason, mainTaskRows, mergeBoard, mergeBoardData, stateGroup, statusLabel, type AgentBoardData, type AgentDecisionQuestion, type AgentProfile, type AgentProfileInput, type AgentReference, type BoardAgent } from '../lib/board'
 import { reportDocumentHtml } from '../lib/report-document'
 import { localDateTime, onceFromLocal, type ScheduleTrigger } from '../lib/schedules'
 
@@ -571,11 +571,32 @@ export function AgentBoard() {
     finally { setProfileBusy(false) }
   }
 
-  const stateGroup = (row: BoardAgent) =>
-    row.status === 'blocked' || row.status === 'awaiting_approval' ? 'waiting'
-      : row.status === 'paused' ? 'paused'
-        : ['active', 'running', 'queued'].includes(row.status) ? 'working' : 'idle'
+  /**
+   * Delete an idle agent for good: its record, its tasks and everything they
+   * saved. The service owns the rule about what may go — this only refuses
+   * early, asks once, and then hands the selection on to the next row so the
+   * detail pane is never left describing something that no longer exists.
+   */
+  async function deleteAgent(row: BoardAgent) {
+    if (!online) return
+    const blocked = deleteBlockReason(row)
+    if (blocked) { setError(blocked); return }
+    if (!window.confirm(`Delete “${row.name}” permanently?\n\nThis removes the agent and its task history, results and saved reports. It cannot be undone.`)) return
+    const neighbour = rosterRows.filter((entry) => entry.id !== row.id && entry.kind !== 'subagent')
+    const next = neighbour[Math.min(rosterRows.findIndex((entry) => entry.id === row.id), neighbour.length - 1)]
+    setProfileBusy(true)
+    setError('')
+    try {
+      await goalControlRequest({ goalId: row.id, action: 'erase' })
+      setSelectedId(next?.id ?? '')
+      setPendingSelectionId(next?.id ?? '')
+      setRevision((value) => value + 1)
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    finally { setProfileBusy(false) }
+  }
+
   const rosterRows = [...filtered, ...sessionRows]
+  const deleteBlock = deleteBlockReason(selected)
   const groups = [
     { label: 'Waiting', key: 'waiting', rows: rosterRows.filter((row) => stateGroup(row) === 'waiting') },
     { label: 'Working', key: 'working', rows: rosterRows.filter((row) => stateGroup(row) === 'working') },
@@ -634,7 +655,10 @@ export function AgentBoard() {
           <main className="ab-detail" aria-live="polite">
             {!selected ? <p className="ab-empty">Select an agent to see details.</p> : <>
               <div className="ab-detail-head"><div><p className="ab-kicker">{KIND_LABEL[selected.kind]}{selected.goal && selected.kind === 'task' ? ` · ${selected.goal}` : ''}</p><h2>{selected.name}</h2><span className={`ab-chip ab-chip-${selected.status}`}>{statusLabel(selected.status)}</span></div>
-                {selected.kind === 'goal' && selectedLiveGoal && ['active', 'paused'].includes(selectedLiveGoal.status) && view === 'agents' && <div className="ab-actions">{selectedLiveGoal.status === 'paused' ? <button type="button" disabled={!online || profileBusy} onClick={() => void changeGoal('resume')}><Play size={15} aria-hidden="true" />Resume</button> : <button type="button" disabled={!online || profileBusy} onClick={() => void changeGoal('pause')}><Pause size={15} aria-hidden="true" />Pause</button>}<button type="button" disabled={!online || profileBusy} onClick={() => void changeGoal('abandon')}>Stop</button></div>}
+                {selected.kind === 'goal' && view === 'agents' && <div className="ab-actions">
+                  {selectedLiveGoal && ['active', 'paused'].includes(selectedLiveGoal.status) && <>{selectedLiveGoal.status === 'paused' ? <button type="button" disabled={!online || profileBusy} onClick={() => void changeGoal('resume')}><Play size={15} aria-hidden="true" />Resume</button> : <button type="button" disabled={!online || profileBusy} onClick={() => void changeGoal('pause')}><Pause size={15} aria-hidden="true" />Pause</button>}<button type="button" disabled={!online || profileBusy} onClick={() => void changeGoal('abandon')}>Stop</button></>}
+                  <button type="button" title={deleteBlock ?? `Delete “${selected.name}” and its history permanently`} aria-label={deleteBlock ?? `Delete “${selected.name}” and its history permanently`} disabled={!online || profileBusy || deleteBlock !== null} onClick={() => void deleteAgent(selected)}><Trash2 size={15} aria-hidden="true" />Delete</button>
+                </div>}
               </div>
               {selected.kind === 'goal' && <>
                 {selected.brief && <p className="ab-goal-outcome">{selected.brief}</p>}

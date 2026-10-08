@@ -163,6 +163,7 @@ function port(value, fallback) {
 }
 
 export async function startProduction() {
+  await import('../bridge/env.mjs')
   const facePort = port(process.env.PORT, 5173)
   const bridgePort = port(process.env.JARVIS_BRIDGE_PORT, 8787)
   const host = process.env.JARVIS_HOST || '127.0.0.1'

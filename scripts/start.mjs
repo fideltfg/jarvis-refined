@@ -13,6 +13,7 @@
 import { spawn } from 'node:child_process'
 import process from 'node:process'
 import { cpSync, existsSync, mkdirSync } from 'node:fs'
+import '../bridge/env.mjs'
 
 /**
  * Put MediaPipe's WebAssembly where the page can actually load it.

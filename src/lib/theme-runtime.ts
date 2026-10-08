@@ -237,7 +237,7 @@ const STORAGE_KEY = 'jarvis.theme'
  * Which theme to run.
  *
  * `?theme=hal` wins and sticks, so a dropped-in folder can be tried without
- * editing .env.local and without losing it on the next reload. VITE_THEME is
+ * editing config.toml and without losing it on the next reload. VITE_THEME is
  * the configured default underneath that.
  */
 function requestedId(): string | null {

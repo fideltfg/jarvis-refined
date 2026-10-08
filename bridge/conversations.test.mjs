@@ -135,7 +135,7 @@ test('the real bridge resumes after restart and falls back to dialogue if the na
             history.push(input.message.content);
             writeFileSync(pathFor(id), JSON.stringify(history));
             const gate = options.hooks.PreToolUse[0].hooks[0];
-            const denied = await gate({ tool_name: 'Write', tool_input: { file_path: join(process.env.HOME, 'loose-report.md') } });
+            const denied = await gate({ tool_name: 'Write', tool_input: { file_path: join(process.env.HOME, '..', 'loose-report.md') } });
             const delegated = await gate({ tool_name: 'Agent', tool_input: { prompt: 'Research a topic.' } });
             const answer = JSON.stringify({ resume: options.resume || null, history, cwd: options.cwd, tmp: options.env.TMPDIR,
               denied: denied.hookSpecificOutput.permissionDecision,
@@ -167,6 +167,7 @@ test('the real bridge resumes after restart and falls back to dialogue if the na
       await import(${JSON.stringify(serverUrl)});
     `
     let child
+    let bridgeOutput = ''
     const clients = []
     const stop = async () => {
       if (!child || child.exitCode !== null) return
@@ -185,9 +186,10 @@ test('the real bridge resumes after restart and falls back to dialogue if the na
         const timer = setTimeout(() => reject(new Error(`Bridge startup timed out: ${output}`)), 10_000)
         child.stdout.on('data', (chunk) => {
           output += chunk
+          bridgeOutput += chunk
           if (output.includes('bridge listening')) { clearTimeout(timer); resolve() }
         })
-        child.stderr.on('data', (chunk) => { output += chunk })
+        child.stderr.on('data', (chunk) => { output += chunk; bridgeOutput += chunk })
         child.once('exit', (code) => { clearTimeout(timer); reject(new Error(`Bridge exited ${code}: ${output}`)) })
       })
     }
@@ -203,7 +205,11 @@ test('the real bridge resumes after restart and falls back to dialogue if the na
       })
       socket.on('error', () => {})
       const wait = (predicate) => new Promise((resolve, reject) => {
-        const timer = setTimeout(() => { listeners.delete(check); reject(new Error('Bridge frame timed out')) }, 5000)
+        const timer = setTimeout(() => {
+          listeners.delete(check)
+          const received = frames.map((frame) => frame.type + (frame.ask ? `:${frame.ask}` : '')).join(', ')
+          reject(new Error(`Bridge frame timed out; received: ${received || 'none'}; bridge: ${bridgeOutput.trim() || 'no output'}`))
+        }, 5000)
         const check = () => {
           const index = frames.findIndex(predicate)
           if (index === -1) return

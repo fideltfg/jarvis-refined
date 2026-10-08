@@ -60,5 +60,5 @@
 - Services that do not start after a reboot usually mean linger is off:
   `loginctl show-user $USER -p Linger` should print `Linger=yes`.
 - Settings changed in the unit files are replaced on the next install; put them
-  in `~/.config/jarvis/service.env` instead. Previous copies are in
+  in `~/.config/jarvis/config.toml` instead. Previous copies are in
   `~/.config/jarvis/backups/`.

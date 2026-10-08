@@ -11,6 +11,38 @@ Security. When work is committed, move its entries under a dated heading.
 
 ### Added
 
+- One settings file, `~/.config/jarvis/config.toml`, holds every non-secret
+  setting in `[frontend]` (compiled into the browser) and `[bridge]` sections;
+  credentials stay in `~/.config/jarvis/secrets.env`. Credential-looking or
+  unknown keys in `config.toml` are ignored with a warning. `.env.local` still
+  loads as the lowest-priority fallback. Migrate with
+  `node scripts/migrate-config.mjs [--retire]`; see `config.example.toml`.
+  `scripts/install.sh` and the Windows provisioning now write `config.toml`
+  instead of `service.env` (an existing `service.env` is migrated), the
+  launchers load it, `.env.example` is now the secrets template, and the
+  direct-mode `model`, `fast_mode` and extra MCP servers
+  (`[[frontend.mcp_servers]]`) are configurable there.
+- The LCARS Loose ends list can manually close an entry and persist the change
+  to the local ledger.
+
+### Changed
+
+- Agent tasks and chat sessions can no longer write generated files anywhere in
+  the home folder. Writes outside `~/.jarvis-work` are limited to `~/Projects`
+  (plus `JARVIS_PROJECT_ROOTS`); other home paths now need approval for agent
+  shell commands and are refused for file tools. Restart the bridge and
+  `jarvis-agents` to apply it.
+
+### Added
+
+- A themed file browser (Files button, Shift+F, command palette) lists the files
+  agents have written under `~/.jarvis-work/goals/*/tasks`, with in-panel
+  preview of text, images and PDF, download, and deletion. Deleting requires
+  writes to be enabled and is refused for files of queued or running tasks.
+  The `sessions` folder, hidden files and folders, and `node_modules` are never
+  listed or served, nor reachable through symlinks; HTML and SVG preview as
+  plain text. Restart the bridge to enable it.
+
 - The agent board now has searchable task history and expandable full results,
   saved text report previews, refresh controls and report downloads, including
   older completed or archived tasks. Report reads stay inside each task's report

@@ -13,6 +13,7 @@ import { usingBridge } from '../../../src/lib/brain'
  */
 
 type Item = {
+  line: number
   date: string | null
   project: string | null
   action: string
@@ -29,6 +30,7 @@ function LooseEnds({ onClose }: { onClose: () => void }) {
   const [ledger, setLedger] = useState<Ledger | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [closing, setClosing] = useState<number | null>(null)
 
   const read = useCallback((signal?: AbortSignal) => {
     setLoading(true)
@@ -41,6 +43,24 @@ function LooseEnds({ onClose }: { onClose: () => void }) {
       .catch(() => { if (!signal?.aborted) setError('Could not read the loose-ends ledger.') })
       .finally(() => { if (!signal?.aborted) setLoading(false) })
   }, [])
+
+  const closeItem = async (item: Item) => {
+    setClosing(item.line)
+    setError('')
+    try {
+      const response = await fetch(`${BRIDGE_HTTP_URL}/memory/loose-ends/close`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ item }),
+      })
+      if (!response.ok) throw new Error('Could not close this entry. Refresh the ledger and try again.')
+      setLedger(await response.json() as Ledger)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not close this entry.')
+    } finally {
+      setClosing(null)
+    }
+  }
 
   useEffect(() => {
     if (!usingBridge) { setLoading(false); return }
@@ -63,7 +83,7 @@ function LooseEnds({ onClose }: { onClose: () => void }) {
         </div>
         <div className="lcars-loose-head-right">
           {ledger && <span className="lcars-loose-count" data-clear={ledger.open === 0 || undefined}>{String(ledger.open).padStart(2, '0')} OPEN</span>}
-          <button type="button" className="lcars-loose-refresh" onClick={() => void read()} disabled={loading || !usingBridge}>{loading ? 'READING' : 'REFRESH'}</button>
+          <button type="button" className="lcars-loose-refresh" onClick={() => void read()} disabled={loading || closing !== null || !usingBridge}>{loading ? 'READING' : 'REFRESH'}</button>
         </div>
       </header>
       {!usingBridge ? <p className="lcars-loose-empty">The ledger requires the local bridge.</p>
@@ -72,7 +92,7 @@ function LooseEnds({ onClose }: { onClose: () => void }) {
             : ledger.missing || !items.length ? <p className="lcars-loose-empty">Nothing outstanding. No incomplete work recorded.</p>
               : <ul className="lcars-loose-list">
                 {items.map((item, index) => (
-                  <li key={`${index}-${item.action}`} className="lcars-loose-row" data-status={item.status}>
+                  <li key={item.line} className="lcars-loose-row" data-status={item.status}>
                     <span className="lcars-loose-idx">{String(index + 1).padStart(2, '0')}</span>
                     <div className="lcars-loose-main">
                       <strong>{item.action}</strong>
@@ -84,6 +104,7 @@ function LooseEnds({ onClose }: { onClose: () => void }) {
                       <b>{LABEL[item.status]}</b>
                       {item.date && <i>{item.date}</i>}
                     </span>
+                    {item.status !== 'done' && <button type="button" className="lcars-loose-close" onClick={() => void closeItem(item)} disabled={closing !== null} aria-label={`Close ${item.action}`} title="Mark this loose end as closed">{closing === item.line ? 'SAVING' : 'CLOSE'}</button>}
                   </li>
                 ))}
               </ul>}

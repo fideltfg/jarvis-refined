@@ -145,6 +145,27 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
       })
     },
 
+    /** Where a goal's tasks keep their workspaces and saved output. */
+    goalOutputDir: (goalId) => join(workDir, 'goals', goalId),
+
+    /**
+     * Erase a finished goal: its record, its tasks and their approvals. The
+     * caller removes the workspaces first, because a code task's worktree has
+     * to be released through git rather than unlinked. Returns what went, so
+     * the caller can say so; null when the goal is already gone.
+     */
+    deleteGoal(id) {
+      const goal = get('goals', id)
+      if (!goal) return null
+      const tasks = list('tasks').filter((task) => task.goalId === id)
+      const taskIds = new Set(tasks.map((task) => task.id))
+      const approvals = list('approvals').filter((approval) => taskIds.has(approval.taskId))
+      for (const approval of approvals) unlinkSync(join(dirs.approvals, `${approval.id}.json`))
+      for (const task of tasks) unlinkSync(join(dirs.tasks, `${task.id}.json`))
+      unlinkSync(join(dirs.goals, `${id}.json`))
+      return { goal, tasks, approvals: approvals.length }
+    },
+
     newTask({ goalId, title, brief, kind = 'research', dependsOn = [], model = 'sonnet', repo = null, allowedSkills = [] }) {
       if (!KINDS.includes(kind)) throw new Error(`Unknown task kind "${kind}".`)
       const id = newId('t')

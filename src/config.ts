@@ -1,7 +1,8 @@
 /**
  * JARVIS configuration.
  *
- * Everything here is read from Vite env vars (.env.local) so no secrets are
+ * Everything here is read from Vite env vars, which come from the [frontend]
+ * section of ~/.config/jarvis/config.toml (and credentials from secrets.env), so no secrets are
  * committed. See .env.example for the full list.
  */
 
@@ -172,15 +173,17 @@ export const env = {
 }
 
 /** `claude-opus-5` is the strongest model; `claude-sonnet-5` trades a little
- *  quality for lower latency if you find responses feel slow on camera. */
-export const MODEL = 'claude-opus-5'
+ *  quality for lower latency if you find responses feel slow on camera.
+ *  Set `model` in the [frontend] section of config.toml to change it. */
+export const MODEL = str(import.meta.env.VITE_MODEL) ?? 'claude-opus-5'
 
 /**
  * Fast mode runs the same Opus 5 at up to 2.5x output speed. It is a research
  * preview on the Claude API and costs $10/$50 per Mtok instead of $5/$25.
- * For a recorded demo the snappiness is worth it; flip to false to save money.
+ * For a recorded demo the snappiness is worth it; set `fast_mode = false` in
+ * config.toml to save money.
  */
-export const FAST_MODE = true
+export const FAST_MODE = flag('VITE_FAST_MODE', import.meta.env.VITE_FAST_MODE, true)
 
 /**
  * Wake-word engine.
@@ -211,6 +214,48 @@ export type McpServer = {
 }
 
 /**
+ * Extra servers from `[[frontend.mcp_servers]]` in config.toml, delivered as
+ * VITE_MCP_SERVERS. Each entry is { name, url, label?, token_env?, enabled? };
+ * token_env names a VITE_* variable (e.g. in secrets.env) so the token itself
+ * never sits in config.toml. A server with the same name as a built-in replaces it.
+ */
+function configuredServers(): McpServer[] {
+  const raw = str(import.meta.env.VITE_MCP_SERVERS)
+  if (!raw) return []
+  try {
+    const list: unknown = JSON.parse(raw)
+    if (!Array.isArray(list)) throw new Error('expected an array')
+    return list.flatMap((item): McpServer[] => {
+      const entry = item as Record<string, unknown>
+      const name = str(entry?.name)
+      const url = str(entry?.url)
+      if (!name || !url) {
+        console.warn('[jarvis] mcp_servers entry needs a name and url:', item)
+        return []
+      }
+      const tokenEnv = str(entry.token_env)
+      const token = tokenEnv?.startsWith('VITE_') ? str(import.meta.env[tokenEnv]) : undefined
+      return [{
+        name,
+        label: str(entry.label) ?? name,
+        url,
+        token,
+        enabled: entry.enabled !== false && (!tokenEnv || Boolean(token)),
+      }]
+    })
+  } catch (error) {
+    console.warn('[jarvis] VITE_MCP_SERVERS is not valid:', error)
+    return []
+  }
+}
+
+function mergeServers(builtIn: McpServer[]): McpServer[] {
+  const custom = configuredServers()
+  const names = new Set(custom.map((server) => server.name))
+  return [...builtIn.filter((server) => !names.has(server.name)), ...custom]
+}
+
+/**
  * These are passed to the Messages API `mcp_servers` parameter. Anthropic dials
  * the servers itself, so there is no CORS to fight and no local bridge to run —
  * which is what makes a backend-free JARVIS possible.
@@ -230,7 +275,7 @@ export type McpServer = {
  * your machine — so if you want these integrations without the exposure, run
  * `npm run bridge` instead of filling in this block.
  */
-export const MCP_SERVERS: McpServer[] = [
+export const MCP_SERVERS: McpServer[] = mergeServers([
   // The single highest-leverage integration: one URL, ~8,000 apps, managed
   // OAuth. Wire up Gmail, Google Calendar, Spotify, Slack, Notion and Sheets in
   // the Zapier dashboard and they all arrive through this one endpoint.
@@ -302,7 +347,7 @@ export const MCP_SERVERS: McpServer[] = [
         str(import.meta.env.VITE_HOMEASSISTANT_TOKEN),
     ),
   },
-]
+])
 
 export const activeServers = () => MCP_SERVERS.filter((s) => s.enabled && s.url)
 

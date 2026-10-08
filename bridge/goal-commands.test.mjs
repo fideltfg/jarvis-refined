@@ -131,3 +131,54 @@ test('attention replies reject invalid input, completed goals, offline and disab
   await handleGoalRequest({ ...message, requestId: '' }, api, send)
   assert.equal(replies.length, count)
 })
+test('erase reaches finished goals through history and is refused for live ones', async () => {
+  const replies = []
+  const calls = []
+  const boards = []
+  let status = 'active'
+  const api = {
+    board: async (options) => { boards.push(options); return { goals: status === 'gone' ? [] : [{ id: 'g_123', status }] } },
+    updateGoal: async (id, change) => {
+      calls.push({ id, change })
+      if (change.action === 'erase') { status = 'gone'; return { id, deleted: true, tasks: 3 } }
+      status = 'abandoned'
+      return { id, status }
+    },
+  }
+  const send = (reply) => replies.push(reply)
+  const erase = { type: 'goal_control_request', requestId: 'erase', goalId: 'g_123', action: 'erase' }
+
+  // Active work is the service's to stop first; the relay will not pass it on.
+  await handleGoalControlRequest(erase, api, send)
+  assert.match(replies.at(-1).error, /finished or been stopped/)
+  assert.equal(calls.length, 0)
+
+  status = 'paused'
+  await handleGoalControlRequest(erase, api, send)
+  assert.match(replies.at(-1).error, /finished or been stopped/)
+  assert.equal(calls.length, 0)
+
+  // Done or abandoned: allowed, and looked up with history on, because the
+  // live board has already dropped the goal.
+  status = 'done'
+  await handleGoalControlRequest(erase, api, send)
+  assert.deepEqual(calls, [{ id: 'g_123', change: { action: 'erase' } }])
+  assert.deepEqual(boards.at(-1), { history: true })
+  assert.deepEqual(replies.at(-1), { type: 'goal_control_reply', requestId: 'erase', result: { id: 'g_123', deleted: true, tasks: 3 } })
+
+  // Already gone: refused rather than retried.
+  await handleGoalControlRequest(erase, api, send)
+  assert.match(replies.at(-1).error, /finished or been stopped/)
+  assert.equal(calls.length, 1)
+
+  // A live control still reads the live board, not the history.
+  status = 'active'
+  await handleGoalControlRequest({ type: 'goal_control_request', requestId: 'stop', goalId: 'g_123', action: 'abandon' }, api, send)
+  assert.equal(boards.at(-1), undefined)
+  assert.equal(replies.at(-1).result.status, 'abandoned')
+
+  await handleGoalControlRequest({ ...erase, action: 'delete' }, api, send)
+  assert.ok(replies.at(-1).error)
+  await handleGoalControlRequest(erase, null, send)
+  assert.match(replies.at(-1).error, /disabled/)
+})

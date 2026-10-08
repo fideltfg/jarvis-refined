@@ -3,6 +3,8 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
+// Loads config.toml and secrets.env into process.env before the config below reads it.
+import './bridge/env.mjs'
 
 /**
  * Publish the list of installed themes at /themes/index.json.
