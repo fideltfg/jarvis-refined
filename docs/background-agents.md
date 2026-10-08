@@ -225,6 +225,23 @@ The service exposes authenticated `GET /profiles`, `POST /profiles`,
 `POST /profiles/:id` (edit or delete), and `POST /profiles/:id/run`; browser
 requests pass through the bridge, which keeps the service token private.
 
+### Skills on a profile
+
+The editor's **Skills** list shows the skills installed under
+`~/.claude/skills` (one directory per skill, each holding a `SKILL.md`), and a
+profile may select any number of them. Editing a profile pre-ticks what it
+already chose. A profile records skills by name — the skill's directory name,
+which is what the `Skill` tool itself takes — never by path, so a saved profile
+survives moving or re-creating `~/.claude`. Profiles saved before this existed
+load with nothing selected.
+
+Choosing a name this machine has not installed is refused when you save, and the
+message names the offending skill. If a selected skill is later uninstalled, the
+profile still loads and stays editable: the name is kept and shown as
+**(missing)**, and only unticking it removes it. The authenticated `GET /skills`
+route lists what is installed as ids, names and descriptions; the directory each
+skill came from stays on the machine and is never sent to the browser.
+
 When a worker is blocked on a decision, it must provide at least one validated
 multiple-choice question. The choices appear on the task detail; submitting
 answers sends them to the coordinator and does not bypass approval gates. Open

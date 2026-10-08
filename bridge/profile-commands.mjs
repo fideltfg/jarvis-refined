@@ -4,6 +4,7 @@ import { profileChanges, profileInput } from '../agents/profiles.mjs'
 const identifier = z.string().regex(/^p_[a-z0-9]+$/).max(100)
 const request = z.discriminatedUnion('action', [
   z.object({ action: z.literal('list') }),
+  z.object({ action: z.literal('skills') }),
   z.object({ action: z.literal('create'), profile: profileInput }),
   z.object({ action: z.literal('update'), profileId: identifier, changes: profileChanges }),
   z.object({ action: z.literal('delete'), profileId: identifier }),
@@ -19,6 +20,9 @@ export async function handleProfileRequest(message, api, send) {
     const parsed = request.parse(message)
     let result
     if (parsed.action === 'list') result = await api.profiles()
+    // An older agent service has no /skills route; an empty list is the honest
+    // answer there, and leaves the picker showing nothing rather than an error.
+    else if (parsed.action === 'skills') result = api.skills ? await api.skills() : []
     else if (parsed.action === 'create') result = await api.createProfile(parsed.profile)
     else if (parsed.action === 'update') result = await api.updateProfile(parsed.profileId, parsed.changes)
     else if (parsed.action === 'delete') result = await api.deleteProfile(parsed.profileId)

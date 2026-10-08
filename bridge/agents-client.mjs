@@ -63,6 +63,7 @@ export function agentsApi({
     decide: (id, decision, note) => call('POST', `/approvals/${at(id)}`, { decision, note }),
     cleanup: () => call('POST', '/cleanup'),
     schedules: () => call('GET', '/schedules'),
+    skills: () => call('GET', '/skills'),
     profiles: () => call('GET', '/profiles'),
     createProfile: (profile) => call('POST', '/profiles', profile),
     updateProfile: (id, change) => call('POST', `/profiles/${at(id)}`, change),

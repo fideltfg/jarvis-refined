@@ -51,6 +51,56 @@ test('the delete button in the UI is disabled whenever the row is blocked, so an
   assert.match(source, /const deleteBlock = deleteBlockReason\(selected\)/)
 })
 
+const profileEditorBody = source.match(/function ProfileEditor\(\{ profile[\s\S]*?\n\}/)?.[0]
+
+test('the editor opens with the profile’s saved skills already ticked, and with none for a new profile', () => {
+  assert.ok(profileEditorBody, 'ProfileEditor function body must exist')
+  // Initial state comes from the profile being edited, so an edit starts from
+  // what was saved; a create (profile === null) starts from nothing selected.
+  assert.match(profileEditorBody, /const \[skills, setSkills\] = useState<string\[\]>\(profile\?\.skills \?\? \[\]\)/)
+})
+
+test('the skill picker is a checkbox list that can select and deselect several skills, like the weekday picker', () => {
+  assert.ok(profileEditorBody)
+  const fieldset = profileEditorBody.match(/<fieldset className="ab-weekdays ab-skills">[\s\S]*?<\/fieldset>/)?.[0]
+  assert.ok(fieldset, 'the skills fieldset must exist')
+  assert.match(fieldset, /<legend>Skills<\/legend>/)
+  assert.match(fieldset, /<input type="checkbox" checked=\{skills\.includes\(skill\.id\)\}[\s\S]*?onChange=\{\(event\) => toggleSkill\(skill\.id, event\.target\.checked\)\}/)
+  // Ticking adds and unticking removes, so the control is a real multi-select.
+  assert.match(profileEditorBody, /const toggleSkill = \(skillId: string, on: boolean\) =>/)
+  assert.match(profileEditorBody, /on \? \[\.\.\.previous\.filter\(\(value\) => value !== skillId\), skillId\]\.sort\(\) : previous\.filter\(\(value\) => value !== skillId\)/)
+})
+
+test('the picker offers what is installed, fetched over the same profile channel rather than read from disk in the browser', () => {
+  assert.ok(profileEditorBody)
+  assert.match(profileEditorBody, /profileRequest\(\{ action: 'skills' \}\)/)
+  // A failed lookup leaves an empty list and a visible message, not a blank
+  // fieldset that silently claims nothing is installed.
+  assert.match(profileEditorBody, /\.catch\(\(err: unknown\) => \{ if \(live\) \{ setInstalled\(\[\]\); setSkillsError\(/)
+  assert.match(profileEditorBody, /\{skillsError && <p role="alert">\{skillsError\}<\/p>\}/)
+})
+
+test('a saved skill that is no longer installed stays listed, stays ticked and is marked missing', () => {
+  assert.ok(profileEditorBody)
+  const choices = profileEditorBody.match(/const choices = useMemo\(\(\) => \{[\s\S]*?\}, \[installed, skills\]\)/)?.[0]
+  assert.ok(choices, 'the choices memo must exist')
+  // Anything the profile already named but the machine no longer has is added
+  // to the list rather than filtered out, so an unrelated edit cannot drop it.
+  assert.match(choices, /skills\.filter\(\(skillId\) => !known\.has\(skillId\)\)/)
+  assert.match(choices, /missing: true/)
+  // Nothing is called missing before the installed list has arrived.
+  assert.match(choices, /if \(installed === null\) return \[\]/)
+  assert.match(profileEditorBody, /\{skill\.missing \? ' \(missing\)' : ''\}/)
+})
+
+test('saving sends the selection as part of the profile input, so it is persisted with the rest of the profile', () => {
+  assert.ok(profileEditorBody)
+  assert.match(profileEditorBody, /await onSave\(\{ name, role, instructions, skills, schedule \}\)/)
+  // Ids only. A path would carry a home directory into saved state and would
+  // rot the moment the user moved their ~/.claude.
+  assert.doesNotMatch(profileEditorBody, /skill\.(dir|file)/)
+})
+
 test('deleteAgent imports the same deleteBlockReason/stateGroup predicates the board module exports and tests', () => {
   assert.match(source, /import \{[\s\S]*?deleteBlockReason[\s\S]*?\} from '\.\.\/lib\/board'/)
 })

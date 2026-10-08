@@ -3,6 +3,7 @@ import {
 } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
+import { normalizeSkills } from '../bridge/skills.mjs'
 import { BUDGETS, DEFAULT_TASK_CAP, KINDS, WORK_DIR } from './config.mjs'
 import { isTaskModel } from './pool.mjs'
 import { scheduleInput } from './schedules.mjs'
@@ -47,6 +48,9 @@ function readJson(file) {
     return null
   }
 }
+
+/** Fields a profile file may predate, defaulted on read so no caller has to. */
+const readProfile = (profile) => ({ ...profile, skills: normalizeSkills(profile.skills) })
 
 export function createStore(root, { workDir = WORK_DIR, now = () => new Date() } = {}) {
   const dirs = {
@@ -94,16 +98,22 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
     listSchedules: () => list('schedules'),
     getSchedule: (id) => get('schedules', id),
     saveSchedule: (schedule) => save('schedules', schedule),
-    listProfiles: () => list('profiles'),
-    getProfile: (id) => get('profiles', id),
-    saveProfile: (profile) => save('profiles', profile),
+    // There is no migration step for these files, so the shape a reader needs
+    // is filled in on the way out: a profile saved before skills existed reads
+    // back with an empty selection rather than an absent field.
+    listProfiles: () => list('profiles').map(readProfile),
+    getProfile: (id) => {
+      const profile = get('profiles', id)
+      return profile && readProfile(profile)
+    },
+    saveProfile: (profile) => save('profiles', { ...profile, skills: normalizeSkills(profile.skills) }),
     deleteProfile(id) {
       const path = join(dirs.profiles, `${id}.json`)
       if (!existsSync(path)) return false
       unlinkSync(path)
       return true
     },
-    newProfile({ name, role, instructions, id = newId('p'), schedule = null, scheduleId = null }) {
+    newProfile({ name, role, instructions, skills = [], id = newId('p'), schedule = null, scheduleId = null }) {
       if (!String(name ?? '').trim() || !String(role ?? '').trim() || !String(instructions ?? '').trim()) {
         throw new Error('An agent profile needs a name, role and instructions.')
       }
@@ -113,6 +123,7 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
         name: String(name).trim(),
         role: String(role).trim(),
         instructions: String(instructions).trim(),
+        skills: normalizeSkills(skills),
         schedule,
         scheduleId,
         created: stamp(),

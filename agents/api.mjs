@@ -1,6 +1,7 @@
 import http from 'node:http'
 import https from 'node:https'
 import { isLoopback, TRAVELLING_KINDS } from '../bridge/endpoints.mjs'
+import { listInstalledSkills, unknownSkills } from '../bridge/skills.mjs'
 import { boardOf, briefing } from './briefing.mjs'
 import { BUDGETS } from './config.mjs'
 import { profileChanges, profileInput, profileOutcome } from './profiles.mjs'
@@ -39,7 +40,7 @@ class NotFound extends Error {}
 /** Goal states that are over, and so safe to erase. */
 const ERASABLE = ['done', 'abandoned']
 
-export function createApi({ store, scheduler, coordinator, approvals, cleanup, mirror = {}, pool = null, token, host = '127.0.0.1', port = 0, tls = null }) {
+export function createApi({ store, scheduler, coordinator, approvals, cleanup, mirror = {}, pool = null, installedSkills = listInstalledSkills, token, host = '127.0.0.1', port = 0, tls = null }) {
   if (!token) throw new Error('JARVIS_AGENTS_TOKEN is not set; refusing to start an unauthenticated API.')
   if (!isLoopback(host) && !tls) {
     throw new Error(
@@ -208,8 +209,22 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
     ...(schedule.execution && { execution: schedule.execution }),
   })
 
+  /**
+   * A name the picker never offered is a mistake worth refusing. A name the
+   * profile already carries is not: skills come and go on disk under the
+   * user's hands, and a profile must stay editable after one of them goes.
+   */
+  function checkSkills(skills, kept = []) {
+    if (!skills?.length) return
+    const missing = unknownSkills(skills, { installed: installedSkills() }).filter((id) => !kept.includes(id))
+    if (missing.length) {
+      throw new Error(`No installed skill named ${missing.join(', ')}. Choose from the installed skills, or install it first.`)
+    }
+  }
+
   function createProfile(body) {
     const input = profileInput.parse(body)
+    checkSkills(input.skills)
     if (input.schedule) scheduleInput(scheduleForProfile({ ...input, id: 'p_validation' }, input.schedule), new Date())
     let profile = store.newProfile({ ...input, schedule: input.schedule ?? null })
     try {
@@ -229,6 +244,7 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
     const current = store.getProfile(id)
     if (!current) throw new NotFound('Agent profile not found.')
     const changes = profileChanges.parse(body)
+    if (Object.hasOwn(changes, 'skills')) checkSkills(changes.skills, current.skills ?? [])
     const next = { ...current, ...changes, schedule: Object.hasOwn(changes, 'schedule') ? changes.schedule : current.schedule }
     const profileFieldsChanged = ['name', 'role', 'instructions'].some((key) => Object.hasOwn(changes, key))
     const scheduleChanged = Object.hasOwn(changes, 'schedule') && JSON.stringify(next.schedule) !== JSON.stringify(current.schedule)
@@ -343,6 +359,10 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
           return send(200, { text: briefing(store, url.searchParams.get('goal') || undefined) })
         case 'GET /schedules':
           return send(200, store.listSchedules().filter((schedule) => schedule.status !== 'deleted'))
+        // What a profile may choose from. Names and descriptions only: the
+        // directory each skill came from stays on this machine.
+        case 'GET /skills':
+          return send(200, installedSkills().map(({ id: skillId, name, description }) => ({ id: skillId, name, description })))
         case 'GET /profiles':
           return send(200, store.listProfiles())
         case 'POST /profiles':
