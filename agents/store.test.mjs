@@ -119,3 +119,35 @@ test('slug makes a short branch-safe name', () => {
   assert.equal(slug('Fix the CI pipeline!'), 'fix-the-ci-pipeline')
   assert.equal(slug('***'), 'task')
 })
+
+test('deleting a goal takes its tasks and their approvals and leaves nothing orphaned', () => {
+  const { root, store } = fresh()
+  const goal = store.newGoal({ title: 'Ship it', outcome: 'Released' })
+  const other = store.newGoal({ title: 'Keep it', outcome: 'Kept' })
+  const first = store.newTask({ goalId: goal.id, title: 'Research' })
+  const second = store.newTask({ goalId: goal.id, title: 'Write' })
+  const spared = store.newTask({ goalId: other.id, title: 'Unrelated' })
+  store.newApproval({ taskId: first.id, category: 'shell', action: 'rm', detail: 'remove' })
+  store.newApproval({ taskId: second.id, category: 'shell', action: 'push', detail: 'push' })
+  const sparedApproval = store.newApproval({ taskId: spared.id, category: 'shell', action: 'ls', detail: 'list' })
+
+  const removed = store.deleteGoal(goal.id)
+  assert.equal(removed.goal.id, goal.id)
+  assert.deepEqual(removed.tasks.map((task) => task.id).sort(), [first.id, second.id].sort())
+  assert.equal(removed.approvals, 2)
+  assert.equal(store.getGoal(goal.id), null)
+  assert.deepEqual(store.listTasks({ goalId: goal.id }), [])
+  assert.deepEqual(store.listApprovals().map((approval) => approval.id), [sparedApproval.id])
+  assert.deepEqual(readdirSync(join(root, 'goals')), [`${other.id}.json`])
+  assert.deepEqual(readdirSync(join(root, 'tasks')), [`${spared.id}.json`])
+  assert.deepEqual(store.listGoals().map((entry) => entry.id), [other.id])
+  // A second delete is a no-op rather than a throw, so a double click is safe.
+  assert.equal(store.deleteGoal(goal.id), null)
+})
+
+test('a goal output directory is named under the work dir, not the record root', () => {
+  const { root, store } = fresh({ workDir: '/tmp/work-dir' })
+  const goal = store.newGoal({ title: 'Ship it', outcome: 'Released' })
+  assert.equal(store.goalOutputDir(goal.id), join('/tmp/work-dir', 'goals', goal.id))
+  assert.ok(!store.goalOutputDir(goal.id).startsWith(root))
+})

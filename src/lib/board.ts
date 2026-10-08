@@ -296,6 +296,35 @@ export function capacityLine(capacity: AgentCapacity | null | undefined): string
 
 const goalStatus = (status: string): BoardAgentStatus => status === 'paused' ? 'paused' : status === 'done' ? 'done' : status === 'abandoned' ? 'cancelled' : 'active'
 
+export type BoardStateGroup = 'waiting' | 'working' | 'paused' | 'idle'
+
+/**
+ * Which roster section a row belongs to. "Idle" is the one that matters beyond
+ * layout: it is the board's definition of an agent that has stopped for good —
+ * done, failed, cancelled or interrupted — and so the only one safe to erase.
+ * Everything else is live in some way, including paused work, which is only
+ * resting and still owns a workspace.
+ */
+export const stateGroup = (row: BoardAgent): BoardStateGroup =>
+  row.status === 'blocked' || row.status === 'awaiting_approval' ? 'waiting'
+    : row.status === 'paused' ? 'paused'
+      : ['active', 'running', 'queued'].includes(row.status) ? 'working' : 'idle'
+
+/**
+ * Why this row cannot be deleted, in words the user can act on, or null when it
+ * can. Deletion is only ever offered at goal granularity: a task's records go
+ * with its goal, and a subagent has no stored record to remove at all. The
+ * service re-checks all of this before erasing anything — this is the same rule
+ * stated early, so the board never offers a button that is bound to fail.
+ */
+export function deleteBlockReason(row: BoardAgent | undefined | null): string | null {
+  if (!row) return 'Select an agent first.'
+  if (row.kind === 'subagent') return 'Session subagents keep no saved record; this one clears itself.'
+  if (row.kind === 'task') return 'Tasks are removed with the agent they belong to, not on their own.'
+  if (stateGroup(row) !== 'idle') return `“${row.name}” is still ${statusLabel(row.status)}. Stop it before deleting it.`
+  return null
+}
+
 /** Agents doing work right now, whatever provider carries them. Goals are plans, not agents. */
 export const runningAgents = (rows: BoardAgent[]): BoardAgent[] =>
   rows.filter((row) => row.kind !== 'goal' && row.status === 'running')

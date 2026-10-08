@@ -88,8 +88,11 @@ export async function handleDecisionRequest(message, api, send) {
 
 const goalControl = z.object({
   goalId: z.string().regex(/^g_[a-z0-9]+$/).max(100),
-  action: z.enum(['pause', 'resume', 'abandon']),
+  action: z.enum(['pause', 'resume', 'abandon', 'erase']),
 })
+
+/** A goal that has stopped for good, and so is the board's idea of idle. */
+const ERASABLE = ['done', 'abandoned']
 
 export async function handleGoalControlRequest(message, api, send) {
   if (message.type !== 'goal_control_request') return false
@@ -98,14 +101,22 @@ export async function handleGoalControlRequest(message, api, send) {
   try {
     if (!api) throw new Error('Background agents are disabled.')
     const parsed = goalControl.parse(message)
-    const board = await api.board()
+    // Erase is the one control aimed at a goal the live board has already let
+    // go, so it has to look through the history to find its target at all.
+    const board = await api.board(parsed.action === 'erase' ? { history: true } : undefined)
     const goal = board.goals.find((entry) => entry.id === parsed.goalId)
     const allowed = parsed.action === 'pause' ? goal?.status === 'active'
       : parsed.action === 'resume' ? goal?.status === 'paused'
-        : ['active', 'paused'].includes(goal?.status)
-    if (!allowed) throw new Error('This goal can no longer be changed. Refresh the board before retrying.')
+        : parsed.action === 'erase' ? ERASABLE.includes(goal?.status)
+          : ['active', 'paused'].includes(goal?.status)
+    if (!allowed) {
+      throw new Error(parsed.action === 'erase'
+        ? 'Only an agent that has finished or been stopped can be deleted. Refresh the board before retrying.'
+        : 'This goal can no longer be changed. Refresh the board before retrying.')
+    }
     const result = await api.updateGoal(goal.id, { action: parsed.action })
-    reply({ result: { id: result.id, status: result.status } })
+    if (parsed.action === 'erase') reply({ result: { id: result.id, deleted: true, tasks: result.tasks ?? 0 } })
+    else reply({ result: { id: result.id, status: result.status } })
   } catch (err) { reply({ error: String(err.message ?? err) }) }
   return true
 }

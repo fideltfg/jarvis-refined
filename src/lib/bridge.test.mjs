@@ -244,6 +244,18 @@ test('profile, goal-control and decision requests use correlated bridge replies'
     assert.equal(controlFrame.type, 'goal_control_request')
     sockets[0].message({ type: 'goal_control_reply', requestId: controlFrame.requestId, result: { id: 'g_1', status: 'paused' } })
     assert.deepEqual(await control, { id: 'g_1', status: 'paused' })
+    const erase = bridge.goalControlRequest({ goalId: 'g_1', action: 'erase' })
+    const eraseFrame = sockets[0].sent.at(-1)
+    assert.equal(eraseFrame.type, 'goal_control_request')
+    assert.equal(eraseFrame.action, 'erase')
+    sockets[0].message({ type: 'goal_control_reply', requestId: eraseFrame.requestId, result: { id: 'g_1', deleted: true, tasks: 2 } })
+    assert.deepEqual(await erase, { id: 'g_1', deleted: true, tasks: 2 })
+    // A refusal from the service reaches the caller as a rejection, so the
+    // board can show it rather than assume the agent is gone.
+    const refused = bridge.goalControlRequest({ goalId: 'g_1', action: 'erase' })
+    const refusedFrame = sockets[0].sent.at(-1)
+    sockets[0].message({ type: 'goal_control_reply', requestId: refusedFrame.requestId, error: 'Only an agent that has finished or been stopped can be deleted.' })
+    await assert.rejects(refused, /finished or been stopped/)
     const decision = bridge.decisionRequest({ goalId: 'g_1', taskId: 't_1', answers: { choice: 'yes' }, note: 'Keep scope unchanged.' })
     const decisionFrame = sockets[0].sent.at(-1)
     assert.equal(decisionFrame.type, 'decision_request')

@@ -217,7 +217,11 @@ export function goalRequest(request: { goalId: string; info: string; resume: boo
   return commandRequest('goal', request, 'agent board')
 }
 
-export function goalControlRequest(request: { goalId: string; action: 'pause' | 'resume' | 'abandon' }): Promise<{ id: string; status: string }> {
+/** What the service reports back once a goal and its task history are gone. */
+export type GoalErased = { id: string; deleted: true; tasks: number }
+export function goalControlRequest(request: { goalId: string; action: 'pause' | 'resume' | 'abandon' }): Promise<{ id: string; status: string }>
+export function goalControlRequest(request: { goalId: string; action: 'erase' }): Promise<GoalErased>
+export function goalControlRequest(request: { goalId: string; action: 'pause' | 'resume' | 'abandon' | 'erase' }): Promise<{ id: string; status: string } | GoalErased> {
   return commandRequest('goal_control', request, 'agent board')
 }
 

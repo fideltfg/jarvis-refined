@@ -6,6 +6,8 @@ import { BUDGETS } from './config.mjs'
 import { profileChanges, profileInput, profileOutcome } from './profiles.mjs'
 import { scheduleInput } from './schedules.mjs'
 import { readTaskReference, taskReports } from './reports.mjs'
+import { removeWorkspace } from './workspace.mjs'
+import { rmSync } from 'node:fs'
 
 /**
  * The agent service's only door: HTTP with a bearer token, plus an SSE stream
@@ -33,6 +35,9 @@ const readBody = (req) =>
   })
 
 class NotFound extends Error {}
+
+/** Goal states that are over, and so safe to erase. */
+const ERASABLE = ['done', 'abandoned']
 
 export function createApi({ store, scheduler, coordinator, approvals, cleanup, mirror = {}, pool = null, token, host = '127.0.0.1', port = 0, tls = null }) {
   if (!token) throw new Error('JARVIS_AGENTS_TOKEN is not set; refusing to start an unauthenticated API.')
@@ -81,6 +86,39 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
       return g
     }
     throw new Error('A change must be pause, resume, abandon, or info.')
+  }
+
+  /**
+   * Erase a finished goal and everything it produced — records, approvals,
+   * workspaces and saved reports. There is no undo, so the guard is strict:
+   * only a goal that has stopped, and only when none of its tasks is still in
+   * flight. Live work is paused or abandoned first, deliberately, by hand.
+   */
+  function eraseGoal(goal) {
+    if (!ERASABLE.includes(goal.status)) {
+      throw new Error(`“${goal.title}” is still ${goal.status}. Stop it before erasing it.`)
+    }
+    const tasks = store.listTasks({ goalId: goal.id })
+    const running = scheduler.running()
+    const busy = tasks.find((task) => ['running', 'awaiting_approval'].includes(task.status) || running.has(task.id))
+    if (busy) throw new Error(`“${busy.title}” is still ${busy.status}. Erasing would leave it orphaned.`)
+    for (const task of tasks) {
+      try {
+        removeWorkspace(task)
+      } catch (err) {
+        warn(new Error(`could not remove ${task.workspace?.path}: ${err.message}`))
+      }
+    }
+    rmSync(store.goalOutputDir(goal.id), { recursive: true, force: true })
+    const removed = store.deleteGoal(goal.id)
+    if (!removed) throw new NotFound(`No goal ${goal.id}.`)
+    store.appendEvent({
+      type: 'goal_deleted',
+      goalId: goal.id,
+      text: `Erased: ${goal.title}`,
+      data: { title: goal.title, tasks: removed.tasks.length },
+    })
+    return { id: goal.id, deleted: true, tasks: removed.tasks.length }
   }
 
   /**
@@ -333,6 +371,7 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
         case 'POST /goals/:id': {
           const goal = store.getGoal(id)
           if (!goal) throw new NotFound(`No goal ${id}.`)
+          if (body.action === 'erase') return send(200, eraseGoal(goal))
           return send(200, changeGoal(goal, body))
         }
         // Work sent by another host running a remote agent runtime. It is queued

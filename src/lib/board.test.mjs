@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { agentSummary, capacityLine, mainTaskRows, mergeBoard, mergeBoardData, runningAgents, statusLabel } from './board.ts'
+import { agentSummary, capacityLine, deleteBlockReason, mainTaskRows, mergeBoard, mergeBoardData, runningAgents, stateGroup, statusLabel } from './board.ts'
 
 const task = (over = {}) => ({
   id: 't1', title: 'Task', kind: 'shell', status: 'queued', attempts: 1, summary: null,
@@ -254,4 +254,50 @@ test('an unreachable machine is counted on the line', () => {
     endpoints: [ep(), ep({ id: 'rigel', healthy: false }), ep({ id: 'vega', healthy: false })],
   })
   assert.equal(line, '0 of 6 busy · 3 endpoints · 2 down')
+})
+
+test('every board status falls in exactly one roster group, and only idle ones are idle', () => {
+  const groups = {}
+  for (const status of ['awaiting_approval', 'blocked', 'running', 'queued', 'active', 'paused', 'failed', 'interrupted', 'done', 'cancelled']) {
+    groups[status] = stateGroup({ kind: 'goal', id: 'g1', name: 'Goal', status })
+  }
+  assert.deepEqual(groups, {
+    awaiting_approval: 'waiting', blocked: 'waiting',
+    running: 'working', queued: 'working', active: 'working',
+    paused: 'paused',
+    failed: 'idle', interrupted: 'idle', done: 'idle', cancelled: 'idle',
+  })
+})
+
+test('only an idle goal may be deleted, and the refusal says why', () => {
+  const row = (over) => ({ kind: 'goal', id: 'g1', name: 'Ship it', status: 'done', ...over })
+
+  for (const status of ['done', 'failed', 'cancelled', 'interrupted']) {
+    assert.equal(deleteBlockReason(row({ status })), null, `${status} should be deletable`)
+  }
+  // Anything still live is refused here as well as in the service, so the
+  // board never offers a button that is bound to fail.
+  for (const status of ['active', 'running', 'queued', 'blocked', 'awaiting_approval', 'paused']) {
+    const reason = deleteBlockReason(row({ status }))
+    assert.ok(reason, `${status} should be refused`)
+    assert.match(reason, /Ship it/)
+    assert.match(reason, new RegExp(statusLabel(status)))
+  }
+  assert.match(deleteBlockReason(row({ kind: 'task' })), /removed with the agent/)
+  assert.match(deleteBlockReason(row({ kind: 'subagent' })), /no saved record/)
+  assert.match(deleteBlockReason(undefined), /Select an agent/)
+  assert.match(deleteBlockReason(null), /Select an agent/)
+})
+
+test('the roster groups a merged board the same way the delete guard reads it', () => {
+  const rows = mergeBoard(board({ goals: [
+    goal({ id: 'g_live', status: 'active', tasks: [task({ id: 't_live', status: 'running' })] }),
+    goal({ id: 'g_done', status: 'done', tasks: [task({ id: 't_done', status: 'done' })] }),
+  ] }), [], { history: true })
+  const done = rows.find((entry) => entry.id === 'g_done')
+  const live = rows.find((entry) => entry.id === 'g_live')
+  assert.equal(stateGroup(done), 'idle')
+  assert.equal(deleteBlockReason(done), null)
+  assert.notEqual(stateGroup(live), 'idle')
+  assert.ok(deleteBlockReason(live))
 })
