@@ -44,8 +44,10 @@ type TtsDiag = {
   lastText: string
 }
 
+/** Format a diagnostic timestamp as elapsed seconds or a missing-value marker. */
 const ago = (t: number) => (t ? `${((Date.now() - t) / 1000).toFixed(1)}s ago` : '—')
 
+/** Render one diagnostic label/value row and optional warning state. */
 function Row({ k, v, bad }: { k: string; v: string; bad?: boolean }) {
   return (
     <div className="diag-row">
@@ -55,10 +57,12 @@ function Row({ k, v, bad }: { k: string; v: string; bad?: boolean }) {
   )
 }
 
+/** Poll mutable voice/TTS diagnostics and show their current health summary. */
 export function Diagnostics({ inline = false }: { inline?: boolean } = {}) {
   const [localOpen, setLocalOpen] = useState(false)
   const commandWindow = useStore((state) => state.commandWindow)
   const open = inline ? commandWindow === 'diagnostics' : localOpen
+  /** Toggle local visibility or synchronize the shared inline command window. */
   const setOpen = useCallback((value: boolean | ((current: boolean) => boolean)) => {
     if (!inline) { setLocalOpen(value); return }
     const state = useStore.getState()
@@ -70,7 +74,9 @@ export function Diagnostics({ inline = false }: { inline?: boolean } = {}) {
   const phase = useStore((s) => s.phase)
 
   useEffect(() => {
+    // Adapt the external diagnostics toggle and D shortcut to shared open state.
     const toggle = () => setOpen((open) => !open)
+    /** Handle the diagnostics shortcut unless focus is inside a text field. */
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
@@ -89,6 +95,7 @@ export function Diagnostics({ inline = false }: { inline?: boolean } = {}) {
 
   useEffect(() => {
     if (!open) return
+    // Sample mutable diagnostics only while their panel is visible.
     const id = setInterval(() => tick((n) => n + 1), 250)
     return () => clearInterval(id)
   }, [open])

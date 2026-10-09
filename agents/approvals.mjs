@@ -8,6 +8,7 @@ export function createApprovals(store, { contacts = null } = {}) {
   const waiters = new Map()
 
   return {
+    /** Persist an approval request and suspend the worker until it is decided. */
     request({ task, category, action, detail, recipients = [] }) {
       const a = store.newApproval({ taskId: task.id, category, action, detail, recipients })
       const current = store.getTask(task.id)
@@ -19,9 +20,13 @@ export function createApprovals(store, { contacts = null } = {}) {
         text: `Approval needed: ${action}`,
         data: { approvalId: a.id, category, action, detail, title: task.title },
       })
-      return new Promise((resolve) => waiters.set(a.id, resolve))
+      return new Promise((resolve) => {
+        // Keep only the in-process resolver; the pending approval itself is durable.
+        waiters.set(a.id, resolve)
+      })
     },
 
+    /** Validate and persist a user decision, then resume or deny the waiting worker. */
     decide(id, decision, note = null) {
       if (decision !== 'approve' && decision !== 'deny') throw new Error('The decision must be approve or deny.')
       const a = store.getApproval(id)
@@ -44,6 +49,7 @@ export function createApprovals(store, { contacts = null } = {}) {
       return saved
     },
 
+    /** Expire pending requests for a task, or all pending requests after restart. */
     expire(taskId) {
       for (const a of store.listApprovals('pending')) {
         if (taskId && a.taskId !== taskId) continue

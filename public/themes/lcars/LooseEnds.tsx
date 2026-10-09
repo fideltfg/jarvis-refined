@@ -26,24 +26,38 @@ type Ledger = { items: Item[]; open: number; missing: boolean }
 const RANK: Record<Item['status'], number> = { partial: 0, open: 1, done: 2 }
 const LABEL: Record<Item['status'], string> = { partial: 'PARTIAL', open: 'OPEN', done: 'CLEARED' }
 
+/** Load the assistant's unfinished-work ledger and allow entries to be closed. */
 function LooseEnds({ onClose }: { onClose: () => void }) {
   const [ledger, setLedger] = useState<Ledger | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [closing, setClosing] = useState<number | null>(null)
 
+  /** Fetch the ledger and update loading/error state for the current request. */
   const read = useCallback((signal?: AbortSignal) => {
     setLoading(true)
     return fetch(`${BRIDGE_HTTP_URL}/memory/loose-ends`, { signal })
       .then((response) => {
+        // Convert HTTP failure into the local ledger-read error path.
         if (!response.ok) throw new Error('The ledger is unavailable')
         return response.json() as Promise<Ledger>
       })
-      .then((next) => { setLedger(next); setError('') })
-      .catch(() => { if (!signal?.aborted) setError('Could not read the loose-ends ledger.') })
-      .finally(() => { if (!signal?.aborted) setLoading(false) })
+      .then((next) => {
+        // Replace the visible ledger only after a successful response.
+        setLedger(next)
+        setError('')
+      })
+      .catch(() => {
+        // Ignore aborts from cleanup; show genuine read failures.
+        if (!signal?.aborted) setError('Could not read the loose-ends ledger.')
+      })
+      .finally(() => {
+        // Stop the loading indicator only for a still-active request.
+        if (!signal?.aborted) setLoading(false)
+      })
   }, [])
 
+  /** Close one ledger entry and replace local state with the server response. */
   const closeItem = async (item: Item) => {
     setClosing(item.line)
     setError('')
@@ -66,14 +80,17 @@ function LooseEnds({ onClose }: { onClose: () => void }) {
     if (!usingBridge) { setLoading(false); return }
     const controller = new AbortController()
     void read(controller.signal)
+    // Abort the read if this inline command window is removed.
     return () => controller.abort()
   }, [read])
 
+  // Prioritize partial work, then open work, newest first within each state.
   const items = ledger ? [...ledger.items].sort((a, b) =>
     RANK[a.status] - RANK[b.status] || (b.date ?? '').localeCompare(a.date ?? '')) : []
 
   return (
     <section className="lcars-loose-window" role="region" aria-labelledby="lcars-loose-title" onKeyDownCapture={(event) => {
+      // Close this command window before global keyboard shortcuts run.
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose() }
     }}>
       <header>

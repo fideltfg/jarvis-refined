@@ -15,14 +15,18 @@ const store = createStore(AGENTS_DIR)
 const approvals = createApprovals(store)
 const pool = createPool({ endpoints: [{ id: 'local-model', kind: 'local', model,
   concurrency: workers, kinds: ['research', 'ops'], weight: 1 }], maxTotal: workers })
+// Remote hosts execute already-planned tasks and do not coordinate new plans.
 const scheduler = createScheduler({ store, pool, coordinator: { review: async () => {} },
+  // Expire an outstanding approval when its delegated task is cancelled.
   onCancel: (id) => approvals.expire(id),
+  // Run each accepted task against this host's configured local model.
   runTask: (task, { signal }) => runTask(task, { store, signal, modelURL, model }) })
 const recovered = recover(store, approvals)
 const api = createRemoteApi({ store, scheduler, approvals, token: TOKEN, host: HOST, port: PORT, tls: tlsOptions() })
 const port = await api.listen()
 scheduler.start()
 console.log(`[remote-agent] listening on ${api.tls ? 'https' : 'http'}://${HOST}:${port}; ${recovered} recovered`)
+/** Stop scheduling work and close the API during process shutdown. */
 async function shutdown() {
   scheduler.stop()
   await api.close()

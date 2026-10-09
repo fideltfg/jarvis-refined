@@ -3,10 +3,12 @@ import { useStore } from '../store'
 
 type Command = { id: string; label: string; detail: string; keywords: string; run: () => void }
 
+/** Render a searchable command list as either an inline panel or modal overlay. */
 export function CommandPalette({ inline = false }: { inline?: boolean } = {}) {
   const [localOpen, setLocalOpen] = useState(false)
   const commandWindow = useStore((state) => state.commandWindow)
   const open = inline ? commandWindow === 'palette' : localOpen
+  /** Update local visibility or synchronize the shared inline command window. */
   const setOpen = useCallback((value: boolean | ((current: boolean) => boolean)) => {
     if (!inline) { setLocalOpen(value); return }
     const state = useStore.getState()
@@ -17,6 +19,7 @@ export function CommandPalette({ inline = false }: { inline?: boolean } = {}) {
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const input = useRef<HTMLInputElement>(null)
+  /** Define available commands and the app events/actions each one dispatches. */
   const commands = useMemo<Command[]>(() => [
     { id: 'standby', label: 'Enter standby', detail: 'Stop the current response and return to standby', keywords: 'escape stop sleep', run: () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })) },
     { id: 'listen', label: 'Start listening', detail: 'Open the microphone for a command', keywords: 'space talk microphone', run: () => window.dispatchEvent(new CustomEvent('jarvis:listen')) },
@@ -33,17 +36,30 @@ export function CommandPalette({ inline = false }: { inline?: boolean } = {}) {
     { id: 'clear-screen', label: 'Clear display', detail: 'Remove blades and panels from the screen', keywords: 'clear panels blades', run: () => useStore.getState().clearScreen('all') },
     { id: 'reset-interface', label: 'Reset interface', detail: 'Restore the default interface appearance', keywords: 'theme colours chrome', run: () => useStore.getState().resetUi() },
   ], [])
+  /** Rank commands by query terms, preferring matches in the visible label. */
   const results = useMemo(() => {
     const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
     return commands.map((command) => {
+      // Score every query term against label, keywords, and descriptive detail.
       const haystack = `${command.label} ${command.detail} ${command.keywords}`.toLowerCase()
       const score = terms.reduce((sum, term) => sum + (command.label.toLowerCase().includes(term) ? 4 : command.keywords.includes(term) ? 2 : haystack.includes(term) ? 1 : -100), 0)
       return { command, score }
-    }).filter((entry) => entry.score >= 0).sort((a, b) => b.score - a.score || a.command.label.localeCompare(b.command.label)).map(({ command }) => command)
+    }).filter((entry) => {
+      // Exclude commands that did not match every query term.
+      return entry.score >= 0
+    }).sort((first, second) => {
+      // Break equal scores alphabetically for stable keyboard navigation.
+      return second.score - first.score || first.command.label.localeCompare(second.command.label)
+    }).map(({ command }) => {
+      // Return only the command payload after ranking.
+      return command
+    })
   }, [commands, query])
 
   useEffect(() => {
+    // Adapt the external palette-toggle event to this component's open state.
     const toggle = () => setOpen((value) => !value)
+    /** Open/close shortcuts while preserving browser and component key ownership. */
     const onKey = (event: KeyboardEvent) => {
       // Use Shift+Space: unlike Ctrl/Command+K, it does not conflict with browser search.
       if (event.code === 'Space' && event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
@@ -71,13 +87,16 @@ export function CommandPalette({ inline = false }: { inline?: boolean } = {}) {
     if (open) {
       setQuery('')
       setActive(0)
+      // Focus search after the palette has rendered into the DOM.
       requestAnimationFrame(() => input.current?.focus())
     }
   }, [open])
 
+  // Reset keyboard selection when filtering changes the visible result order.
   useEffect(() => setActive(0), [query])
 
   if (!open) return null
+  /** Close the palette and execute the selected command if it still exists. */
   const run = (index: number) => {
     const command = results[index]
     if (!command) return
@@ -89,6 +108,7 @@ export function CommandPalette({ inline = false }: { inline?: boolean } = {}) {
       <section className={`command-palette${inline ? ' command-palette-inline' : ''}`} role={inline ? 'region' : 'dialog'} aria-modal={inline ? undefined : true} aria-label="Command palette">
         {inline && <header className="command-head">COMMAND PALETTE</header>}
         <div className="command-search"><span aria-hidden="true">⌕</span><input ref={input} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
+          // Move selection through results or execute the active command.
           if (event.key === 'ArrowDown') { event.preventDefault(); setActive((index) => Math.min(index + 1, results.length - 1)) }
           if (event.key === 'ArrowUp') { event.preventDefault(); setActive((index) => Math.max(index - 1, 0)) }
           if (event.key === 'Enter') { event.preventDefault(); run(active) }
@@ -100,7 +120,10 @@ export function CommandPalette({ inline = false }: { inline?: boolean } = {}) {
       </section>
   )
   return inline ? palette : (
-    <div className="command-scrim" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false) }}>
+    <div className="command-scrim" onMouseDown={(event) => {
+      // Close only when the backdrop itself is clicked, not the palette body.
+      if (event.target === event.currentTarget) setOpen(false)
+    }}>
       {palette}
     </div>
   )

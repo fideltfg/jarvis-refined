@@ -8,6 +8,7 @@ export function AttachmentTray({ attachments, onRemove }: { attachments: Attachm
   return (
     <ul className="attachment-tray" aria-label="Attached files">
       {attachments.map((file, index) => (
+        // Keep each chip removable by its position in the current attachment list.
         <li className="attachment-chip" key={`${file.name}-${index}`} title={`${file.name} (${formatBytes(file.size)})`}>
           {file.kind === 'image'
             ? <img src={`data:${file.mimeType};base64,${file.data}`} alt="" />
@@ -26,6 +27,7 @@ export function AttachmentNames({ attachments }: { attachments?: AttachmentMeta[
   return (
     <ul className="attachment-names" aria-label="Attached files">
       {attachments.map((file, index) => (
+        // Preserve attachment order alongside the transcript turn.
         <li key={`${file.name}-${index}`} title={formatBytes(file.size)}>
           <span className="attachment-kind">{KIND_LABEL[file.kind]}</span>{file.name}
         </li>

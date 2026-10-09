@@ -12,6 +12,7 @@ const FLOOR = 0.14
 // Deliberately imperative: the level pump updates every animation frame, and
 // subscribing to it with a hook would re-render the whole ORIN dashboard 60
 // times a second. This writes one CSS variable per bar and never re-renders.
+/** Animate the ORIN waveform from shared microphone/output level without React rerenders. */
 export function OrinWave() {
   const wrap = useRef<HTMLDivElement>(null)
 
@@ -26,13 +27,16 @@ export function OrinWave() {
 
     // Per-bar wobble, so a single scalar level still reads as a voice rather
     // than 32 bars moving as one block.
+    // Give each bar deterministic motion so one input scalar forms a waveform.
     const speed = bars.map((_, i) => 3.1 + ((i * 7) % 11) * 0.42)
     const phase = bars.map((_, i) => ((i * 13) % 29) / 29 * Math.PI * 2)
     const centre = (BARS - 1) / 2
+    // Fade amplitude toward the edges to shape the waveform into a centered field.
     const envelope = bars.map((_, i) => 0.42 + 0.58 * (1 - Math.abs(i - centre) / centre) ** 0.7)
     const held = bars.map(() => FLOOR)
 
     let raf = 0
+    /** Update per-bar motion from current audio state and schedule the next frame. */
     const tick = (time: number) => {
       const state = useStore.getState()
       const live = state.phase === 'listening' || state.phase === 'speaking'
@@ -41,9 +45,11 @@ export function OrinWave() {
 
       for (let i = 0; i < bars.length; i += 1) {
         const wobble = 0.5 + 0.5 * Math.sin(t * speed[i] + phase[i]) * Math.cos(t * speed[i] * 0.37 + phase[i] * 1.7)
+        // Add a small amount of motion variation so bars do not move in lockstep.
         const jitter = 0.88 + Math.random() * 0.24
         const target = Math.min(1, FLOOR + level * envelope[i] * (0.3 + 0.7 * wobble) * jitter * 1.6)
         // Snap up, fall back slowly — a level meter that decays reads as speech.
+        // Rise quickly with speech and decay slowly after the sound ends.
         const ease = target > held[i] ? 0.55 : 0.14
         held[i] += (target - held[i]) * ease
         bars[i].style.setProperty('--bar', held[i].toFixed(3))
@@ -65,6 +71,7 @@ export function OrinWave() {
       aria-hidden="true"
     >
       {Array.from({ length: BARS }, (_, index) => (
+        // Render a fixed number of stable CSS-driven meter bars.
         <i key={index} style={{ '--bar': FLOOR } as React.CSSProperties} />
       ))}
     </div>

@@ -24,7 +24,7 @@ import { uiServer } from './ui.mjs'
 import { chromeAvailable, chromeServer, chromeTarget } from './chrome.mjs'
 import { clientAddress, createRelayHub } from './relay.mjs'
 import { visionServer } from './vision.mjs'
-import { SESSION_AGENT_TOOLS, createSessionAgents, parseTaskNotification } from './session-agents.mjs'
+import { createSessionAgents, isSessionAgentTool, parseTaskNotification } from './session-agents.mjs'
 import { historyServer, refreshSummaries, save as saveHistory } from './history.mjs'
 import { load as loadMemory, MEMORY_GUIDE, memoryServer, memorySnapshot, MEMORY_FILE } from './memory.mjs'
 import { close as closeLooseEnd, load as loadLooseEnds, LOOSE_ENDS_FILE } from './loose-ends.mjs'
@@ -33,7 +33,7 @@ import { createReadStream, readFileSync, realpathSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
-import { probeUrl, renderPage } from './page.mjs'
+import { renderPage } from './page.mjs'
 import { configuredProviders, providerModels, resolveModel, retryProvider, textProvider } from './providers.mjs'
 import { AttachmentError, claudeContent, describeAttachments, isMultimodalRejection, parseAttachments, providerContent } from './attachments.mjs'
 import { describeFile } from './describe.mjs'
@@ -97,6 +97,7 @@ const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 const isDevPort = (port) =>
   (port >= 5173 && port <= 5199) || (port >= 4173 && port <= 4199)
 
+/** Allow only configured origins or the bridge's trusted local dev ports. */
 function originAllowed(origin) {
   if (!origin) return ALLOW_NO_ORIGIN
   if (EXTRA_ORIGINS.has(origin.replace(/\/+$/, ''))) return true
@@ -206,11 +207,11 @@ function configuredServers() {
 
 const MCP_SERVERS = configuredServers()
 
-/** MCP tools arrive as `mcp__<server>__<tool>`. */
+/** Extract the server segment from a namespaced MCP tool name. */
 const mcpServerOf = (toolName) =>
   toolName.startsWith('mcp__') ? toolName.split('__')[1] : null
 
-/** The tool half, which can itself contain underscores: `mcp__x__a__b` -> `a__b`. */
+/** Extract the tool segment while preserving any embedded underscores. */
 const mcpToolOf = (toolName) => toolName.split('__').slice(2).join('__')
 
 /**
@@ -283,6 +284,7 @@ const VETO_EXEMPT = new Set([
   'openrouter__send-feedback',
 ])
 
+/** Apply the bridge's built-in and MCP write-approval policy to a tool name. */
 function decideTool(name) {
   if (READ_ONLY_BUILTINS.has(name)) return true
   if (WRITE_BUILTINS.has(name)) return ALLOW_WRITES
@@ -331,11 +333,6 @@ function decideTool(name) {
   return ALLOW_WRITES
 }
 
-/**
- * The fallback persona, used when the named theme ships none of its own. The
- * characters live in `public/themes/<id>/persona.md`; this one stays in code
- * because there has to be someone to be when nothing is installed.
- */
 /**
  * The fallback persona, used when the named theme ships none of its own. The
  * characters live in `public/themes/<id>/persona.md`; this one stays in code
@@ -496,19 +493,19 @@ Using tools:
 // The character comes from the theme package the browser named, so editing
 // public/themes/<id>/persona.md is how you change who this is. The built-in
 // JARVIS text below is the floor for a theme that ships no persona of its own.
+/** Resolve a theme persona or use the built-in voice when none is provided. */
 const personaFor = (theme) => themePersona(theme) || PERSONA_STARK
 
+/** Assemble the stable system prompt for a theme and enabled tool set. */
 const systemPromptFor = (theme) =>
   `${personaFor(theme)}\n\n${TOOLS_PROMPT}\n\n${process.env.JARVIS_AGENTS === '1' ? `${AGENTS_PROMPT}\n\n` : ''}${MEMORY_GUIDE}${sharedContext()}`
 
+/** Label the in-memory context snapshot included at conversation start. */
 const memoryContext = (snapshot) => `Memory snapshot at the start of this conversation:\n${snapshot}`
 
-/**
- * Bounded history that drops in blocks rather than sliding one turn at a time.
- * A sliding window changes the first message every turn, which makes the
- * whole history a cache miss; dropping half at once costs one miss per block.
- */
+/** Maximum number of recent conversation messages retained before trimming. */
 const HISTORY_MAX = 12
+/** Trim old messages in blocks to preserve prompt-cache stability between turns. */
 const trimHistory = (list) => {
   if (list.length > HISTORY_MAX) list.splice(0, list.length - HISTORY_MAX / 2)
 }
@@ -568,6 +565,7 @@ const FILE_ROOTS = [
     .filter(Boolean),
 ].map((root) => {
   try {
+    // Store canonical roots so symlink targets are checked against real paths.
     return realpathSync(root)
   } catch {
     return resolvePath(root)
@@ -577,6 +575,7 @@ const FILE_ROOTS = [
 /** True when `real` sits inside one of the roots, after both are resolved. */
 const withinRoots = (real) =>
   FILE_ROOTS.some((root) => {
+    // Relative-path containment rejects siblings and parent-directory escapes.
     const rel = relative(root, real)
     return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
   })
@@ -694,6 +693,7 @@ async function proxyRemote(req, res, cors, { kinds, maxBytes, timeoutMs, ranged 
   // would stall the token stream the voice is riding on, and trusting
   // content-length would let a host that lies about it eat the heap.
   let sent = 0
+  // Enforce the byte ceiling while forwarding each upstream chunk.
   upstream.on('data', (chunk) => {
     sent += chunk.length
     if (sent > maxBytes) {
@@ -706,11 +706,15 @@ async function proxyRemote(req, res, cors, { kinds, maxBytes, timeoutMs, ranged 
     }
     if (!res.write(chunk)) {
       upstream.pause()
+      // Resume only after the downstream client has drained its write buffer.
       res.once('drain', () => upstream.resume())
     }
   })
+  // Finish the browser response when the upstream stream ends successfully.
   upstream.on('end', () => res.end())
+  // Drop the downstream connection when the remote stream fails mid-response.
   upstream.on('error', () => res.destroy())
+  // Stop remote work if the requester disconnects before the response finishes.
   req.on('close', () => upstream.destroy())
 }
 
@@ -738,6 +742,7 @@ function corsFor(req) {
 // One HTTP server for both the speech proxy and the WebSocket upgrade.
 const http = await import('node:http')
 
+/** Route bridge HTTP requests after origin checks and build their responses. */
 const handleRequest = async (req, res) => {
   const origin = req.headers.origin
   if (origin && !originAllowed(origin)) {
@@ -1157,6 +1162,7 @@ const server = http.createServer((req, res) => {
   // The handler is async, so anything it throws would otherwise become an
   // unhandled rejection and leave the browser waiting on a socket that is
   // never going to answer.
+  // Convert rejected async handlers into a response instead of an unhandled rejection.
   handleRequest(req, res).catch((err) => {
     console.error('[jarvis] request failed:', err)
     if (!res.headersSent) res.writeHead(500)
@@ -1176,6 +1182,7 @@ const wss = new WebSocketServer({
   // here rather than after the socket is open. Rejections are logged loudly:
   // the likeliest cause is a dev server on an unexpected port, and a silent
   // 403 would look like the bridge simply isn't running.
+  // Validate path and origin before a browser can open the privileged socket.
   verifyClient: ({ origin, req }, done) => {
     const path = (req.url ?? '/').split('?')[0]
     // A relay is a program, not a page, so it has no Origin to check. What
@@ -1211,6 +1218,7 @@ console.log(
 // at the tool boundary from one that is broken, and this is the one place the
 // difference can be stated before anybody asks a question that depends on it.
 void chromeAvailable().then((ok) => {
+  // Report whether local Chrome control or the configured relay is available.
   console.log(
     ok
       ? `[jarvis] browser control ready${ALLOW_WRITES ? '' : ' (reading only — clicking and typing need JARVIS_ALLOW_WRITES=1)'}`
@@ -1245,11 +1253,13 @@ const conversationStore = createConversationStore()
 // One tracker for the whole bridge, so every window sees every agent JARVIS dispatched.
 const sessionAgentListeners = new Set()
 const sessionAgents = createSessionAgents({
+  // Fan out process-wide subagent changes to every connected conversation.
   send: (msg) => {
     for (const listener of sessionAgentListeners) listener(msg)
   },
 })
 
+// Initialize one browser conversation, or attach a token-authenticated relay.
 wss.on('connection', (socket, req) => {
   const clientIp = clientAddress(req)
   if ((req.url ?? '/').split('?')[0] === '/relay') return relayHub.attach(socket, clientIp)
@@ -1261,6 +1271,7 @@ wss.on('connection', (socket, req) => {
   const requested = parameters.get('theme')
   const theme = resolveThemeId(requested)
   const checkpoint = conversationStore.open(parameters.get('conversation'), theme, () => {
+    // Close this client when its checkpoint is superseded by another writer.
     saveConversation()
     closed = true
     socket.close()
@@ -1268,6 +1279,7 @@ wss.on('connection', (socket, req) => {
   const saved = checkpoint.state
   let recoveredPending = saved.pending
   let checkpointTimer = null
+  /** Flush conversation state and cancel any scheduled checkpoint write. */
   const saveConversation = () => {
     clearTimeout(checkpointTimer)
     checkpointTimer = null
@@ -1278,7 +1290,10 @@ wss.on('connection', (socket, req) => {
     ? 'storage_error' : checkpoint.restored ? 'restored' : checkpoint.unavailable ? 'unavailable' : 'new' }))
   console.log(`[jarvis] client connected (${theme})`)
   const workingDirectory = sessionWorkspace(checkpoint.id)
-  const projectRoots = [WORK_DIR, join(homedir(), 'Projects'), ...(process.env.JARVIS_PROJECT_ROOTS ?? '').split(',').map((root) => root.trim()).filter(Boolean)]
+  const projectRoots = [WORK_DIR, join(homedir(), 'Projects'), ...(process.env.JARVIS_PROJECT_ROOTS ?? '').split(',').map((root) => {
+    // Normalize configured project roots before applying write policy checks.
+    return root.trim()
+  }).filter(Boolean)]
   const systemPrompt = `${systemPromptFor(theme)}\n\n${outputGuide(workingDirectory)}`
   const memoryAtStart = memoryContext(memorySnapshot())
   let claudePrimed = saved.claudePrimed
@@ -1305,6 +1320,7 @@ wss.on('connection', (socket, req) => {
       const content =
         inbox.shift() ??
         (await new Promise((resolve) => {
+          // Save the resolver so the next ask or socket close can unblock the SDK.
           deliver = resolve
         }))
       if (closed || content == null) return
@@ -1316,6 +1332,7 @@ wss.on('connection', (socket, req) => {
     }
   }
 
+  /** Send one JSON frame while the browser socket is still open. */
   const send = (msg) => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(msg))
   }
@@ -1327,22 +1344,28 @@ wss.on('connection', (socket, req) => {
   // Capacity rides along with it: an older service without /endpoints answers
   // 404, which costs the readout and nothing else.
   let boardTimer = null
+  /** Refresh board and endpoint snapshots after agent events, coalescing bursts. */
   const pushBoard = () => {
     if (!agentApi) return
     clearTimeout(boardTimer)
     boardTimer = setTimeout(() => {
+      // Fetch board and capacity together, allowing older services to omit endpoints.
       Promise.all([agentApi.board(), agentApi.endpoints().catch(() => null)])
+        // Publish one successful snapshot to the HUD.
         .then(([board, capacity]) => send({ type: 'agents', board: { ...board, capacity }, online: true }))
+        // Mark the board unavailable if its primary request fails.
         .catch(() => send({ type: 'agents', board: null, online: false }))
     }, 250)
   }
 
   const agentSubscription = agentApi
     ? subscribeAgents(agentApi, {
+        // Forward one service event and schedule a refreshed board snapshot.
         onEvent: (event) => {
           send({ type: 'agent_event', event })
           pushBoard()
         },
+        // Reflect stream availability, requesting a snapshot after reconnect.
         onState: (online) =>
           online ? pushBoard() : send({ type: 'agents', board: null, online: false }),
       })
@@ -1359,6 +1382,7 @@ wss.on('connection', (socket, req) => {
    * listener over there has already heard.
    */
   let answering = null
+  /** Persist terminal turn output and tag every outgoing frame with its ask id. */
   const sendTurn = (msg) => {
     if (msg.type === 'done' || msg.type === 'error') {
       try {
@@ -1387,6 +1411,7 @@ wss.on('connection', (socket, req) => {
   let brokerMcpServers = {}
   let toolBrokerPromise = Promise.resolve(null)
 
+  /** Update the selected provider and notify the connected browser. */
   const switchProvider = (provider) => {
     selectedProvider = provider
     currentProvider = provider
@@ -1400,6 +1425,7 @@ wss.on('connection', (socket, req) => {
    * reads chosenModel directly.
    */
   let sessionModel = null
+  /** Restore or create the Claude session, then queue its next user prompt. */
   const deliverClaude = async (text, attachments = []) => {
     if (closed) return
     claudeTurnPending = true
@@ -1433,7 +1459,10 @@ wss.on('connection', (socket, req) => {
     ensureClaudeSession()
     const recent = !saved.claudeSessionId && !claudePrimed ? conversation : missedClaude
     const context = recent.length
-      ? `Previous conversation (context only, not requests to execute again):\n${recent.map((message) => `${message.role}: ${message.content}`).join('\n')}\n\nCurrent request: `
+      ? `Previous conversation (context only, not requests to execute again):\n${recent.map((message) => {
+        // Rebuild role-tagged context without replaying prior requests as tasks.
+        return `${message.role}: ${message.content}`
+      }).join('\n')}\n\nCurrent request: `
       : ''
     missedClaude.length = 0
     const memory = claudePrimed ? '' : `${memoryAtStart}\n\n`
@@ -1450,6 +1479,7 @@ wss.on('connection', (socket, req) => {
     }
   }
 
+  /** Run a turn through a direct provider, optionally exposing bridge tools. */
   const runText = async (provider, text, id, attachments = []) => {
     const controller = new AbortController()
     activeController = controller
@@ -1462,6 +1492,7 @@ wss.on('connection', (socket, req) => {
         vision: !blind,
         // Only api.openai.com is known to take PDF file parts; local servers get the text layer.
         nativePdf: provider === 'openai' && !blind,
+        // Tell the HUD when attachment contents are being inspected.
         describe: (file) => {
           sendTurn({ type: 'tool', name: `reading ${file.name}` })
           return describeFile(file, { available, exclude: provider })
@@ -1476,6 +1507,7 @@ wss.on('connection', (socket, req) => {
         ...conversation,
         { role: 'user', content },
       ]
+      // Ignore late deltas from an aborted or superseded request.
       await textProvider(provider, process.env, model)(messages, controller.signal, (delta) => {
         if (controller.signal.aborted || answering !== id) return
         output += delta
@@ -1484,10 +1516,12 @@ wss.on('connection', (socket, req) => {
       }, broker ? {
         cacheKey: `jarvis-${theme}`,
         tools: broker.tools(),
+        // Surface actual tool execution as activity on the HUD.
         onTool: (name) => {
           activity = true
           sendTurn({ type: 'tool', name })
         },
+        // Route tool calls through the bridge's shared permission policy.
         callTool: (name, args) => broker.call(name, args, { allow: decideTool }),
       } : { cacheKey: `jarvis-${theme}` })
       if (controller.signal.aborted || answering !== id) return
@@ -1502,7 +1536,10 @@ wss.on('connection', (socket, req) => {
       sendTurn({ type: 'done', text: output })
     } catch (err) {
       if (controller.signal.aborted || answering !== id) return
-      if (!blind && !activity && attachments.some((file) => file.kind !== 'text') && isMultimodalRejection(err)) {
+      if (!blind && !activity && attachments.some((file) => {
+        // Retry only when this turn contains a non-text attachment.
+        return file.kind !== 'text'
+      }) && isMultimodalRejection(err)) {
         // Remembered so later turns skip the failing request; the retry reads the files as text.
         visionless.add(`${provider}:${model}`)
         void runText(provider, text, id, attachments)
@@ -1546,6 +1583,7 @@ wss.on('connection', (socket, req) => {
         return reject(new Error('the interface is not connected'))
       }
       const id = `q${++asks}`
+      // Reject this correlated browser request if no reply arrives in time.
       const timer = setTimeout(() => {
         waiting.delete(id)
         reject(new Error('the interface did not answer in time'))
@@ -1556,14 +1594,23 @@ wss.on('connection', (socket, req) => {
 
   const pickBrowser = chromeTarget({ hub: relayHub, clientIp })
   // Every provider hands work to the same agent service, so all agents are JARVIS's.
+  /** Build the optional agent MCP server with this connection's live callbacks. */
   const agentTools = () => agentApi
-    ? { jarvis_agents: agentsServer(agentApi, { lastUserText: () => lastQuestion, sessionAgents: () => sessionAgents.list() }) }
+    ? { jarvis_agents: agentsServer(agentApi, {
+      // Supply the user's latest words for explicit approval validation.
+      lastUserText: () => lastQuestion,
+      // Expose the current process-wide subagent snapshot to the briefing tool.
+      sessionAgents: () => sessionAgents.list(),
+    }) }
     : {}
   localMcpServers = {
     jarvis: displayServer(
+      // Display tool output in the browser that owns this Claude session.
       (panel) => send({ type: 'panel', panel }),
+      // Open the requested blade in that same browser session.
       (blade) => send({ type: 'blade', blade }),
     ),
+    // Relay UI operations and local-browser control through this socket.
     jarvis_ui: uiServer((op, args) => send({ type: 'ui', op, args })),
     jarvis_chrome: chromeServer({ allowWrites: ALLOW_WRITES, pick: pickBrowser }),
     jarvis_eyes: visionServer(ask),
@@ -1630,11 +1677,14 @@ wss.on('connection', (socket, req) => {
   let settling = Promise.resolve()
   let finishTurn = null
 
+  /** Create a promise resolved only when the SDK emits its turn result. */
   const turnFinished = () =>
     new Promise((resolve) => {
+      // Save the completion signal so pumpSession can release the waiting turn.
       finishTurn = resolve
     })
 
+  /** Announce permitted tools immediately and defer uncertain results. */
   const announceTool = (id, name) => {
     if (!name || (id && seenTools.has(id))) return
     if (id) seenTools.add(id)
@@ -1650,6 +1700,7 @@ wss.on('connection', (socket, req) => {
     if (id) heldTools.set(id, name)
   }
 
+  /** Publish a deferred tool badge only after its result confirms success. */
   const settleTool = (id, failed) => {
     const name = heldTools.get(id)
     if (name === undefined) return
@@ -1666,6 +1717,7 @@ wss.on('connection', (socket, req) => {
   // on connect; after that the change frames carry it.
   sessionAgents.resend()
 
+  /** Create a Claude SDK session with this connection's tools and safety hooks. */
   const createClaudeSession = () => query({
     prompt: userMessages(),
     options: {
@@ -1684,6 +1736,7 @@ wss.on('connection', (socket, req) => {
       env: { ...process.env, TMPDIR: join(workingDirectory, 'tmp') },
       hooks: {
         PreToolUse: [{ hooks: [async ({ tool_name: name, tool_input: input = {} }) => {
+          // Enforce output-path policy before the SDK runs any native tool.
           const reason = toolOutputError(name, input, workingDirectory, projectRoots)
           if (reason) return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } }
           if ((name === 'Task' || name === 'Agent') && typeof input.prompt === 'string') {
@@ -1730,6 +1783,7 @@ wss.on('connection', (socket, req) => {
       // through a `Bash: echo hello` without asking, and only reaches us for
       // something with a consequence, like a `touch`. So a deny here is
       // reliable; an absence of a call here is not proof nothing ran.
+      // Apply the bridge's final allow/deny decision to SDK-intercepted tools.
       canUseTool: async (toolName) => {
         const ok = decideTool(toolName)
         console.log(`[jarvis] tool ${toolName} -> ${ok ? 'allow' : 'deny'}`)
@@ -1750,6 +1804,7 @@ wss.on('connection', (socket, req) => {
 
   let session = null
 
+  /** Lazily create and pump the Claude session only when it is first needed. */
   const ensureClaudeSession = () => {
     if (session) return session
     session = createClaudeSession()
@@ -1759,6 +1814,7 @@ wss.on('connection', (socket, req) => {
   }
 
   // Pump Claude output only after Claude is selected or needed for failover.
+  /** Relay SDK progress, tool activity, and final results to the browser. */
   async function pumpSession(currentSession) {
     try {
       for await (const msg of currentSession) {
@@ -1804,7 +1860,7 @@ wss.on('connection', (socket, req) => {
               if (block.type === 'tool_use') {
                 activity = true
                 announceTool(block.id, block.name)
-                if (SESSION_AGENT_TOOLS.includes(block.name)) {
+                if (isSessionAgentTool(block.name)) {
                   sessionAgents.start(block.id, block.input, { provider: 'claude', model: sessionModel ?? chosenModel.claude, carrier })
                 }
                 // Messaging a stopped agent resumes it from its transcript, so
@@ -1943,6 +1999,7 @@ wss.on('connection', (socket, req) => {
     }
   }
 
+  // Parse and dispatch browser commands for this conversation.
   socket.on('message', (raw) => {
     let msg
     try {
@@ -1975,6 +2032,7 @@ wss.on('connection', (socket, req) => {
     if (msg.type === 'sessions_sync' && Array.isArray(msg.sessions)) {
       try {
         saveHistory(msg.sessions)
+        // Summary refresh is best-effort; persisted history remains authoritative.
         void refreshSummaries().catch(() => {})
       } catch (err) {
         console.warn('[jarvis] could not save session history:', err.message)
@@ -1990,27 +2048,33 @@ wss.on('connection', (socket, req) => {
     }
 
     if (msg.type === 'schedule_request') {
+      // Refresh the board after the request handler replies to the browser.
       void handleScheduleRequest(msg, agentApi, send).then(() => pushBoard())
       return
     }
 
     if (msg.type === 'profile_request') {
+      // Refresh profile-linked goals after profile operations complete.
       void handleProfileRequest(msg, agentApi, send).then(() => pushBoard())
       return
     }
 
     if (msg.type === 'goal_request') {
+      // Update the board after goal creation or status changes.
       void handleGoalRequest(msg, agentApi, send).then(() => pushBoard())
     }
     if (msg.type === 'decision_request') {
+      // Reflect task state changes caused by the user's decision.
       void handleDecisionRequest(msg, agentApi, send).then(() => pushBoard())
       return
     }
     if (msg.type === 'goal_decision_request') {
+      // Refresh goal blockers and status after the decision is processed.
       void handleGoalDecisionRequest(msg, agentApi, send).then(() => pushBoard())
       return
     }
     if (msg.type === 'goal_control_request') {
+      // Refresh the board after pause, resume, or abandon operations.
       void handleGoalControlRequest(msg, agentApi, send).then(() => pushBoard())
       return
     }
@@ -2026,8 +2090,10 @@ wss.on('connection', (socket, req) => {
     if (msg.type === 'startup_status') {
       void handleStartupStatusRequest(msg, {
         api: agentApi ? agentsApi({ timeoutMs: 5000 }) : null,
+        // Supply local memory and ledger snapshots to the startup summary.
         readMemory: () => loadMemory(MEMORY_FILE),
         readLooseEnds: () => loadLooseEnds(LOOSE_ENDS_FILE),
+        // Merge the process-wide subagent list for startup status.
         readSessionAgents: () => mergeSessionAgents([sessionAgents.snapshot()]),
       }, send)
       return
@@ -2057,6 +2123,7 @@ wss.on('connection', (socket, req) => {
         send({ type: 'error', message: err.message, ask: id })
         return
       }
+      // Start only after an interrupted SDK turn has emitted its final result.
       void settling.then(() => {
         if (closed) return
         activeController?.abort()
@@ -2074,6 +2141,7 @@ wss.on('connection', (socket, req) => {
         if (provider === 'claude') return deliverClaude(text, attachments)
         return runText(provider, text, id, attachments)
       }).catch((err) => {
+        // Close the socket if the turn could not be prepared for delivery.
         console.error('[jarvis] could not start turn:', err)
         send({ type: 'error', message: 'The session could not start this turn. Please ask again after reconnecting.', ask: id })
         closed = true
@@ -2103,6 +2171,7 @@ wss.on('connection', (socket, req) => {
     }
   })
 
+  // Release timers, subscriptions, session agents, and SDK resources on disconnect.
   socket.on('close', () => {
     console.log('[jarvis] client disconnected')
     saveConversation()

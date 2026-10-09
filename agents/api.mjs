@@ -21,9 +21,11 @@ import { rmSync } from 'node:fs'
  * open and unencrypted.
  */
 
+/** Read a bounded request body, rejecting oversized or interrupted streams. */
 const readBody = (req) =>
   new Promise((resolve, reject) => {
     let data = ''
+    // Accumulate chunks until the configured request-size ceiling is reached.
     req.on('data', (chunk) => {
       data += chunk
       if (data.length > 1_000_000) {
@@ -31,7 +33,9 @@ const readBody = (req) =>
         req.destroy()
       }
     })
+    // Resolve with the complete body once the request stream ends.
     req.on('end', () => resolve(data))
+    // Propagate stream errors to the route's JSON error handler.
     req.on('error', reject)
   })
 
@@ -40,6 +44,7 @@ class NotFound extends Error {}
 /** Goal states that are over, and so safe to erase. */
 const ERASABLE = ['done', 'abandoned']
 
+/** Create the authenticated agent HTTP API and its server-sent event stream. */
 export function createApi({ store, scheduler, coordinator, approvals, cleanup, mirror = {}, pool = null, installedSkills = listInstalledSkills, token, host = '127.0.0.1', port = 0, tls = null }) {
   if (!token) throw new Error('JARVIS_AGENTS_TOKEN is not set; refusing to start an unauthenticated API.')
   if (!isLoopback(host) && !tls) {
@@ -50,15 +55,12 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
   }
 
   const clients = new Set()
-  const off = store.onEvent((ev) => {
-    for (const res of clients) res.write(`data: ${JSON.stringify(ev)}\n\n`)
-  })
-  const heartbeat = setInterval(() => {
-    for (const res of clients) res.write(': ping\n\n')
-  }, 25_000)
+  /** Log background coordinator failures without interrupting the HTTP server. */
   const warn = (err) => console.warn('[agents]', err.message)
 
+  /** Apply one supported goal transition and notify the coordinator when needed. */
   function changeGoal(goal, body) {
+    // Record a goal event consistently for each accepted mutation.
     const event = (action) =>
       store.appendEvent({ type: 'goal_changed', goalId: goal.id, text: `${goal.title}: ${action}`, data: { title: goal.title, action } })
     if (typeof body.info === 'string' && body.action !== 'resume') {
@@ -152,6 +154,7 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
    */
   const clampBudget = (kind, budget = {}) => {
     const cap = BUDGETS[kind]
+    // Treat invalid or absent requests as the local cap and never exceed it.
     const least = (asked, limit) => Math.min(Number(asked) > 0 ? Number(asked) : limit, limit)
     return {
       maxTurns: least(budget.maxTurns, cap.maxTurns),
@@ -160,6 +163,7 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
     }
   }
 
+  /** Validate, persist, and queue work delegated from another host. */
   function acceptTask(body) {
     if (!TRAVELLING_KINDS.includes(body.kind)) {
       throw new Error(
@@ -200,6 +204,7 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
     return { id: saved.id, goalId: goal.id }
   }
 
+  /** Convert a saved profile and schedule into the scheduler's input shape. */
   const scheduleForProfile = (profile, schedule) => ({
     title: profile.name,
     outcome: `Use the latest instructions from agent profile ${profile.id}.`,
@@ -222,6 +227,7 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
     }
   }
 
+  /** Validate and save a profile, creating its linked schedule when requested. */
   function createProfile(body) {
     const input = profileInput.parse(body)
     checkSkills(input.skills)
@@ -240,12 +246,14 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
     return profile
   }
 
+  /** Update profile fields and keep its optional schedule in sync. */
   function updateProfile(id, body) {
     const current = store.getProfile(id)
     if (!current) throw new NotFound('Agent profile not found.')
     const changes = profileChanges.parse(body)
     if (Object.hasOwn(changes, 'skills')) checkSkills(changes.skills, current.skills ?? [])
     const next = { ...current, ...changes, schedule: Object.hasOwn(changes, 'schedule') ? changes.schedule : current.schedule }
+    // Replan the linked schedule when profile instructions or role change.
     const profileFieldsChanged = ['name', 'role', 'instructions'].some((key) => Object.hasOwn(changes, key))
     const scheduleChanged = Object.hasOwn(changes, 'schedule') && JSON.stringify(next.schedule) !== JSON.stringify(current.schedule)
     if (next.schedule) scheduleInput(scheduleForProfile(next, next.schedule), new Date())
@@ -273,6 +281,7 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
     return saved
   }
 
+  /** Delete a profile and remove its linked schedule if it still exists. */
   function deleteProfile(id) {
     const profile = store.getProfile(id)
     if (!profile) throw new NotFound('Agent profile not found.')
@@ -285,6 +294,7 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
     return { id, deleted: true }
   }
 
+  /** Create a goal from a profile snapshot and ask the coordinator to plan it. */
   function runProfile(id) {
     const profile = store.getProfile(id)
     if (!profile) throw new NotFound('Agent profile not found.')
@@ -306,18 +316,26 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
   function taskState(id, since) {
     const task = store.getTask(id)
     if (!task) throw new NotFound(`No task ${id}.`)
-    const progress = store.readEvents({ limit: 5000 }).filter((e) => e.taskId === id && e.type === 'task_progress')
+    const progress = store.readEvents({ limit: 5000 }).filter((event) => {
+      // Expose only progress records belonging to the requested task.
+      return event.taskId === id && event.type === 'task_progress'
+    })
     return {
       id,
       status: task.status,
       result: task.result ?? null,
       failure: task.failure ?? null,
-      events: progress.slice(Math.max(0, since)).map((e) => ({ at: e.at, text: e.text })),
+      events: progress.slice(Math.max(0, since)).map((event) => {
+        // Return only the timestamp and text needed by the remote client.
+        return { at: event.at, text: event.text }
+      }),
       eventCount: progress.length,
     }
   }
 
+  /** Authenticate, route, validate, and serialize one API request. */
   const handler = async (req, res) => {
+    /** Send a JSON response with the requested HTTP status. */
     const send = (code, body) => {
       res.writeHead(code, { 'content-type': 'application/json' })
       res.end(JSON.stringify(body))
@@ -332,6 +350,7 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' })
       res.write(': connected\n\n')
       clients.add(res)
+      // Remove the response when its client disconnects.
       req.on('close', () => clients.delete(res))
       return
     }
@@ -435,16 +454,27 @@ export function createApi({ store, scheduler, coordinator, approvals, cleanup, m
   // that leaves the token in the open.
   const server = tls ? https.createServer(tls, handler) : http.createServer(handler)
 
+  /** Wait for the server to bind and return the port selected by the OS. */
+  const listen = () => new Promise((resolve) => {
+    // Resolve only after the listener is ready to accept API traffic.
+    server.listen(port, host, () => resolve(server.address().port))
+  })
+  /** Stop SSE clients and close the HTTP listener and its active connections. */
+  function close() {
+    off()
+    clearInterval(heartbeat)
+    for (const res of clients) res.end()
+    clients.clear()
+    server.closeAllConnections?.()
+    return new Promise((resolve) => {
+      // Resolve when Node reports that the listener has closed.
+      server.close(resolve)
+    })
+  }
+
   return {
     tls: Boolean(tls),
-    listen: () => new Promise((resolve) => server.listen(port, host, () => resolve(server.address().port))),
-    close() {
-      off()
-      clearInterval(heartbeat)
-      for (const res of clients) res.end()
-      clients.clear()
-      server.closeAllConnections?.()
-      return new Promise((resolve) => server.close(resolve))
-    },
+    listen,
+    close,
   }
 }

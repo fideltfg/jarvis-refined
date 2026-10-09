@@ -97,12 +97,18 @@ export function mergeBoardData(current: AgentBoardData | null, history: AgentBoa
   if (!history) return current
   if (!current) return history
 
-  const liveGoals = new Map(current.goals.map((goal) => [goal.id, goal]))
+  const liveGoals = new Map(current.goals.map((goal) => {
+    // Index current goals so saved rows can be overlaid without losing history.
+    return [goal.id, goal]
+  }))
   const goals = history.goals.map((saved) => {
     const live = liveGoals.get(saved.id)
     if (!live) return saved
     liveGoals.delete(saved.id)
-    const tasks = new Map(saved.tasks.map((task) => [task.id, task]))
+    const tasks = new Map(saved.tasks.map((task) => {
+      // Seed with saved tasks, then overlay newer live snapshots below.
+      return [task.id, task]
+    }))
     for (const task of live.tasks) tasks.set(task.id, { ...tasks.get(task.id), ...task })
     return { ...saved, ...live, tasks: [...tasks.values()] }
   })
@@ -217,6 +223,7 @@ const PROVIDER_LABEL: Record<string, string> = {
   remote: 'Remote host',
 }
 
+/** Convert provider ids to labels suitable for board rows. */
 const providerName = (provider: string | null | undefined) =>
   provider ? (PROVIDER_LABEL[provider] ?? provider) : null
 
@@ -261,6 +268,7 @@ const STATUS_LABEL: Record<BoardAgentStatus, string> = {
   cancelled: 'cancelled',
 }
 
+/** Return a short UI label, falling back to the status value for unknown states. */
 export const statusLabel = (status: BoardAgentStatus): string => STATUS_LABEL[status] ?? status
 
 /**
@@ -293,13 +301,17 @@ export function ago(stamp: string | null, now: number = Date.now()): string | nu
 export function capacityLine(capacity: AgentCapacity | null | undefined): string | null {
   if (!capacity || capacity.capacity === null) return null
   if (capacity.endpoints.length < 2 && capacity.running === 0) return null
-  const down = capacity.endpoints.filter((e) => !e.healthy).length
+  const down = capacity.endpoints.filter((endpoint) => {
+    // Count unhealthy endpoints for the concise capacity summary.
+    return !endpoint.healthy
+  }).length
   const parts = [`${capacity.running} of ${capacity.capacity} busy`]
   if (capacity.endpoints.length > 1) parts.push(plural(capacity.endpoints.length, 'endpoint'))
   if (down) parts.push(`${down} down`)
   return parts.join(' · ')
 }
 
+/** Map persisted goal lifecycle values to the board's row status vocabulary. */
 const goalStatus = (status: string): BoardAgentStatus => status === 'paused' ? 'paused' : status === 'done' ? 'done' : status === 'abandoned' ? 'cancelled' : 'active'
 
 export type BoardStateGroup = 'waiting' | 'working' | 'paused' | 'idle'
@@ -335,6 +347,7 @@ export function deleteBlockReason(row: BoardAgent | undefined | null): string | 
 export const runningAgents = (rows: BoardAgent[]): BoardAgent[] =>
   rows.filter((row) => row.kind !== 'goal' && row.status === 'running')
 
+/** Keep goals plus tasks requiring direct attention in the main task view. */
 export const mainTaskRows = (rows: BoardAgent[]): BoardAgent[] =>
   rows.filter((row) => row.kind === 'goal' || (row.kind === 'task' && (row.status === 'blocked' || row.approval !== null)))
 
@@ -349,26 +362,33 @@ export function agentSummary(rows: BoardAgent[]): string {
   return parts.join(' · ')
 }
 
+/** Format a numeric count with a simple singular/plural noun. */
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 /** The one-line "what is this goal doing" that replaces a static outcome. */
 function goalActivity(live: AgentTask[], done: number): string {
   const parts = [`${done} of ${plural(live.length, 'task')} done`]
   for (const status of ['running', 'awaiting_approval', 'blocked', 'failed', 'queued'] as const) {
-    const n = live.filter((t) => t.status === status).length
+    const n = live.filter((task) => {
+      // Count only tasks matching this row's activity state.
+      return task.status === status
+    }).length
     if (n) parts.push(`${n} ${statusLabel(status)}`)
   }
   return parts.join(' · ')
 }
 
+/** Describe task kind and surface its retry number only after a retry. */
 function taskActivity(task: AgentTask): string {
   // Attempts only mean something once something has gone wrong the first time.
   return task.attempts > 1 ? `${task.kind} · attempt ${task.attempts}` : task.kind
 }
 
+/** Identify statuses that count as ended for display timestamps. */
 const terminal = (status: BoardAgentStatus) => URGENCY[status] >= URGENCY.failed
 
 /** A stamp to sort by: when it ended if it has, else when it started. */
+/** Select an ending timestamp or, for active rows, their start timestamp. */
 const at = (row: BoardAgent) => row.finishedAt ?? row.startedAt ?? ''
 
 /**
@@ -384,8 +404,14 @@ export function mergeBoard(board: AgentBoardData | null, session: SessionAgent[]
   const units: BoardAgent[][] = []
 
   for (const goal of board?.goals ?? []) {
-    const live = goal.tasks.filter((task) => task.status !== 'cancelled')
-    const done = live.filter((t) => t.status === 'done').length
+    const live = goal.tasks.filter((task) => {
+      // Cancelled tasks do not contribute to progress or the visible live row list.
+      return task.status !== 'cancelled'
+    })
+    const done = live.filter((task) => {
+      // Progress counts only completed tasks.
+      return task.status === 'done'
+    }).length
     const goalRow: BoardAgent = {
       id: goal.id,
       kind: 'goal',
@@ -416,7 +442,10 @@ export function mergeBoard(board: AgentBoardData | null, session: SessionAgent[]
       finishedAt: terminal(task.status) ? (task.updated ?? null) : null,
       parentId: goal.id,
       progress: null,
-      approval: board?.approvals.find((a) => a.taskId === task.id) ?? null,
+      approval: board?.approvals.find((approval) => {
+        // Attach only the approval that belongs to this task.
+        return approval.taskId === task.id
+      }) ?? null,
       awaitingResponse: task.awaitingResponse ?? false,
       owner: 'JARVIS',
       runsOn: taskRunsOn(task),
@@ -456,11 +485,16 @@ export function mergeBoard(board: AgentBoardData | null, session: SessionAgent[]
     ])
   }
 
-  const rank = (unit: BoardAgent[]) => Math.min(...unit.map((r) => URGENCY[r.status]))
-  const recency = (unit: BoardAgent[]) => unit.reduce((newest, r) => (at(r) > newest ? at(r) : newest), '')
+  /** Rank a goal/task unit by its most urgent row. */
+  const rank = (unit: BoardAgent[]) => Math.min(...unit.map((row) => URGENCY[row.status]))
+  /** Find the latest timestamp in a unit for tie-breaking. */
+  const recency = (unit: BoardAgent[]) => unit.reduce((newest, row) => (at(row) > newest ? at(row) : newest), '')
 
   return units
-    .map((unit, index) => ({ unit, index }))
+    .map((unit, index) => {
+      // Retain the original index so equal urgency/recency remains stable.
+      return { unit, index }
+    })
     .sort(
       (a, b) =>
         rank(a.unit) - rank(b.unit) ||
@@ -468,5 +502,6 @@ export function mergeBoard(board: AgentBoardData | null, session: SessionAgent[]
         // Stable, so a board that has not changed does not reshuffle itself.
         a.index - b.index,
     )
+    // Flatten each sorted goal/task group without separating its children.
     .flatMap((entry) => entry.unit)
 }

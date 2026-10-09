@@ -8,11 +8,13 @@ const MAX_BYTES = 512_000
 const DOCUMENT = /\.(md|txt|json|csv|html|xml|ya?ml|log)$/i
 const REFERENCE_DOCUMENT = /\.(md|txt|json|csv|html|xml|ya?ml|log|pdf)$/i
 const FOLDERS = ['reports', 'artifacts']
+/** Check canonical path containment for report and reference reads. */
 const inside = (root, path) => {
   const suffix = relative(root, path)
   return suffix !== '..' && !suffix.startsWith('../') && !isAbsolute(suffix)
 }
 
+/** List task report files or read one bounded text preview within its workspace. */
 export async function taskReports(task, file = null) {
   const result = { result: task.result ?? null, failure: task.failure ?? null, files: [] }
   if (!task.workspace?.path) {
@@ -50,6 +52,7 @@ export async function taskReports(task, file = null) {
       const root = await realpath(join(workspace, folder))
       if (!inside(workspace, root)) throw new Error(`${folder} folder is outside the task workspace.`)
       const files = []
+      /** Walk one report folder without following symlinks or exceeding the cap. */
       async function list(directory, prefix = '') {
         for (const entry of await readdir(directory, { withFileTypes: true })) {
           if (files.length >= 200) return
@@ -69,10 +72,12 @@ export async function taskReports(task, file = null) {
   return result
 }
 
+/** Merge valid result/failure references, deduplicate targets, and cap the list. */
 export function taskReferences(task) {
   const refs = [...(task.result?.references ?? []), ...(task.failure?.references ?? [])]
   const seen = new Set()
   return refs.filter((reference) => {
+    // Ignore malformed references and repeated URLs or local paths.
     if (!reference || typeof reference.title !== 'string' || (typeof reference.url !== 'string' && typeof reference.path !== 'string')) return false
     const key = reference.url ?? reference.path
     if (seen.has(key)) return false
@@ -81,6 +86,7 @@ export function taskReferences(task) {
   }).slice(0, 20)
 }
 
+/** Resolve and read one task reference inside its workspace or approved roots. */
 export async function readTaskReference(task, index, { roots = [WORK_DIR, join(homedir(), 'Projects'), ...(process.env.JARVIS_PROJECT_ROOTS ?? '').split(',').map((root) => root.trim()).filter(Boolean)] } = {}) {
   const reference = taskReferences(task)[index]
   if (!Number.isInteger(index) || index < 0 || !reference?.path) throw new Error('This document reference is unavailable.')
@@ -104,6 +110,7 @@ export async function readTaskReference(task, index, { roots = [WORK_DIR, join(h
     const info = await handle.stat()
     if (!info.isFile() || info.size > MAX_BYTES) throw new Error('Document exceeds the 512 KB preview limit or is not a regular file.')
     const data = await handle.readFile()
+    // Extract PDF text while reading all other supported documents as UTF-8.
     const extracted = extname(path).toLowerCase() === '.pdf'
       ? (await extractText(data, { mergePages: true })).text
       : data.toString('utf8')

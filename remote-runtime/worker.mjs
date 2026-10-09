@@ -1,3 +1,4 @@
+/** Validate and normalize the configured loopback OpenAI-compatible endpoint. */
 export function localModelURL(value) {
   let url
   try {
@@ -12,6 +13,7 @@ export function localModelURL(value) {
   return url.href.replace(/\/$/, '')
 }
 
+/** Execute one text-only research task within its cancellation and time budget. */
 export async function runTask(task, { store, signal, modelURL, model, fetchFn = fetch }) {
   if (signal?.aborted) return { status: 'cancelled', failure: { reason: 'cancelled', detail: 'Stopped by the user.' } }
   if (task.kind === 'ops') {
@@ -19,6 +21,7 @@ export async function runTask(task, { store, signal, modelURL, model, fetchFn = 
   }
   const goal = store.getGoal(task.goalId)
   const controller = new AbortController()
+  /** Forward upstream cancellation to the in-flight model request. */
   const abort = () => controller.abort()
   signal?.addEventListener('abort', abort, { once: true })
   const timer = setTimeout(abort, task.budget.maxMinutes * 60_000)

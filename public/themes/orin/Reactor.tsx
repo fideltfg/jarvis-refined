@@ -2,6 +2,7 @@ import { useStore } from '../../../src/store'
 
 
 
+/** Render the ORIN reactor lens when the theme docks it inline. */
 export function Reactor({ inline = false }: { inline?: boolean } = {}) {
   const level = useStore((state) => state.level)
   const phase = useStore((state) => state.phase)

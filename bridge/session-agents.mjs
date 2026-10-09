@@ -33,8 +33,6 @@ import { dirname, join } from 'node:path'
  */
 export const SESSION_AGENT_TOOLS = ['Task', 'Agent']
 
-export const SESSION_AGENT_TOOL = SESSION_AGENT_TOOLS[0]
-
 /** True for a tool_use block that dispatches a subagent, on any build. */
 export const isSessionAgentTool = (name) => SESSION_AGENT_TOOLS.includes(name)
 

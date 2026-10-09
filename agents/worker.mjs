@@ -60,6 +60,7 @@ export function modelFor(task, endpoint = null) {
   return MODELS[task.model] ?? endpoint?.model ?? MODELS.sonnet
 }
 
+/** Sum provider token usage across model entries for a task usage event. */
 export function usageData(result) {
   if (!result.modelUsage) return null
   const totals = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }
@@ -101,6 +102,7 @@ const KIND_GUIDE = {
  * above says text is data. Every task of a profile's goal gets the same block,
  * so the prefix is still shared across that goal's run.
  */
+/** Return the cacheable system instructions shared by tasks of one kind. */
 export function workerPrompt(kind, skills = '') {
   return `You are an agent working for JARVIS, the user's assistant, on one task toward a larger goal. The first message gives the goal, your task, your working folder and your brief.
 
@@ -139,6 +141,7 @@ export function profileSkillPrompt(task, goal, root = skillsRoot()) {
   })
 }
 
+/** Build a task-specific prompt with workspace and output constraints. */
 export function taskPrompt(task, goal) {
   const branch = task.workspace.branch ? ` (branch ${task.workspace.branch})` : ''
   return `GOAL: ${goal?.title ?? '(unknown)'}
@@ -155,6 +158,7 @@ BRIEF:
 ${task.brief}`
 }
 
+/** Create the worker's structured report tool with validated blocker metadata. */
 export function reportServer(onReport) {
   const question = z.object({
     id: z.string().regex(/^[a-zA-Z0-9_-]{1,48}$/),
@@ -166,6 +170,7 @@ export function reportServer(onReport) {
       recommended: z.boolean().optional(),
     }).strict()).min(2).max(6),
   }).strict().superRefine((value, ctx) => {
+    // Refuse duplicate option ids so user answers map unambiguously.
     if (new Set(value.options.map((option) => option.id)).size !== value.options.length) {
       ctx.addIssue({ code: 'custom', message: 'Decision option ids must be unique.' })
     }
@@ -194,6 +199,7 @@ export function reportServer(onReport) {
         'report',
         'Report progress, completion or a blocker to the coordinator.',
         report.shape,
+        // Validate a report before persisting it and acknowledge the worker call.
         async (args) => {
           const parsed = validateReportQuestions(report.parse(args))
           onReport(parsed)
@@ -204,6 +210,7 @@ export function reportServer(onReport) {
   })
 }
 
+/** Enforce that decision questions appear only on actionable decision blockers. */
 export function validateReportQuestions(report) {
   if (report.status === 'blocked' && report.blocker === 'decision' && !report.questions?.length) {
     throw new Error('A decision blocker must include at least one multiple-choice question with two or more options.')
@@ -211,12 +218,16 @@ export function validateReportQuestions(report) {
   if (report.questions?.length && (report.status !== 'blocked' || report.blocker !== 'decision')) {
     throw new Error('Decision questions require a blocked report with blocker "decision".')
   }
-  if (report.questions && new Set(report.questions.map((entry) => entry.id)).size !== report.questions.length) {
+  if (report.questions && new Set(report.questions.map((entry) => {
+    // Compare stable question ids before forwarding the report.
+    return entry.id
+  })).size !== report.questions.length) {
     throw new Error('Decision question ids must be unique.')
   }
   return report
 }
 
+/** Shape one permission result in the SDK's required PreToolUse format. */
 const hookOut = (decision, reason) => ({
   hookSpecificOutput: {
     hookEventName: 'PreToolUse',
@@ -225,6 +236,7 @@ const hookOut = (decision, reason) => ({
   },
 })
 
+/** Run one bounded worker task, enforce approvals, and normalize its final result. */
 export async function runTask(task, deps) {
   const {
     store, approvals, contacts, mcpServers = {}, signal, onSession, endpoint = null,
@@ -236,6 +248,7 @@ export async function runTask(task, deps) {
   const maxUsd = task.budget.maxUsd ?? BUDGETS[task.kind].maxUsd
   let outcome = null
 
+  /** Persist worker reports and publish progress events for the board. */
   const onReport = (r) => {
     saveAgentReport(cwd, r)
     if (r.status === 'progress') {
@@ -246,6 +259,7 @@ export async function runTask(task, deps) {
   }
 
   const controller = new AbortController()
+  /** Forward scheduler cancellation into the SDK's abort controller. */
   const onAbort = () => controller.abort()
   signal?.addEventListener('abort', onAbort)
 
@@ -256,6 +270,7 @@ export async function runTask(task, deps) {
   let startedAt = 0
   let timer = null
   let waiting = 0
+  /** Resume the task-time budget after outstanding approval waits end. */
   const arm = () => {
     startedAt = Date.now()
     timer = setTimeout(() => {
@@ -263,6 +278,7 @@ export async function runTask(task, deps) {
       controller.abort()
     }, Math.max(0, remaining))
   }
+  /** Stop the active budget timer and subtract elapsed work time. */
   const pause = () => {
     clearTimeout(timer)
     remaining -= Date.now() - startedAt
@@ -274,11 +290,13 @@ export async function runTask(task, deps) {
   // URL, so it is inferred from where the agent navigated and what it read.
   let commerce = false
 
+  /** Record tool calls, enforce policy, and wait for any required approval. */
   const gate = async (input) => {
     const toolInput = input.tool_input ?? {}
     if (input.tool_name === 'mcp__jarvis_chrome__chrome_navigate' && /^https?:/i.test(String(toolInput.url ?? ''))) {
       commerce = looksLikeCheckoutUrl(toolInput.url)
     }
+    // Restrict research skills before applying the general tool policy.
     const verdict = task.kind === 'research' && input.tool_name === 'Skill' &&
       !task.allowedSkills?.includes(toolInput.skill)
       ? { decision: 'deny', category: 'skill', reason: 'This research task has not been approved to use that skill.' }
@@ -308,6 +326,7 @@ export async function runTask(task, deps) {
     return answer.approved ? hookOut('allow') : hookOut('deny', `The user denied this${answer.note ? `: ${answer.note}` : '.'}`)
   }
 
+  /** Remember checkout state inferred from browser reads for later action gates. */
   const observe = async (input) => {
     if (CHROME_READS.test(String(input.tool_name)) && looksLikeCheckoutPage(JSON.stringify(input.tool_response ?? ''))) {
       commerce = true
@@ -322,6 +341,7 @@ export async function runTask(task, deps) {
   let sessionId = task.sessionId
 
   try {
+    // Use a direct provider adapter only for explicitly scheduled non-Claude work.
     const runQuery = task.execution && task.execution.provider !== 'claude' ? makeTextQuery(task.execution, { endpoint }) : queryFn
     const stream = runQuery({
       prompt: task.resume
@@ -349,10 +369,12 @@ export async function runTask(task, deps) {
         ...(task.resume && task.sessionId ? { resume: task.sessionId } : {}),
       },
     })
+    // Save redacted worker logs and capture session/result metadata as it streams.
     for await (const msg of stream) {
       saveOutputLog(cwd, 'worker', { message: JSON.parse(redact(JSON.stringify(msg))) })
       sawMessage = true
       if (msg.session_id && msg.session_id !== sessionId) {
+        // Let the scheduler persist a newly created session id for later resume.
         sessionId = msg.session_id
         onSession?.(sessionId)
       }
@@ -363,6 +385,7 @@ export async function runTask(task, deps) {
       }
     }
   } catch (err) {
+    // Distinguish cancellation, time-budget expiry, failed resume, and other errors.
     if (signal?.aborted) return cancelled
     if (timedOut) return overTime
     if (task.resume && !sawMessage) {

@@ -27,6 +27,7 @@ const PHASE_LABELS: Record<Phase, string> = {
 }
 
 const TRACE_SAMPLES = 56
+/** Clear the previous LCARS selection and mark the newly active control. */
 const selectControl = (control: HTMLElement) => {
   document.querySelectorAll('[data-lcars-selected]').forEach((selected) => selected.removeAttribute('data-lcars-selected'))
   control.setAttribute('data-lcars-selected', 'true')
@@ -41,6 +42,7 @@ const WAVE_LAYERS = [
   { className: 'lcars-wave-line-orange', particleClass: 'lcars-wave-particle-orange', phase: 3.6, gain: 0.54, speed: 6.2 },
 ]
 
+/** Render the LCARS console, subsystem controls, transcript, and inline tools. */
 export function Reactor({ inline = false }: { inline?: boolean } = {}) {
   const phase = useStore((state) => state.phase)
   const activeTool = useStore((state) => state.activeTool)
@@ -48,6 +50,7 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
   const agentsOnline = useStore((state) => state.agentsOnline)
   const sessionAgents = useStore((state) => state.sessionAgents)
   const agentBoard = useStore((state) => state.agentBoard)
+  // Count live work across service agents and in-session subagents together.
   const agentCount = useMemo(
     () => runningAgents(mergeBoard(agentsOnline ? agentBoard : null, sessionAgents)).length,
     [agentBoard, agentsOnline, sessionAgents],
@@ -79,11 +82,13 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
   const commandPaletteOpen = commandWindow === 'palette'
   const transcriptRef = useRef<HTMLDivElement>(null)
 
+  // Keep the latest transcript visible after turns, captions, or panels change.
   useEffect(() => {
     const transcript = transcriptRef.current
     if (transcript) transcript.scrollTop = transcript.scrollHeight
   }, [turns, commandWindow, caption, error])
 
+  // Make LCARS command windows mutually exclusive while this theme is mounted.
   useEffect(() => {
     const state = useStore.getState()
     state.setCommandWindow(state.enrolling ? 'voice' : state.timelineOpen ? 'timeline' : state.historyOpen ? 'history' : state.boardOpen ? 'agents' : null)
@@ -91,7 +96,9 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
     return () => { useStore.setState({ exclusiveCommandWindows: false }) }
   }, [])
 
+  // Track the most recently clicked or changed native control for LCARS styling.
   useEffect(() => {
+    /** Select an eligible form control only when LCARS is the active theme. */
     const select = (event: Event) => {
       if (!(event.target instanceof Element)) return
       const control = event.target.closest<HTMLElement>('button, select')
@@ -103,16 +110,21 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
     return () => {
       document.removeEventListener('click', select, true)
       document.removeEventListener('change', select, true)
-      document.querySelectorAll('[data-lcars-selected]').forEach((selected) => selected.removeAttribute('data-lcars-selected'))
+      document.querySelectorAll('[data-lcars-selected]').forEach((selected) => {
+        // Remove stale selection attributes before the effect is cleaned up.
+        selected.removeAttribute('data-lcars-selected')
+      })
     }
   }, [])
 
+  // Move LCARS focus styling to the active shared command window.
   useEffect(() => {
     if (!commandWindow) return
     const control = document.querySelector<HTMLElement>(`[data-command-window="${commandWindow}"]`)
     if (control) selectControl(control)
   }, [commandWindow])
 
+  // Keep provider selectors synchronized with bridge updates and failover.
   useEffect(() => watchProviders(() => setProviders(providerState())), [])
 
   const className = 'character-reactor lcars-reactor'
@@ -312,9 +324,11 @@ const clampLevel = (level: number) => Math.max(0, Math.min(1, level))
  * percent. React skips the render when the rounded value has not moved, so a
  * quiet room costs nothing.
  */
+/** Sample microphone state at the chart cadence instead of the audio-frame rate. */
 function useSampledLevel() {
   const [level, setLevel] = useState(() => clampLevel(useStore.getState().level))
   useEffect(() => {
+    // Publish one rounded level sample every chart interval.
     const id = window.setInterval(() => {
       setLevel(Math.round(clampLevel(useStore.getState().level) * 100) / 100)
     }, SAMPLE_MS)
@@ -323,6 +337,7 @@ function useSampledLevel() {
   return level
 }
 
+/** Render the audio subsystem status and its sampled input meter. */
 function AudioInputRow({ offline }: { offline: boolean }) {
   const level = useSampledLevel()
   const state = offline ? 'OFFLINE' : level > 0.015 ? 'ACTIVE' : 'ARMED'
@@ -343,6 +358,7 @@ function AudioInputRow({ offline }: { offline: boolean }) {
  * Reactor, every chart tick re-rendered the whole console — transcript,
  * controls and every inline command window — twenty times a second.
  */
+/** Render the live waveform, warped grid, and signal-level diagnostics. */
 function SignalPanel({ phase }: { phase: Phase }) {
   const gridGradientId = useId().replace(/:/g, '')
   const [level, setLevel] = useState(() => useStore.getState().level)
@@ -352,6 +368,7 @@ function SignalPanel({ phase }: { phase: Phase }) {
   levelRef.current = level
 
   useEffect(() => {
+    // Shift the trace one sample at a time at the shared 20 Hz cadence.
     const id = window.setInterval(() => {
       const nextLevel = useStore.getState().level
       setLevel(nextLevel)
@@ -363,6 +380,7 @@ function SignalPanel({ phase }: { phase: Phase }) {
   useEffect(() => {
     let frame = 0
     let previousTime = performance.now()
+    /** Ease the animated grid toward microphone input once per animation frame. */
     const smoothGridLevel = (time: number) => {
       const elapsed = Math.min((time - previousTime) / 1000, 0.1)
       previousTime = time
@@ -381,10 +399,12 @@ function SignalPanel({ phase }: { phase: Phase }) {
   const gridCenterY = 68
   const gridFlow = (waveTime * (0.08 + gridLevel * 0.05)) % 1
   const gridGradientOffset = (waveTime * (12 + gridLevel * 12)) % 240
+  /** Project a ring sample into the console's flattened perspective grid. */
   const gridPoint = (radius: number, angle: number) => ({
     x: gridCenterX + Math.cos(angle) * radius * 265,
     y: gridCenterY + Math.sin(angle) * radius * 104 + Math.max(0, 1 - radius) ** 2 * 38,
   })
+  /** Serialize projected chart points as one SVG path. */
   const gridPath = (points: { x: number; y: number }[]) => points
     .map(({ x, y }, index) => `${index === 0 ? 'M' : 'L'} ${x} ${y}`)
     .join(' ')
@@ -399,6 +419,7 @@ function SignalPanel({ phase }: { phase: Phase }) {
     const points = Array.from({ length: 20 }, (_, pointIndex) => gridPoint(0.015 + (pointIndex / 19) * 1.22, angle))
     return gridPath(points)
   })
+  /** Build one animated waveform layer from trace samples and phase settings. */
   const buildWavePath = (phase: number, gain: number, speed: number, timeOffset = 0) => trace.map((sample, index) => {
     const x = (index / (TRACE_SAMPLES - 1)) * 480
     const input = Math.max(0, Math.min(1, sample))
@@ -408,12 +429,14 @@ function SignalPanel({ phase }: { phase: Phase }) {
     const y = 75 - wave * amplitude
     return `${index === 0 ? 'M' : 'L'} ${x} ${y}`
   }).join(' ')
+  /** Precompute each waveform layer and its delayed glow trails. */
   const wavePaths = WAVE_LAYERS.map(({ className, phase, gain, speed }) => ({
     className,
     path: buildWavePath(phase, gain, speed),
     nearTrail: buildWavePath(phase, gain, speed, -0.12),
     farTrail: buildWavePath(phase, gain, speed, -0.26),
   }))
+  /** Place moving particles along the waveform layers for visual motion. */
   const waveParticles = Array.from({ length: 18 }, (_, index) => {
     const layer = WAVE_LAYERS[index % WAVE_LAYERS.length]
     const x = (waveTime * (34 + (index % 5) * 13) + index * 61) % 480

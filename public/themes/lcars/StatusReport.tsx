@@ -35,6 +35,7 @@ const RANK: Record<LooseItem['status'], number> = { partial: 0, open: 1, done: 2
 const LABEL: Record<LooseItem['status'], string> = { partial: 'PARTIAL', open: 'OPEN', done: 'CLEARED' }
 
 /** Cleared items are history; the report is about what is still outstanding. */
+/** Return current incomplete ledger items ordered by urgency and recency. */
 const outstanding = (ledger: Ledger | null): LooseItem[] =>
   ledger && !ledger.missing
     ? [...ledger.items]
@@ -42,6 +43,7 @@ const outstanding = (ledger: Ledger | null): LooseItem[] =>
         .sort((a, b) => RANK[a.status] - RANK[b.status] || (b.date ?? '').localeCompare(a.date ?? ''))
     : []
 
+/** Load both ledgers independently and render a combined plan summary. */
 function StatusReport({ onClose }: { onClose: () => void }) {
   const [report, setReport] = useState<MemoryReport | null>(null)
   const [ledger, setLedger] = useState<Ledger | null>(null)
@@ -51,21 +53,26 @@ function StatusReport({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     if (!usingBridge) return
+    // Cancel both requests together when the command window closes.
     const controller = new AbortController()
     fetch(`${BRIDGE_HTTP_URL}/memory/status`, { signal: controller.signal })
       .then((response) => {
+        // Turn a non-success response into the memory section's error state.
         if (!response.ok) throw new Error('Memory is unavailable')
         return response.json() as Promise<MemoryReport>
       })
       .then(setReport)
+      // Ignore failures caused by cleanup; report other failures independently.
       .catch(() => { if (!controller.signal.aborted) setError('Could not load the task list.') })
     // Separate on purpose: the ledger failing must not blank the whole report.
     fetch(`${BRIDGE_HTTP_URL}/memory/loose-ends`, { signal: controller.signal })
       .then((response) => {
+        // Keep loose-end ledger parsing independent from PA memory loading.
         if (!response.ok) throw new Error('The ledger is unavailable')
         return response.json() as Promise<Ledger>
       })
       .then(setLedger)
+      // Preserve the task report if only the assistant ledger is unavailable.
       .catch(() => { if (!controller.signal.aborted) setLedgerError('Could not read the loose-ends ledger.') })
     return () => controller.abort()
   }, [])
@@ -74,6 +81,7 @@ function StatusReport({ onClose }: { onClose: () => void }) {
 
   return (
       <section className="lcars-report-window" role="region" aria-labelledby="lcars-report-title" onKeyDownCapture={(event) => {
+        // Close the command window before the app-level Escape handler runs.
         if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose() }
     }}>
         <header><div><span className="lcars-reactor-eyebrow">PERSONAL ASSISTANT / CURRENT PLAN</span><h2 id="lcars-report-title">Status report</h2></div></header>

@@ -53,6 +53,7 @@ export function startTool(
     startedAt: at,
     endedAt: null,
   }
+  // Close any prior active tool before adding this one and enforcing the cap.
   return [...endTools(events, at), event].slice(-cap)
 }
 
@@ -65,6 +66,7 @@ export function startTool(
  */
 export function endTools(events: ToolEvent[], at: number): ToolEvent[] {
   if (!events.some((event) => event.endedAt === null)) return events
+  // Stamp only open events and preserve the input array when nothing is running.
   return events.map((event) =>
     event.endedAt === null
       ? { ...event, endedAt: Math.max(at, event.startedAt) }
@@ -133,11 +135,18 @@ export function toolLabel(name: string): string {
  */
 export function toolSpans(events: ToolEvent[], now: number, minSpan = 4000): ToolSpan[] {
   if (!events.length) return []
-  const start = Math.min(...events.map((event) => event.startedAt))
-  const end = Math.max(now, ...events.map((event) => event.endedAt ?? event.startedAt))
+  const start = Math.min(...events.map((event) => {
+    // Anchor the visible time window to the first recorded tool call.
+    return event.startedAt
+  }))
+  const end = Math.max(now, ...events.map((event) => {
+    // Running calls extend the window to now; finished calls use their end time.
+    return event.endedAt ?? event.startedAt
+  }))
   const span = Math.max(end - start, minSpan)
   return events
     .map((event) => {
+      // Convert timestamps into bounded bar geometry and readable labels.
       const duration = toolDuration(event, now)
       const offset = ((event.startedAt - start) / span) * 100
       const width = (duration / span) * 100
@@ -153,7 +162,10 @@ export function toolSpans(events: ToolEvent[], now: number, minSpan = 4000): Too
         width: Math.max(1.5, Math.min(100 - Math.min(100, Math.max(0, offset)), width)),
       }
     })
-    .sort((a, b) => b.event.startedAt - a.event.startedAt)
+    .sort((first, second) => {
+      // Show the newest tool call first in the panel.
+      return second.event.startedAt - first.event.startedAt
+    })
 }
 
 export type ToolSummary = {
@@ -175,6 +187,7 @@ export function toolSummary(events: ToolEvent[], now: number): ToolSummary {
     const duration = toolDuration(event, now)
     busyMs += duration
     if (event.endedAt === null) running++
+    // Aggregate duration and call count under each exact tool name.
     const entry = byName.get(event.name) ?? {
       name: event.name,
       label: toolLabel(event.name),
@@ -190,6 +203,9 @@ export function toolSummary(events: ToolEvent[], now: number): ToolSummary {
     running,
     busyMs,
     busyLabel: formatDuration(busyMs),
-    byName: [...byName.values()].sort((a, b) => b.busyMs - a.busyMs || b.calls - a.calls),
+    byName: [...byName.values()].sort((first, second) => {
+      // Rank tools by total duration, then by call count.
+      return second.busyMs - first.busyMs || second.calls - first.calls
+    }),
   }
 }

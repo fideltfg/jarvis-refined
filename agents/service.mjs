@@ -24,6 +24,7 @@ import { cleanupWorkspaces, removeWorkspace } from './workspace.mjs'
  */
 
 /** The MCP servers Claude Code has configured, as the bridge reads them. */
+/** Load configured external MCP servers, including the home-directory project scope. */
 function externalServers() {
   try {
     const cfg = JSON.parse(readFileSync(join(homedir(), '.claude.json'), 'utf8'))
@@ -40,6 +41,7 @@ const mirror = paMirror()
 const coordinator = createCoordinator({ store, runModel: sdkModel(), mirror })
 const external = externalServers()
 
+/** Select only MCP services permitted for the task kind. */
 const mcpFor = (task) => {
   if (task.kind === 'ops') return external
   if (task.kind === 'admin') return { ...external, jarvis_chrome: chromeServer({ allowWrites: true }) }
@@ -69,11 +71,14 @@ const scheduler = createScheduler({
   mirror,
   pool,
   maxWorkers: pool.capacity(),
+  // Release pending approvals when a task is stopped by the scheduler.
   onCancel: (taskId) => approvals.expire(taskId),
+  // Remove the workspace after the scheduler archives an old recurring run.
   onArchive: (task) => removeWorkspace(task),
   runTask: dispatch,
 })
 
+/** Refresh health for all configured endpoints without stopping the service. */
 const probeAll = () =>
   health.checkAll(endpoints, { force: true }).catch((err) => console.warn('[agents] endpoint probe failed:', err.message))
 probeAll()
@@ -97,11 +102,14 @@ const capacity = `${pool.capacity()} slot(s) across ${endpoints.length} endpoint
 const door = `${api.tls ? 'https' : 'http'}://${HOST}:${port}`
 console.log(`[agents] listening on ${door} · state in ${AGENTS_DIR} · ${recovered} task(s) recovered · ${capacity}`)
 
+/** Stop probes and scheduling, then close the authenticated API cleanly. */
 const shutdown = async () => {
   clearInterval(probeTimer)
   scheduler.stop()
   await api.close()
   process.exit(0)
 }
+// Gracefully close the agent service when the process manager terminates it.
 process.on('SIGTERM', shutdown)
+// Apply the same shutdown sequence for an interactive interrupt.
 process.on('SIGINT', shutdown)

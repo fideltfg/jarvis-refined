@@ -10,6 +10,7 @@ if (!token) {
   console.error('JARVIS_AGENTS_TOKEN is not set.')
   process.exit(2)
 }
+/** Send one authenticated agent-service request and surface API errors. */
 const call = async (method, path, body) => {
   const res = await fetch(`${base}${path}`, {
     method,
@@ -29,10 +30,17 @@ const goal = await call('POST', '/goals', {
 console.log(`created ${goal.id}; waiting up to 20 minutes`)
 const deadline = Date.now() + 20 * 60_000
 while (Date.now() < deadline) {
-  await new Promise((r) => setTimeout(r, 10_000))
-  const g = (await call('GET', '/board')).goals.find((x) => x.id === goal.id)
+  // Poll at a human-scale interval without keeping the service busy.
+  await new Promise((resolve) => setTimeout(resolve, 10_000))
+  const g = (await call('GET', '/board')).goals.find((candidate) => {
+    // Select the goal created by this smoke run from the current board.
+    return candidate.id === goal.id
+  })
   const status = g?.status ?? 'done'
-  console.log(`${new Date().toLocaleTimeString()} ${status} ${g ? g.tasks.map((t) => `${t.title}=${t.status}`).join(', ') : ''}`)
+  console.log(`${new Date().toLocaleTimeString()} ${status} ${g ? g.tasks.map((task) => {
+    // Print concise per-task progress alongside the goal status.
+    return `${task.title}=${task.status}`
+  }).join(', ') : ''}`)
   if (status === 'done') {
     console.log((await call('GET', `/status?goal=${goal.id}`)).text)
     process.exit(0)

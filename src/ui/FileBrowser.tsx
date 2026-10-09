@@ -4,17 +4,21 @@ import { useStore } from '../store'
 import { filesRequest, type WorkFile } from '../lib/bridge'
 import { fileUrl, formatSize, TEXT_PREVIEW_LIMIT } from '../lib/files'
 
+/** Format a stored modification time for the file detail tooltip. */
 const stamp = (value: string) => new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 
 type TreeNode = { name: string; key: string; folders: Map<string, TreeNode>; files: WorkFile[]; count: number; modified: string }
+/** Create one empty folder node for the in-memory file tree. */
 const node = (name: string, key: string): TreeNode => ({ name, key, folders: new Map(), files: [], count: 0, modified: '' })
 
 // Drops the fixed `tasks` level under goals; every other area keeps its real folders.
+/** Remove the structural task-folder level from displayed goal paths. */
 const treeParts = (path: string) => {
   const parts = path.split('/')
   return parts[0] === 'goals' && parts[2] === 'tasks' ? parts.filter((_, index) => index !== 2) : parts
 }
 
+/** Build a folder tree with aggregate file counts and newest modification times. */
 function buildTree(files: WorkFile[]) {
   const root = node('', '')
   for (const file of files) {
@@ -35,11 +39,13 @@ function buildTree(files: WorkFile[]) {
   return root
 }
 
+/** Return expanded-folder keys from the root to the file's parent folder. */
 const ancestors = (path: string) => {
   const parts = treeParts(path).slice(0, -1)
   return parts.map((_, index) => `/${parts.slice(0, index + 1).join('/')}`)
 }
 
+/** Render a searchable work-file tree with safe preview, download, and deletion. */
 export function FileBrowser({ inline = false }: { inline?: boolean }) {
   const open = useStore((state) => state.commandWindow === 'files')
   const panel = useRef<HTMLElement>(null)
@@ -54,8 +60,10 @@ export function FileBrowser({ inline = false }: { inline?: boolean }) {
   const [selected, setSelected] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [text, setText] = useState<string | null>(null)
+  /** Close the browser through shared command-window state. */
   const close = () => useStore.getState().setCommandWindow(null)
 
+  /** Refresh the file list while preventing overlapping bridge requests. */
   const refresh = useCallback(async () => {
     if (lock.current) return
     lock.current = true
@@ -67,7 +75,10 @@ export function FileBrowser({ inline = false }: { inline?: boolean }) {
       setTruncated(result.truncated)
       setCanDelete(result.canDelete)
       setExpanded((current) => current.size || !result.files.length ? current : new Set(ancestors(result.files[0].path).slice(0, 3)))
-      setSelected((current) => current && result.files.some((file) => file.path === current) ? current : null)
+      setSelected((current) => current && result.files.some((file) => {
+        // Keep selection only when the file remains in the refreshed listing.
+        return file.path === current
+      }) ? current : null)
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
     } finally { lock.current = false; setBusy(false) }
@@ -78,6 +89,7 @@ export function FileBrowser({ inline = false }: { inline?: boolean }) {
   useEffect(() => {
     if (!open) return
     panel.current?.focus()
+    /** Handle Escape and trap Tab focus only while the browser is modal. */
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault()
@@ -105,27 +117,38 @@ export function FileBrowser({ inline = false }: { inline?: boolean }) {
     if (previewSize > TEXT_PREVIEW_LIMIT) { setText('This file is too large to preview. Download it instead.'); return }
     const controller = new AbortController()
     fetch(fileUrl(previewPath), { signal: controller.signal })
-      .then((response) => response.ok ? response.text() : Promise.reject(new Error('Preview unavailable.')))
+      .then((response) => {
+        // Convert HTTP failures to the same visible preview error state.
+        return response.ok ? response.text() : Promise.reject(new Error('Preview unavailable.'))
+      })
+      // Apply fetched text only if this effect remains active.
       .then(setText)
       .catch((failure) => { if (!controller.signal.aborted) setText(failure instanceof Error ? failure.message : 'Preview unavailable.') })
     return () => controller.abort()
   }, [previewPath, previewSize])
 
+  /** Filter by every whitespace-separated term in the visible path. */
   const visible = useMemo(() => {
     const terms = filter.trim().toLowerCase().split(/\s+/).filter(Boolean)
-    return files.filter((file) => terms.every((term) => file.path.toLowerCase().includes(term)))
+    return files.filter((file) => terms.every((term) => {
+      // Require each query token to occur somewhere in the path.
+      return file.path.toLowerCase().includes(term)
+    }))
   }, [files, filter])
 
   const filtering = filter.trim() !== ''
   const tree = useMemo(() => buildTree(visible), [visible])
 
+  /** Toggle one folder's expanded state without mutating the existing set. */
   const toggle = (key: string) => setExpanded((current) => {
     const next = new Set(current)
     if (!next.delete(key)) next.add(key)
     return next
   })
 
+  /** Render folder descendants and file rows for one tree node. */
   function renderNode(parent: TreeNode, depth: number) {
+    // Recent goal folders sort newest-first; other folders sort alphabetically.
     const byName = (left: TreeNode, right: TreeNode) => parent.key.startsWith('/goals') ? right.modified.localeCompare(left.modified) : left.name.localeCompare(right.name)
     const folders = [...parent.folders.values()].sort(byName)
     const entries = [...parent.files].sort((left, right) => left.path.localeCompare(right.path))
@@ -151,6 +174,7 @@ export function FileBrowser({ inline = false }: { inline?: boolean }) {
     </>
   }
 
+  /** Confirm, delete, and remove a selected work file from local browser state. */
   async function remove(file: WorkFile) {
     if (lock.current || !window.confirm(`Permanently delete "${file.path.split('/').pop()}"? This cannot be undone.`)) return
     lock.current = true
@@ -210,5 +234,6 @@ export function FileBrowser({ inline = false }: { inline?: boolean }) {
       </div>
     </section>
   )
+  // Inline theme docking owns its container; modal mode adds a closing scrim.
   return inline ? content : <div className="command-scrim" onClick={close}>{content}</div>
 }

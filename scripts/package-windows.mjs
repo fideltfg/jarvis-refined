@@ -13,17 +13,22 @@ export const windowsPrerequisites = [
   { id: 'linuxNode', minimumMajor: 22 },
 ]
 
+/** Remove build-time and credential variables from child release environments. */
 export function releaseEnvironment(environment) {
-  return Object.fromEntries(Object.entries(environment).filter(([name]) =>
-    !/^(VITE_|JARVIS_|ANTHROPIC_|OPENAI_|ELEVENLABS_|PICOVOICE_)/i.test(name)))
+  return Object.fromEntries(Object.entries(environment).filter(([name]) => {
+    // Keep release builds independent of local providers and secrets.
+    return !/^(VITE_|JARVIS_|ANTHROPIC_|OPENAI_|ELEVENLABS_|PICOVOICE_)/i.test(name)
+  }))
 }
 
+/** Stream a file into SHA-256 and return its lowercase hexadecimal digest. */
 export async function sha256(file) {
   const hash = createHash('sha256')
   for await (const chunk of createReadStream(file)) hash.update(chunk)
   return hash.digest('hex')
 }
 
+/** Exclude hidden, test, and credential files from packaged release inputs. */
 export function releaseFilter(source) {
   const normalized = source.replaceAll('\\', '/')
   const name = normalized.split('/').at(-1)
@@ -31,6 +36,7 @@ export function releaseFilter(source) {
     !/\.(?:env|pem|key|pfx|p12)$/i.test(name) && name !== 'secrets.json'
 }
 
+/** Publish a completed release directory atomically at a new output path. */
 export function publishRelease(directory, output) {
   const parent = resolve(output, '..')
   mkdirSync(parent, { recursive: true })
@@ -44,6 +50,7 @@ export function publishRelease(directory, output) {
   }
 }
 
+/** Build the Windows installer payload from a clean, filtered staging tree. */
 export async function packageWindows(argv = process.argv.slice(2)) {
   const options = new Map()
   for (let index = 0; index < argv.length; index += 2) {
@@ -66,11 +73,13 @@ export async function packageWindows(argv = process.argv.slice(2)) {
   const app = join(stage, 'app')
   const result = join(stage, 'result')
   const environment = releaseEnvironment(process.env)
+  /** Copy a source path while applying the release file allowlist. */
   const copy = (from, to) => cpSync(from, to, { recursive: true, filter: releaseFilter })
   try {
     mkdirSync(build)
     mkdirSync(app)
     mkdirSync(result)
+    // Copy only app inputs needed to build the browser bundle.
     for (const name of ['package.json', 'package-lock.json', 'index.html', 'vite.config.ts',
       'tsconfig.json', 'tsconfig.app.json', 'tsconfig.node.json', 'src', 'public']) {
       copy(join(source, name), join(build, name))
@@ -79,6 +88,7 @@ export async function packageWindows(argv = process.argv.slice(2)) {
     copy(join(build, 'node_modules', '@mediapipe', 'tasks-vision', 'wasm'), join(build, 'public', 'mediapipe'))
     execFileSync('npm', ['run', 'build'], { cwd: build, stdio: 'inherit',
       env: { ...environment, VITE_BACKEND: 'bridge', VITE_BRIDGE_URL: '/bridge' } })
+    // Assemble the runtime payload with production dependencies and deployment files.
     for (const name of ['bridge', 'agents', 'remote-runtime', 'scripts', 'deploy', 'LICENSE', 'package.json', 'package-lock.json']) {
       copy(join(source, name), join(app, name))
     }
@@ -91,6 +101,7 @@ export async function packageWindows(argv = process.argv.slice(2)) {
     cpSync(join(source, 'public', 'jarvis-relay.mjs'), join(result, 'jarvis-relay.mjs'))
     cpSync(join(source, 'deploy', 'windows', 'relay-launcher.mjs'), join(result, 'relay-launcher.mjs'))
     const files = {}
+    // Hash every top-level artifact except installer source files.
     for (const name of readdirSync(result)) {
       if (name !== 'installer') files[name] = await sha256(join(result, name))
     }
@@ -107,5 +118,6 @@ export async function packageWindows(argv = process.argv.slice(2)) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  // Report a concise build error and let Node exit naturally with a failure code.
   packageWindows().catch((error) => { console.error(error.message); process.exitCode = 1 })
 }

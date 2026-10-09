@@ -12,6 +12,7 @@ import { prepareOutputFolders } from '../bridge/workspace.mjs'
 const git = (args, cwd) =>
   execFileSync('git', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' })
 
+/** Test whether a local branch name already exists in the repository. */
 const branchExists = (repo, branch) => {
   try {
     git(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], repo)
@@ -21,6 +22,7 @@ const branchExists = (repo, branch) => {
   }
 }
 
+/** Create a task worktree or scratch directory and its standard output folders. */
 export function prepareWorkspace(task) {
   const { path, repo, branch } = task.workspace
   if (!existsSync(path)) {
@@ -34,6 +36,7 @@ export function prepareWorkspace(task) {
   return path
 }
 
+/** Remove the task's worktree or scratch directory when it still exists. */
 export function removeWorkspace(task) {
   const { path, repo } = task.workspace
   if (!existsSync(path)) return false
@@ -42,6 +45,7 @@ export function removeWorkspace(task) {
   return true
 }
 
+/** Delete workspaces for terminal tasks while preserving active and approval-waiting work. */
 export function cleanupWorkspaces(store) {
   const goals = new Map(store.listGoals().map((g) => [g.id, g]))
   const removed = []

@@ -8,7 +8,10 @@ const dest = resolve(process.argv[2] ?? join(source, 'dist', 'jarvis-remote-agen
 if (dest === source || !dest.startsWith(source + '/')) throw new Error('Package output must be inside this repository.')
 const stage = mkdtempSync(join(tmpdir(), 'jarvis-remote-'))
 const files = ['remote-runtime/api.mjs', 'remote-runtime/service.mjs', 'remote-runtime/worker.mjs', 'remote-runtime/install.sh',
-  ...['approvals', 'config', 'pool', 'recover', 'scheduler', 'store'].map((name) => `agents/${name}.mjs`),
+  ...['approvals', 'config', 'pool', 'recover', 'scheduler', 'store'].map((name) => {
+    // Package only the agent modules required by the standalone runtime.
+    return `agents/${name}.mjs`
+  }),
   'bridge/endpoints.mjs', 'LICENSE']
 try {
   for (const file of files) {

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
+/** Load and validate the installed local relay URL and its private token. */
 export function relayEnvironment(file) {
   const config = JSON.parse(readFileSync(file, 'utf8'))
   const url = new URL(config.url)
@@ -14,6 +15,7 @@ export function relayEnvironment(file) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  // Load the validated relay configuration before starting the relay process.
   try {
     Object.assign(process.env, relayEnvironment(process.argv[2]))
     await import('./jarvis-relay.mjs')

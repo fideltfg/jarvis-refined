@@ -11,6 +11,7 @@ const PHASE_LABELS: Record<string, string> = {
   speaking: 'TRANSMITTING',
 }
 
+/** Render the MOTHER terminal with live phase status and microphone level. */
 export function Reactor({ inline = false }: { inline?: boolean } = {}) {
   const level = useStore((state) => state.level)
   const phase = useStore((state) => state.phase)

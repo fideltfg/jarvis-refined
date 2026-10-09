@@ -7,7 +7,9 @@ const MAX_BODY = 64 * 1024
 const MAX_TEXT = 16_000
 const MAX_SKILLS = 16
 const idPattern = /^t_[a-z0-9]+$/
+/** Accept nonempty strings up to the API's text limit or a field-specific cap. */
 const exact = (value, limit = MAX_TEXT) => typeof value === 'string' && value.length > 0 && value.length <= limit
+/** Clamp requested worker budgets to the configured cap for the task kind. */
 const budgetFor = (kind, requested) => {
   const caps = BUDGETS[kind]
   const out = {}
@@ -18,10 +20,23 @@ const budgetFor = (kind, requested) => {
   return out
 }
 
+/** Read one bounded JSON request body, rejecting oversized or malformed input. */
+async function readJsonBody(req) {
+  let raw = ''
+  for await (const chunk of req) {
+    raw += chunk
+    if (raw.length > MAX_BODY) throw new Error('Request too large.')
+  }
+  return JSON.parse(raw)
+}
+
+/** Create the authenticated HTTP API used by a remote worker host. */
 export function createRemoteApi({ store, scheduler, approvals, token, host = '127.0.0.1', port = 0, tls = null }) {
   if (!token) throw new Error('JARVIS_AGENTS_TOKEN is required.')
   if (!isLoopback(host) && !tls) throw new Error('A network-facing remote runtime requires TLS.')
+  /** Dispatch one authenticated request and serialize its JSON response. */
   const handler = async (req, res) => {
+    /** Finish a response with the API's no-store JSON headers. */
     const send = (status, body) => {
       res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' })
       res.end(JSON.stringify(body))
@@ -30,17 +45,15 @@ export function createRemoteApi({ store, scheduler, approvals, token, host = '12
     const url = new URL(req.url, 'http://localhost')
     const match = /^\/tasks\/(t_[a-z0-9]+)(?:\/(cancel))?$/.exec(url.pathname)
     if (req.method === 'GET' && url.pathname === '/approvals') {
-      return send(200, store.listApprovals('pending').filter((a) => store.getTask(a.taskId)?.delegated))
+      return send(200, store.listApprovals('pending').filter((approval) => {
+        // Expose only approvals belonging to work delegated to this host.
+        return store.getTask(approval.taskId)?.delegated
+      }))
     }
     const approval = /^\/approvals\/(a_[a-z0-9]+)$/.exec(url.pathname)
     if (req.method === 'POST' && approval) {
-      let raw = ''
       try {
-        for await (const chunk of req) {
-          raw += chunk
-          if (raw.length > MAX_BODY) throw new Error('Request too large.')
-        }
-        const body = JSON.parse(raw)
+        const body = await readJsonBody(req)
         const record = store.getApproval(approval[1])
         if (!record || !store.getTask(record.taskId)?.delegated) return send(404, { error: 'not found' })
         if (!['approve', 'deny'].includes(body.decision)) throw new Error('Expected approve or deny.')
@@ -53,24 +66,28 @@ export function createRemoteApi({ store, scheduler, approvals, token, host = '12
       return send(200, { capacity: 1, running: scheduler.running().size, endpoints: [] })
     }
     if (req.method === 'POST' && url.pathname === '/tasks') {
-      let raw = ''
       try {
-        for await (const chunk of req) {
-          raw += chunk
-          if (raw.length > MAX_BODY) throw new Error('Request too large.')
-        }
-        const body = JSON.parse(raw)
+        const body = await readJsonBody(req)
         if (!body || !TRAVELLING_KINDS.includes(body.kind) || !exact(body.title, 300) || !exact(body.brief)) {
           throw new Error('A research or ops task needs a title and brief.')
         }
         if (!exact(body.origin?.label, 60) || !exact(body.origin?.taskId, 128)) throw new Error('Origin label and task id are required.')
         if (body.model != null && !['sonnet', 'opus'].includes(body.model)) throw new Error('Unsupported model.')
         if (body.allowedSkills != null && (!Array.isArray(body.allowedSkills) || body.allowedSkills.length > MAX_SKILLS ||
-          body.allowedSkills.some((skill) => !exact(skill, 100)))) throw new Error('Invalid skills.')
+          body.allowedSkills.some((skill) => {
+            // Reject a skill name that is empty or longer than the transport contract.
+            return !exact(skill, 100)
+          }))) throw new Error('Invalid skills.')
         const key = `${body.origin.label}:${body.origin.taskId}`
-        const previous = store.listTasks().find((task) => task.origin?.key === key)
+        const previous = store.listTasks().find((task) => {
+          // Make retried requests idempotent for the same originating task.
+          return task.origin?.key === key
+        })
         if (previous) return send(201, { id: previous.id, goalId: previous.goalId })
-        let goal = store.listGoals().find((g) => g.delegated && g.title === `Delegated work from ${body.origin.label}`)
+        let goal = store.listGoals().find((candidate) => {
+          // Reuse the delegated-work goal assigned to this originating host.
+          return candidate.delegated && candidate.title === `Delegated work from ${body.origin.label}`
+        })
         if (!goal) {
           goal = store.newGoal({ title: `Delegated work from ${body.origin.label}`, outcome: 'Return the result to the originating host.' })
           store.saveGoal({ ...goal, delegated: true })
@@ -92,9 +109,15 @@ export function createRemoteApi({ store, scheduler, approvals, token, host = '12
       if (!task?.delegated) return send(404, { error: 'not found' })
       if (req.method === 'GET' && !match[2]) {
         const since = Math.max(0, Math.floor(Number(url.searchParams.get('since')) || 0))
-        const events = store.readEvents({ limit: 5000 }).filter((e) => e.taskId === task.id && e.type === 'task_progress')
+        const events = store.readEvents({ limit: 5000 }).filter((event) => {
+          // Return progress events for this task, not other host activity.
+          return event.taskId === task.id && event.type === 'task_progress'
+        })
         return send(200, { id: task.id, status: task.status, result: task.result ?? null,
-          failure: task.failure ?? null, events: events.slice(since).map((e) => ({ at: e.at, text: e.text })), eventCount: events.length })
+          failure: task.failure ?? null, events: events.slice(since).map((event) => {
+            // Keep the remote response limited to the public event fields.
+            return { at: event.at, text: event.text }
+          }), eventCount: events.length })
       }
       if (req.method === 'POST' && match[2] === 'cancel') {
         if (!scheduler.cancel(task.id)) return send(409, { error: 'Task cannot be cancelled.' })
@@ -104,9 +127,20 @@ export function createRemoteApi({ store, scheduler, approvals, token, host = '12
     return send(404, { error: 'not found' })
   }
   const server = tls ? https.createServer(tls, handler) : http.createServer(handler)
+  /** Bind the API and report the actual port chosen by the operating system. */
+  const listen = () => new Promise((resolve) => {
+    // Resolve only after the listener is ready to accept requests.
+    server.listen(port, host, () => resolve(server.address().port))
+  })
+  /** Close active connections before waiting for the HTTP server to stop. */
+  const close = () => new Promise((resolve) => {
+    server.closeAllConnections?.()
+    // Resolve when Node confirms that the server has closed.
+    server.close(resolve)
+  })
   return {
     tls: Boolean(tls),
-    listen: () => new Promise((resolve) => server.listen(port, host, () => resolve(server.address().port))),
-    close: () => new Promise((resolve) => { server.closeAllConnections?.(); server.close(resolve) }),
+    listen,
+    close,
   }
 }

@@ -25,6 +25,7 @@ const MAX_MISSES = 5
 
 const cancelled = { status: 'cancelled', result: null, failure: { reason: 'cancelled', detail: 'Stopped by the user.' } }
 
+/** Build the scheduler's standard failure shape for a remote-host problem. */
 const failed = (detail) => ({ status: 'failed', result: null, failure: { reason: 'remote', detail } })
 
 /**
@@ -32,20 +33,24 @@ const failed = (detail) => ({ status: 'failed', result: null, failure: { reason:
  * would sit out the rest of the interval before anything happened, and the task
  * would look ignored for as long as the poll is slow.
  */
+/** Wait for a poll interval, but return immediately when cancellation arrives. */
 function until(ms, signal, sleep) {
   if (!signal) return sleep(ms)
   if (signal.aborted) return Promise.resolve()
   return new Promise((resolve) => {
+    /** Remove the abort listener and settle the wait exactly once. */
     const done = () => {
       signal.removeEventListener('abort', done)
       resolve()
     }
     signal.addEventListener('abort', done, { once: true })
+    // Treat timer completion and injected-sleep failure as the same wake-up.
     Promise.resolve(sleep(ms)).then(done, done)
   })
 }
 
 /** This machine, as the other one will show it on its board. */
+/** Return the configured origin label or this machine's hostname. */
 export const hostLabel = (env = process.env) => env.JARVIS_HOST_LABEL || hostname()
 
 /**
@@ -56,6 +61,7 @@ export const hostLabel = (env = process.env) => env.JARVIS_HOST_LABEL || hostnam
  */
 export const remoteModel = (model) => (Object.hasOwn(MODELS, model ?? '') ? model : null)
 
+/** Delegate one task over HTTPS, persist its remote handle, and mirror progress. */
 export async function runRemoteTask(task, deps) {
   const {
     store, endpoint, signal, onRemote, onLost,
@@ -69,6 +75,7 @@ export async function runRemoteTask(task, deps) {
     return failed(`Endpoint "${endpoint.id}" has no token; set ${endpoint.apiKeyEnv || 'its apiKeyEnv'} to that host's JARVIS_AGENTS_TOKEN.`)
   }
 
+  /** Make one authenticated JSON request and attach HTTP status to failures. */
   const call = async (method, path, body) => {
     const res = await fetchFn(`${endpoint.baseURL}${path}`, {
       method,
@@ -91,6 +98,7 @@ export async function runRemoteTask(task, deps) {
     return data
   }
 
+  /** Append remote progress to the originating host's task event stream. */
   const progress = (text) =>
     store.appendEvent({ type: 'task_progress', goalId: task.goalId, taskId: task.id, text })
 
@@ -141,11 +149,13 @@ export async function runRemoteTask(task, deps) {
     progress(`Delegated to ${endpoint.label} as ${id}.`)
   }
 
+  /** Clear the persisted remote handle after a confirmed terminal outcome. */
   const done = (outcome) => {
     onRemote?.(null)
     return outcome
   }
 
+  /** Forward cancellation to the remote host and retain the handle on failure. */
   const stop = async () => {
     try {
       await call('POST', `/tasks/${id}/cancel`)
@@ -161,6 +171,7 @@ export async function runRemoteTask(task, deps) {
   let misses = 0
   let sawApproval = false
 
+  // Poll until the remote task is terminal or repeated failures prove it lost.
   for (;;) {
     if (signal?.aborted) return stop()
 
@@ -181,6 +192,7 @@ export async function runRemoteTask(task, deps) {
       continue
     }
 
+    // Mirror only newly reported progress events from the remote cursor.
     for (const ev of state.events ?? []) progress(`${endpoint.label}: ${ev.text}`)
     cursor = Number(state.eventCount) || cursor
 
@@ -200,6 +212,7 @@ export async function runRemoteTask(task, deps) {
 }
 
 /** The scheduler's runTask, for endpoints whose work happens elsewhere. */
+/** Bind remote endpoint options to the scheduler's runTask function shape. */
 export function createRemoteRunner(options = {}) {
   return (task, deps) => runRemoteTask(task, { ...options, ...deps })
 }

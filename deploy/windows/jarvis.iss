@@ -77,6 +77,7 @@ external 'GetTickCount@kernel32.dll stdcall';
 procedure Sleep(dwMilliseconds: DWORD);
 external 'Sleep@kernel32.dll stdcall';
 
+// Create the installer log panel and initialize its layout and display settings.
 procedure InitializeWizard;
 begin
   InstallLogMemo := TNewMemo.Create(WizardForm);
@@ -92,6 +93,7 @@ begin
   InstallLogMemo.Visible := False;
 end;
 
+// Map a setup phase name to its baseline position in the progress gauge.
 function StageProgress(const S: String): Integer;
 var
   Text: String;
@@ -114,6 +116,7 @@ begin
   else Result := InstallProgressBase;
 end;
 
+// Translate internal setup phase names into text shown to the installer user.
 function FriendlyStage(const S: String): String;
 var
   Text: String;
@@ -138,6 +141,7 @@ begin
   else Result := 'Setting up Jarvis; see the live log below...';
 end;
 
+// Append newly written setup progress lines and refresh the visible stage label.
 procedure PumpInstallLog;
 var
   Lines: TStringList;
@@ -161,6 +165,7 @@ begin
   end;
 end;
 
+// Start setup in the logged-in user's context and poll for progress and exit status.
 function RunInstallForOriginalUser(var ResultCode: Integer): Boolean;
 var
   Params, Bootstrap: String;
@@ -223,6 +228,7 @@ begin
   WizardForm.BackButton.Enabled := True;
 end;
 
+// Return the latest twelve visible installer log lines for an error dialog.
 function RecentInstallLog: String;
 var
   FirstLine, I: Integer;
@@ -234,6 +240,7 @@ begin
     Result := Result + #13#10 + InstallLogMemo.Lines[I];
 end;
 
+// Read a redacted bootstrap error file or return the corresponding log location.
 function ProvisionFailure(Action: String): String;
 var
   Details: AnsiString;
@@ -247,6 +254,7 @@ begin
       GetEnv('LOCALAPPDATA') + '\JarvisRefined\' + Action + '.log';
 end;
 
+// Check prerequisites and stop an existing runtime before copying new files.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
@@ -282,6 +290,7 @@ begin
   end;
 end;
 
+// Run per-user setup after installation and report failures with recent progress.
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;

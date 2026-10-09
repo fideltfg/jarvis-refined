@@ -40,6 +40,7 @@ function hash(n: number): number {
   return x - Math.floor(x)
 }
 
+/** Render the timed Voyager systems check while the shared phase is booting. */
 export function LcarsBoot() {
   const phase = useStore((s) => s.phase)
   const reduced = useReducedMotion()
@@ -52,6 +53,7 @@ export function LcarsBoot() {
     }
     const start = Date.now()
     setT(0)
+    // Advance from real elapsed time so background-tab throttling cannot freeze boot.
     const id = setInterval(() => setT(Date.now() - start), 50)
     return () => clearInterval(id)
   }, [phase])
@@ -82,6 +84,7 @@ export function LcarsBoot() {
       <div className="lcboot-body">
         <div className="lcboot-checks">
           {CHECKS.map((name, i) => {
+            // Reveal each subsystem at its scheduled check interval.
             const shown = i < done + 1 && t >= T.checks
             if (!shown) return null
             const ok = i < done
@@ -99,8 +102,10 @@ export function LcarsBoot() {
 
         <div className="lcboot-cascade">
           {Array.from({ length: CASCADE_COLS }, (_, c) => (
+            // Build one deterministic stream column in the data cascade.
             <div key={c} className="lcboot-cascade-col">
               {Array.from({ length: CASCADE_ROWS }, (_, r) => {
+                // Vary digit width and value by column, row, and boot tick.
                 const h = hash(c * 131 + r * 17 + tick * (1 + (c % 3)))
                 const digits = 2 + Math.floor(hash(c * 7 + r) * 4)
                 const value = Math.floor(h * 10 ** digits)
@@ -153,6 +158,7 @@ export function LcarsBoot() {
         <div className="lcboot-elbow lcboot-elbow-up" />
         <div className="lcboot-progress">
           {Array.from({ length: 24 }, (_, i) => (
+            // Light each progress cell according to completed subsystem checks.
             <span key={i} className="lcboot-cell" data-on={i / 24 < progress ? '1' : '0'} />
           ))}
         </div>

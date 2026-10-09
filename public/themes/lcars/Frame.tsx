@@ -54,6 +54,7 @@ function code(slot: number, tick: number): string {
 
 const CELLS = 12
 
+/** Render the Voyager-style LCARS elbow frame with phase-driven motion. */
 export function LcarsFrame({ phase }: { phase: Phase }) {
   const reduced = useReducedMotion()
   const [now, setNow] = useState(() => new Date())
@@ -64,6 +65,7 @@ export function LcarsFrame({ phase }: { phase: Phase }) {
 
   useEffect(() => {
     // A tenth of a stardate is about nine hours, so once a minute is plenty.
+    // Refresh the display clock slowly; a tenth of a stardate changes over hours.
     const id = setInterval(() => setNow(new Date()), 60_000)
     return () => clearInterval(id)
   }, [])
@@ -72,6 +74,7 @@ export function LcarsFrame({ phase }: { phase: Phase }) {
     // The codes only churn while the computer is doing something; at rest the
     // panel holds its numbers still, which is what makes the churn read.
     if (!busy || reduced) return
+    // Advance decorative data codes only while the assistant is busy.
     const id = setInterval(() => setTick((t) => t + 1), 700)
     return () => clearInterval(id)
   }, [busy, reduced])

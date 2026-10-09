@@ -30,8 +30,12 @@ export const profileInput = z.object({
   schedule: profileSchedule.nullable().optional(),
 }).strict()
 
-export const profileChanges = profileInput.partial().strict().refine((value) => Object.keys(value).length > 0, 'Provide at least one profile field to update.')
+export const profileChanges = profileInput.partial().strict().refine((value) => {
+  // Reject empty updates so callers must choose an actual profile field.
+  return Object.keys(value).length > 0
+}, 'Provide at least one profile field to update.')
 
+/** Build the execution outcome text from a profile's role and instructions. */
 export function profileOutcome(profile) {
   return `Role: ${profile.role}\n\nInstructions:\n${profile.instructions}`
 }

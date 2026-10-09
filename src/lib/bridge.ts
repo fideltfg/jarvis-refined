@@ -15,7 +15,9 @@ try {
 } catch {}
 
 const conversationListeners = new Set<(id: string) => void>()
+/** Return the opaque conversation checkpoint id for this browser tab. */
 export const currentConversationId = () => conversationId
+/** Subscribe to checkpoint changes and immediately deliver the current id. */
 export function watchConversation(listener: (id: string) => void) {
   conversationListeners.add(listener)
   if (conversationId) listener(conversationId)
@@ -99,10 +101,12 @@ function modelFor(provider: string) {
   return models.includes(chosenModels[provider]) ? chosenModels[provider] : (models[0] ?? '')
 }
 
+/** Notify provider subscribers after available or selected model state changes. */
 function notifyProviders() {
   for (const listener of providerListeners) listener(availableProviders, selectedProvider)
 }
 
+/** Return the selected provider and its currently valid model choice. */
 export function providerState() {
   return {
     available: availableProviders,
@@ -112,6 +116,7 @@ export function providerState() {
   }
 }
 
+/** Persist a model only when the selected provider currently offers it. */
 export function selectModel(model: string) {
   if (!(providerModels[selectedProvider] ?? []).includes(model)) return
   chosenModels = { ...chosenModels, [selectedProvider]: model }
@@ -119,12 +124,14 @@ export function selectModel(model: string) {
   notifyProviders()
 }
 
+/** Subscribe to provider choices and receive the current selection immediately. */
 export function watchProviders(fn: (available: string[], selected: string) => void) {
   providerListeners.add(fn)
   fn(availableProviders, selectedProvider)
   return () => { providerListeners.delete(fn) }
 }
 
+/** Select and persist an available provider, then notify its subscribers. */
 export function selectProvider(provider: string) {
   if (!availableProviders.includes(provider)) return
   selectedProvider = provider
@@ -142,6 +149,7 @@ export const bridgeServers = () => servers
 /** The list arrives twice — once from config, once with live status — so the
  *  HUD subscribes rather than reading it a single time at boot. */
 let onServers: ((s: string[]) => void) | null = null
+/** Register the callback that receives bridge MCP server names. */
 export function watchServers(fn: (s: string[]) => void) {
   onServers = fn
 }
@@ -149,6 +157,7 @@ export function watchServers(fn: (s: string[]) => void) {
 /** Panels arrive out of band — they're pushed while a turn is in flight,
  *  not returned by it. */
 let onPanel: ((panel: Panel) => void) | null = null
+/** Register the receiver for panels pushed out of band by the bridge. */
 export function watchPanels(fn: (panel: Panel) => void) {
   onPanel = fn
 }
@@ -162,12 +171,14 @@ export function watchPanels(fn: (panel: Panel) => void) {
  */
 let lastAgents: { board: AgentBoardData | null; online: boolean } | null = null
 let onAgents: ((board: AgentBoardData | null, online: boolean) => void) | null = null
+/** Subscribe to the latest board and immediately replay a cached snapshot. */
 export function watchAgents(fn: (board: AgentBoardData | null, online: boolean) => void) {
   onAgents = fn
   if (lastAgents) fn(lastAgents.board, lastAgents.online)
 }
 
 let onAgentEvent: ((event: AgentEvent) => void) | null = null
+/** Register the receiver for live agent-service events. */
 export function watchAgentEvents(fn: (event: AgentEvent) => void) {
   onAgentEvent = fn
 }
@@ -176,6 +187,7 @@ export function watchAgentEvents(fn: (event: AgentEvent) => void) {
  *  can dispatch one before the app has subscribed. */
 let lastSessionAgents: SessionAgent[] | null = null
 let onSessionAgents: ((agents: SessionAgent[]) => void) | null = null
+/** Subscribe to active session subagents and replay the cached list if present. */
 export function watchSessionAgents(fn: (agents: SessionAgent[]) => void) {
   onSessionAgents = fn
   if (lastSessionAgents) fn(lastSessionAgents)
@@ -189,10 +201,12 @@ export function syncSessions(sessions?: unknown[]) {
     socket.send(JSON.stringify({ type: 'sessions_sync', sessions: payload }))
   }
 }
+/** Provide the history source used whenever the bridge announces readiness. */
 export function setSessionSource(fn: () => unknown[]) {
   sessionSource = fn
 }
 
+/** Send an approval decision to the bridge when its socket is open. */
 export function decideApproval(id: string, decision: 'approve' | 'deny') {
   if (socket?.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: 'agent_decide', id, decision }))
@@ -200,10 +214,12 @@ export function decideApproval(id: string, decision: 'approve' | 'deny') {
 }
 
 let scheduleRequestSeq = 0
+/** Request schedule creation, listing, or lifecycle changes from the bridge. */
 export function scheduleRequest(request: ScheduleRequest): Promise<Schedule | Schedule[]> {
   return commandRequest('schedule', request, 'schedules')
 }
 
+/** Send a typed profile operation and resolve its correlated service response. */
 export function profileRequest(request: { action: 'list' }): Promise<AgentProfile[]>
 export function profileRequest(request: { action: 'skills' }): Promise<import('./board').InstalledSkill[]>
 export function profileRequest(request: { action: 'create'; profile: import('./board').AgentProfileInput }): Promise<AgentProfile>
@@ -214,27 +230,32 @@ export function profileRequest(request: AgentProfileRequest): Promise<AgentProfi
   return commandRequest('profile', request, 'agent profiles')
 }
 
+/** Send a blocker reply and optional resume request for one goal. */
 export function goalRequest(request: { goalId: string; info: string; resume: boolean }): Promise<{ id: string; status: string }> {
   return commandRequest('goal', request, 'agent board')
 }
 
 /** What the service reports back once a goal and its task history are gone. */
 export type GoalErased = { id: string; deleted: true; tasks: number }
+/** Control or erase a goal and return its resulting lifecycle state. */
 export function goalControlRequest(request: { goalId: string; action: 'pause' | 'resume' | 'abandon' }): Promise<{ id: string; status: string }>
 export function goalControlRequest(request: { goalId: string; action: 'erase' }): Promise<GoalErased>
 export function goalControlRequest(request: { goalId: string; action: 'pause' | 'resume' | 'abandon' | 'erase' }): Promise<{ id: string; status: string } | GoalErased> {
   return commandRequest('goal_control', request, 'agent board')
 }
 
+/** Submit structured answers for a blocked task's decision request. */
 export function decisionRequest(request: { goalId: string; taskId: string; answers: Record<string, string>; note?: string }): Promise<{ id: string; status: string }> {
   return commandRequest('decision', request, 'agent decision')
 }
 
+/** Approve or decline a goal-level decision blocker. */
 export function goalDecisionRequest(request: { goalId: string; decision: 'approve' | 'not_approve'; note?: string }): Promise<{ id: string; status: string }> {
   return commandRequest('goal_decision', request, 'agent approval decision')
 }
 
 export type WorkFile = { path: string; size: number; modified: string; scope: string; owner: string; task: string | null; preview: 'text' | 'image' | 'pdf' | null }
+/** List generated work files or delete one permitted file through the bridge. */
 export function filesRequest(request: { action: 'list' }): Promise<{ files: WorkFile[]; truncated: boolean; canDelete: boolean }>
 export function filesRequest(request: { action: 'delete'; path: string }): Promise<{ path: string; deleted: true }>
 export function filesRequest(request: { action: 'list' | 'delete'; path?: string }): Promise<{ files: WorkFile[]; truncated: boolean; canDelete: boolean } | { path: string; deleted: true }> {
@@ -242,6 +263,7 @@ export function filesRequest(request: { action: 'list' | 'delete'; path?: string
 }
 
 export type TaskReports = { result: unknown; failure: unknown; files: string[] }
+/** Retrieve task history, a saved report, or a referenced source file. */
 export function reportRequest(request: { action: 'history' }): Promise<AgentBoardData>
 export function reportRequest(request: { action: 'task'; taskId: string; file?: string }): Promise<TaskReports | { file: string; content: string }>
 export function reportRequest(request: { action: 'reference'; taskId: string; index: number }): Promise<{ file: string; content: string }>
@@ -249,17 +271,22 @@ export function reportRequest(request: { action: 'history' | 'task' | 'reference
   return commandRequest('report', request, 'agent reports')
 }
 
+/** Send one correlated command and reject on disconnect, timeout, or API error. */
 function commandRequest<Result>(kind: 'schedule' | 'goal' | 'goal_control' | 'decision' | 'goal_decision' | 'report' | 'profile' | 'files', request: object, surface: string): Promise<Result> {
   const ws = socket
   if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error(`The bridge is disconnected. Reconnect before changing ${surface}.`))
   const requestId = `${kind}-${Date.now()}-${++scheduleRequestSeq}`
   return new Promise((resolve, reject) => {
+    /** Remove this request's listeners and timeout after any terminal outcome. */
+    /** Remove listeners and clear shared pending state after a terminal frame. */
     const cleanup = () => {
       clearTimeout(timer)
       ws.removeEventListener('message', onMessage)
       ws.removeEventListener('close', onClose)
     }
+    /** Reject with a recovery hint if the socket closes before its reply. */
     const onClose = () => { cleanup(); reject(new Error(`The bridge disconnected. Refresh ${surface} before retrying; the change may have been saved.`)) }
+    /** Resolve only the response matching this request kind and id. */
     const onMessage = (event: MessageEvent) => {
       let reply
       try { reply = JSON.parse(event.data as string) } catch { return }
@@ -268,6 +295,7 @@ function commandRequest<Result>(kind: 'schedule' | 'goal' | 'goal_control' | 'de
       if (reply.error) reject(new Error(reply.error))
       else resolve(reply.result)
     }
+    // Bound requests so a lost bridge reply cannot leave UI controls pending forever.
     const timer = setTimeout(() => { cleanup(); reject(new Error(`${kind === 'schedule' ? 'Schedule' : 'Goal'} request timed out. Refresh ${surface} before retrying; the change may have been saved.`)) }, 30000)
     ws.addEventListener('message', onMessage)
     ws.addEventListener('close', onClose)
@@ -294,6 +322,7 @@ export type CaptureRequest = {
 export type CaptureResult = { data?: string; mimeType?: string; error?: string }
 
 let onCapture: ((req: CaptureRequest) => Promise<CaptureResult>) | null = null
+/** Register the browser camera handler used to answer bridge capture frames. */
 export function watchCapture(fn: (req: CaptureRequest) => Promise<CaptureResult>) {
   onCapture = fn
 }
@@ -301,6 +330,7 @@ export function watchCapture(fn: (req: CaptureRequest) => Promise<CaptureResult>
 /** Blades arrive the same way panels do — pushed mid-turn, so the article is
  *  already open as he starts the sentence about it. */
 let onBlade: ((blade: Blade) => void) | null = null
+/** Register the receiver for blades pushed during a spoken turn. */
 export function watchBlades(fn: (blade: Blade) => void) {
   onBlade = fn
 }
@@ -311,6 +341,7 @@ export function watchBlades(fn: (blade: Blade) => void) {
  *  on the turn's result. The op/args pair stays untyped here on purpose — this
  *  module is a transport, and the store is where the shape is decided. */
 let onUi: ((op: string, args: any) => void) | null = null
+/** Register the receiver for out-of-band interface operations. */
 export function watchUi(fn: (op: string, args: any) => void) {
   onUi = fn
 }
@@ -326,10 +357,12 @@ export function watchUi(fn: (op: string, args: any) => void) {
  */
 export type ConnectionState = 'open' | 'lost' | 'reconnected' | 'restored' | 'reset' | 'storage_error'
 let onConnection: ((state: ConnectionState) => void) | null = null
+/** Subscribe to connection and conversation-recovery state changes. */
 export function watchConnection(fn: (state: ConnectionState) => void) {
   onConnection = fn
 }
 
+/** Report whether the bridge WebSocket is currently open. */
 export function isConnected(): boolean {
   return socket?.readyState === WebSocket.OPEN
 }
@@ -338,9 +371,11 @@ export function isConnected(): boolean {
 // Connection
 // ---------------------------------------------------------------------------
 
+/** Create a promise together with its externally callable resolver. */
 function deferred() {
   let resolve!: () => void
   const promise = new Promise<void>((r) => {
+    // Capture the resolver so socket events can announce readiness later.
     resolve = r
   })
   return { promise, resolve }
@@ -363,15 +398,18 @@ let probeConnection: (() => void) | null = null
 const HEARTBEAT_INTERVAL_MS = 30_000
 const HEARTBEAT_TIMEOUT_MS = 10_000
 
+/** Schedule the next automatic connection attempt using capped backoff. */
 function scheduleReconnect() {
   const delay = RECONNECT_DELAYS[Math.min(attempt, RECONNECT_DELAYS.length - 1)]
   attempt += 1
   clearTimeout(reconnectTimer)
   reconnectTimer = window.setTimeout(() => {
+    // Retry dialing and reschedule if the bridge is still unavailable.
     void connect().catch(() => scheduleReconnect())
   }, delay)
 }
 
+/** Probe an open socket or reconnect when the page becomes active again. */
 function resumeConnection() {
   if (!everConnected) return
   if (socket?.readyState === WebSocket.OPEN) {
@@ -384,6 +422,7 @@ function resumeConnection() {
 
 window.addEventListener('online', resumeConnection)
 window.addEventListener('focus', resumeConnection)
+// Resume heartbeat checks when a background tab becomes visible again.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') resumeConnection()
 })
@@ -395,6 +434,7 @@ document.addEventListener('visibilitychange', () => {
  * warmBridge() call leaked another listener onto the same socket.
  */
 function dispatch(ws: WebSocket) {
+  // Keep bridge state and pushed UI events synchronized for this socket.
   ws.addEventListener('message', (e: MessageEvent) => {
     let msg: Frame
     try {
@@ -411,6 +451,7 @@ function dispatch(ws: WebSocket) {
       } catch {}
       conversationStatus = msg.status ?? ''
       conversationReady.resolve()
+      // Notify every subscriber after the active checkpoint id changes.
       conversationListeners.forEach((listener) => listener(conversationId))
       if (msg.status === 'restored') onConnection?.('restored')
       else if (msg.status === 'unavailable') onConnection?.('reset')
@@ -420,7 +461,9 @@ function dispatch(ws: WebSocket) {
       // then again with live status once the agent initialises. Keep listening
       // so the later, more accurate list wins.
       servers = (msg.servers ?? [])
-        .map((s) => (typeof s === 'string' ? s : (s.name ?? '')))
+        // Accept both early string names and later server status objects.
+        .map((server) => (typeof server === 'string' ? server : (server.name ?? '')))
+        // Drop unnamed entries before publishing the server list.
         .filter(Boolean)
       onServers?.(servers)
       firstReady.resolve()
@@ -448,6 +491,7 @@ function dispatch(ws: WebSocket) {
       onBlade?.(msg.blade)
     } else if (msg.type === 'capture' && msg.id) {
       const id = msg.id
+      /** Send the camera result against the request id that is waiting. */
       const reply = (payload: Record<string, unknown>) => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'reply', id, ...payload }))
@@ -465,6 +509,7 @@ function dispatch(ws: WebSocket) {
           seconds: Math.max(2, Math.min(15, Number(msg.seconds) || 6)),
           when: msg.when === 'past' ? 'past' : 'now',
         })
+          // Return successful frames or a readable error so no request hangs.
           .then(reply)
           .catch((err) => reply({ error: String(err?.message ?? err) }))
       }
@@ -476,6 +521,7 @@ function dispatch(ws: WebSocket) {
   })
 }
 
+/** Reuse or open the bridge socket and resolve once its handshake succeeds. */
 function connect(): Promise<WebSocket> {
   if (socket?.readyState === WebSocket.OPEN) return Promise.resolve(socket)
   if (connecting) return connecting
@@ -490,6 +536,7 @@ function connect(): Promise<WebSocket> {
     let heartbeatTimer = 0
     let heartbeatDeadline = 0
 
+    /** Clear liveness state and schedule recovery for the current socket only. */
     const loseConnection = () => {
       clearTimeout(heartbeatTimer)
       clearTimeout(heartbeatDeadline)
@@ -501,6 +548,7 @@ function connect(): Promise<WebSocket> {
       scheduleReconnect()
     }
 
+    /** Send a ping and start a deadline for the matching pong response. */
     const probe = () => {
       if (socket !== ws || ws.readyState !== WebSocket.OPEN) return
       clearTimeout(heartbeatTimer)
@@ -517,6 +565,7 @@ function connect(): Promise<WebSocket> {
       }
     }
 
+    // Keep heartbeat replies separate from the general frame dispatcher.
     ws.addEventListener('message', (event: MessageEvent) => {
       let frame: Frame
       try {
@@ -546,10 +595,12 @@ function connect(): Promise<WebSocket> {
     }
 
     const timer = setTimeout(() => {
+      // Reject a handshake that never opens rather than retaining a dead promise.
       ws.close()
       settle(new Error('Bridge not responding — is `npm run bridge` running?'))
     }, 6000)
 
+    // Mark the socket current, attach dispatch, and release connection waiters.
     ws.onopen = () => {
       socket = ws
       attempt = 0
@@ -602,14 +653,17 @@ export async function warmBridge(): Promise<void> {
   // the rail in whenever the list does turn up.
   await Promise.race([
     firstReady.promise,
+    // Bound startup waiting; dispatch will publish server names if they arrive later.
     new Promise<void>((resolve) => setTimeout(resolve, 2500)),
   ])
 }
 
+/** Replace the active bridge conversation and optionally restore saved turns. */
 export async function openConversation(session: ChatSession | null): Promise<string> {
   if (openingConversation) throw new Error('A conversation is already being reopened.')
   openingConversation = true
   const previousId = conversationId
+  /** Close the old session and reconnect with the requested checkpoint id. */
   const replaceSocket = (id: string) => {
     const previous = socket
     socket = null
@@ -628,6 +682,7 @@ export async function openConversation(session: ChatSession | null): Promise<str
       await Promise.race([
         conversationReady.promise,
         new Promise<void>((_resolve, reject) => {
+          // Require explicit confirmation that the bridge found the checkpoint.
           timer = window.setTimeout(() => reject(new Error('The bridge did not confirm conversation recovery.')), 10_000)
         }),
       ])
@@ -638,12 +693,15 @@ export async function openConversation(session: ChatSession | null): Promise<str
     if (session && conversationStatus !== 'restored') {
       const id = `history-${++askSeq}`
       await new Promise<void>((resolve, reject) => {
+        /** Remove listeners and timeout once history restoration settles. */
         const cleanup = () => {
           clearTimeout(timer)
           ws.removeEventListener('message', onMessage)
           ws.removeEventListener('close', onClose)
         }
+        /** Reject if the socket closes before confirming the restore request. */
         const onClose = () => { cleanup(); reject(new Error('The bridge disconnected while reopening the conversation.')) }
+        /** Resolve only when the bridge confirms this restore request id. */
         const onMessage = (event: MessageEvent) => {
           let frame: Frame
           try { frame = JSON.parse(event.data as string) } catch { return }
@@ -654,6 +712,7 @@ export async function openConversation(session: ChatSession | null): Promise<str
             reject(new Error(frame.message ?? 'The conversation could not be reopened.'))
           }
         }
+        // Avoid leaving the reopen UI waiting forever for a lost bridge reply.
         timer = window.setTimeout(() => { cleanup(); reject(new Error('Reopening the conversation timed out.')) }, 10_000)
         ws.addEventListener('message', onMessage)
         ws.addEventListener('close', onClose)
@@ -675,8 +734,10 @@ export async function openConversation(session: ChatSession | null): Promise<str
   }
 }
 
+/** Start a new bridge checkpoint without restoring any prior transcript. */
 export const startNewConversation = () => openConversation(null)
 
+/** Ask a hidden isolated session without replacing the foreground conversation. */
 export function askHidden(prompt: string): Promise<{ text: string }> {
   const url = new URL(BRIDGE_WS_URL)
   url.searchParams.set('theme', THEME)
@@ -686,6 +747,7 @@ export function askHidden(prompt: string): Promise<{ text: string }> {
   })
 }
 
+/** Read startup state in an isolated session and render its text and HTML views. */
 export async function readStartupStatus(): Promise<{ text: string; summary: string; html: string }> {
   const url = new URL(BRIDGE_WS_URL)
   url.searchParams.set('theme', THEME)
@@ -780,6 +842,7 @@ export async function ask(
       ws.removeEventListener('error', onError)
     }
 
+    /** Resolve with streamed text, falling back to the final result payload. */
     const finish = (fallback = '') => {
       if (done) return
       cleanup()
@@ -788,15 +851,18 @@ export async function ask(
       resolve({ text: (text || fallback).trim(), tools })
     }
 
+    /** Reject the active ask exactly once and release its socket listeners. */
     const fail = (err: Error) => {
       if (done) return
       cleanup()
       reject(err)
     }
 
+    /** Reset the idle deadline whenever a current-turn frame makes progress. */
     const arm = () => {
       clearTimeout(timer)
       timer = window.setTimeout(() => {
+        // Interrupt server work before rejecting a turn that has gone silent.
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'interrupt' }))
         }
@@ -804,6 +870,7 @@ export async function ask(
       }, IDLE_TIMEOUT_MS)
     }
 
+    /** Parse current-turn frames and forward text/tools to the caller. */
     const onMessage = (e: MessageEvent) => {
       let msg: Frame
       try {
@@ -856,9 +923,11 @@ export async function ask(
       }
     }
 
+    /** Reject this turn if its socket closes before a terminal response. */
     const onClose = () => {
       fail(new Error('The bridge disconnected mid-answer. Ask me to continue after reconnecting.'))
     }
+    /** Convert a socket error into a settled ask failure. */
     const onError = () => {
       fail(new Error('The connection to the bridge failed.'))
     }
@@ -877,6 +946,7 @@ export async function ask(
         provider: selectedProvider,
         model: modelFor(selectedProvider),
         ...(attachments.length && {
+          // Send only the attachment fields accepted by the bridge protocol.
           attachments: attachments.map(({ name, mimeType, data }) => ({ name, mimeType, data })),
         }),
       }))

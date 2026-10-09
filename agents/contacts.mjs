@@ -7,6 +7,7 @@ import { readFileSync, renameSync, writeFileSync } from 'node:fs'
  */
 export function createContacts(file) {
   let cache = null
+  /** Load known contacts once, using an empty set when no list is available. */
   const load = () => {
     try {
       cache = new Set(JSON.parse(readFileSync(file, 'utf8')).map((s) => String(s).toLowerCase()))
@@ -16,7 +17,9 @@ export function createContacts(file) {
     return cache
   }
   return {
+    /** Return cached contacts or load the persisted list on first use. */
     get: () => cache ?? load(),
+    /** Add approved recipients and atomically persist the normalized set. */
     add(list) {
       const next = new Set([...(cache ?? load()), ...list.map((s) => String(s).toLowerCase())])
       const tmp = `${file}.${process.pid}.tmp`

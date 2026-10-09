@@ -21,6 +21,7 @@ $ErrorFile = Join-Path $DataDir "$Action-error.txt"
 $installLock = $null
 $InstallExitCode = 1
 
+# Select the native system directory when setup was launched by 32-bit PowerShell.
 function Get-NativeSystemDirectory {
     param(
         [string]$WindowsDirectory = $env:WINDIR,
@@ -35,6 +36,7 @@ $NativeSystemDirectory = Get-NativeSystemDirectory
 $Wsl = Join-Path $NativeSystemDirectory 'wsl.exe'
 $NativePowerShell = Join-Path $NativeSystemDirectory 'WindowsPowerShell\v1.0\powershell.exe'
 
+# Redact common credential forms before diagnostics are written or displayed.
 function Protect-DiagnosticText {
     param([string]$Text)
     $Text = $Text -replace '(?i)\b([A-Z0-9_]*(?:TOKEN|KEY|SECRET|PASSWORD)[A-Z0-9_]*\s*=\s*)[^\s]+', '$1[REDACTED]'
@@ -43,6 +45,7 @@ function Protect-DiagnosticText {
     return $Text -replace '(?i)\b[a-f0-9]{48,}\b', '[REDACTED]'
 }
 
+# Restrict a setup data file to the current user and Local System.
 function Protect-File {
     param([string]$Path)
     $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
@@ -50,6 +53,7 @@ function Protect-File {
     if ($LASTEXITCODE -ne 0) { throw 'Could not protect the setup log or browser relay credentials.' }
 }
 
+# Append a timestamped, redacted diagnostic line to private log files.
 function Write-SetupLog {
     param([string]$Text)
     try {
@@ -64,6 +68,7 @@ function Write-SetupLog {
     } catch { }
 }
 
+# Update the visible and logged installer phase name.
 function Set-SetupStep {
     param([string]$Name)
     $script:Step = $Name
@@ -71,6 +76,7 @@ function Set-SetupStep {
     Write-SetupLog $Name
 }
 
+# Run WSL, collect its output, and optionally stream redacted progress.
 function Get-WslResult {
     param([string[]]$Arguments, [switch]$Stream)
     $previousPreference = $ErrorActionPreference
@@ -94,11 +100,13 @@ function Get-WslResult {
     return [pscustomobject]@{ ExitCode = $code; Output = ($lines -join "`n").Trim() }
 }
 
+# Recognize successful WSL version output that includes a version number.
 function Test-WslVersionSupport {
     param($Result)
     return $Result.ExitCode -eq 0 -and $Result.Output -match '(?im)^WSL version:\s*\d+'
 }
 
+# Parse the major component from a Node version string, returning zero if invalid.
 function Get-NodeMajorVersion {
     param([string]$Version)
     $major = 0
@@ -106,16 +114,19 @@ function Get-NodeMajorVersion {
     return $major
 }
 
+# List installed WSL distribution names without their default marker.
 function Get-WslDistributionNames {
     $result = Get-WslResult -Arguments @('--list', '--quiet')
     if ($result.ExitCode -ne 0) { return @() }
     return @($result.Output -split "`r?`n" | ForEach-Object { $_.Trim().TrimStart('*').Trim() } | Where-Object { $_ })
 }
 
+# Check that the dedicated Jarvis distribution is registered in WSL.
 function Test-WslDistributionExists {
     return (Get-WslDistributionNames) -contains $Distro
 }
 
+# Check that the dedicated Jarvis distribution is running as WSL version 2.
 function Test-WslDistributionV2 {
     $result = Get-WslResult -Arguments @('--list', '--verbose')
     if ($result.ExitCode -ne 0) { return $false }
@@ -125,6 +136,7 @@ function Test-WslDistributionV2 {
     return $false
 }
 
+# Verify saved installer ownership metadata before operating on the distro.
 function Get-ManagedDistro {
     if (-not (Test-Path -LiteralPath $StateFile)) { return $false }
     $savedState = Get-Content -LiteralPath $StateFile -Raw | ConvertFrom-Json
@@ -134,6 +146,7 @@ function Get-ManagedDistro {
     return Test-WslDistributionExists
 }
 
+# Validate WSL, the dedicated distro, and supported Windows/Linux Node versions.
 function Test-InstallPrerequisites {
     Set-SetupStep 'Checking WSL2, dedicated Ubuntu 24.04, and Node prerequisites'
     $wslVersion = Get-WslResult -Arguments @('--version')
@@ -161,6 +174,7 @@ function Test-InstallPrerequisites {
     return $windowsNode.Source
 }
 
+# Run a WSL command, raising a redacted error when it fails.
 function Invoke-Wsl {
     param([string[]]$Arguments, [switch]$Capture)
     $result = Get-WslResult -Arguments $Arguments -Stream:(-not $Capture)
@@ -172,6 +186,7 @@ function Invoke-Wsl {
     if ($Capture) { return $result.Output }
 }
 
+# Atomically replace installer state through a temporary JSON file.
 function Save-State {
     param($State)
     New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
@@ -180,6 +195,7 @@ function Save-State {
     Move-Item -LiteralPath $temporary -Destination $StateFile -Force
 }
 
+# Run the packaged provisioning script inside the managed WSL distribution.
 function Invoke-Provision {
     param([string[]]$Arguments, [switch]$Capture)
     $windowsPath = Join-Path $InstallDir 'installer\provision.sh'
@@ -187,6 +203,7 @@ function Invoke-Provision {
     return Invoke-Wsl -Arguments (@('-d', $Distro, '-u', 'root', '--exec', 'bash', $linuxPath) + $Arguments) -Capture:$Capture
 }
 
+# Register a per-user logon task with restart and battery-friendly settings.
 function Register-UserTask {
     param([string]$Suffix, [string]$Executable, [string]$Arguments)
     $user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
@@ -200,10 +217,12 @@ function Register-UserTask {
         -Principal $principal -Settings $settings -Force | Out-Null
 }
 
+# Remove a pending setup-resume task without failing if none exists.
 function Remove-SetupResumeTask {
     Unregister-ScheduledTask -TaskName "$TaskPrefix-Resume" -Confirm:$false -ErrorAction SilentlyContinue
 }
 
+# Poll the local bridge and frontend until both answer or the readiness limit expires.
 function Wait-Ready {
     param([int]$Port)
     for ($attempt = 0; $attempt -lt 60; $attempt++) {
@@ -219,6 +238,7 @@ function Wait-Ready {
     throw 'Jarvis did not become reachable through Windows localhost. Run Diagnostics; WSL forwarding or a port conflict may be responsible.'
 }
 
+# Reserve the first available localhost frontend port in the supported range.
 function Find-Port {
     for ($port = 5173; $port -le 5199; $port++) {
         $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $port)

@@ -237,7 +237,7 @@ function defined<T extends object>(patch: T | undefined): Partial<T> {
 const MAX_ORBITS = 8
 
 export type CommandWindow = 'agents' | 'diagnostics' | 'files' | 'history' | 'loose-ends' | 'palette' | 'scheduler' | 'timeline' | 'status' | 'voice'
-
+/** Keep mutually exclusive command-window flags in sync with the selected window. */
 const commandWindowState = (commandWindow: CommandWindow | null) => ({
   commandWindow,
   boardOpen: commandWindow === 'agents',
@@ -340,9 +340,11 @@ type State = {
   clearScreen: (what: 'all' | 'panels' | 'transcript') => void
 }
 
+/** Shared interface state and the actions that update its visible surfaces. */
 export const useStore = create<State>((set) => ({
   exclusiveCommandWindows: false,
   commandWindow: null,
+  /** Select one command window and update its derived visibility flags. */
   setCommandWindow: (commandWindow) => set(commandWindowState(commandWindow)),
   phase: 'offline',
   level: 0,
@@ -365,8 +367,11 @@ export const useStore = create<State>((set) => ({
   agentsSeen: false,
   boardOpen: false,
   sessionAgents: [],
+  /** Store the latest agent board and mark the service as having responded. */
   setAgents: (board, online) => set({ agentBoard: board, agentsOnline: online, agentsSeen: true }),
+  /** Replace the active in-session subagent list. */
   setSessionAgents: (sessionAgents) => set({ sessionAgents }),
+  /** Toggle the board, respecting exclusive command-window mode when enabled. */
   toggleBoard: () => set((s) => s.exclusiveCommandWindows
     ? commandWindowState(s.boardOpen ? null : 'agents')
     : { boardOpen: !s.boardOpen }),
@@ -376,12 +381,17 @@ export const useStore = create<State>((set) => ({
   bootNote: '',
   enrolling: false,
   ptt: { enabled: false, label: '', held: false, binding: false },
+  /** Patch push-to-talk settings without discarding other key state. */
   setPtt: (patch) => set((s) => ({ ptt: { ...s.ptt, ...patch } })),
   ui: defaultUi(),
 
+  /** Store the active speech-synthesis voice name. */
   setVoice: (voice) => set({ voice }),
+  /** Update whether camera gesture tracking is active. */
   setGestures: (gestures) => set({ gestures }),
+  /** Store the reason currently shown for camera use. */
   setLooking: (looking) => set({ looking }),
+  /** Update the transient boot progress message. */
   setBootNote: (bootNote) => set({ bootNote }),
   // Three is as many as fits around the reactor without crowding it. Sticky
   // panels are exempt from the cull — the tool description promises they stay
@@ -394,6 +404,7 @@ export const useStore = create<State>((set) => ({
       const keep: Panel[] = []
       // Walk newest-first, keeping the newest three plus anything sticky.
       for (let i = next.length - 1; i >= 0; i--) {
+        // Preserve sticky panels even when they are older than the glance limit.
         if (keep.length < 3 || next[i].hold === 'sticky') keep.unshift(next[i])
       }
       return { panels: keep }
@@ -401,7 +412,10 @@ export const useStore = create<State>((set) => ({
   // Panels marked sticky survive the turn boundary; the rest clear when the
   // user speaks again.
   clearPanels: () =>
-    set((s) => ({ panels: s.panels.filter((p) => p.hold === 'sticky') })),
+    set((s) => ({ panels: s.panels.filter((panel) => {
+      // Retain only panels explicitly marked to survive a turn boundary.
+      return panel.hold === 'sticky'
+    }) })),
 
   /**
    * Six is the ceiling, and it is about the stack reading as a stack: past
@@ -411,7 +425,10 @@ export const useStore = create<State>((set) => ({
    */
   pushBlade: (blade) =>
     set((s) => {
-      const next = [...s.blades.filter((b) => b.id !== blade.id), blade].slice(-6)
+      const next = [...s.blades.filter((existing) => {
+        // Replacing an id moves that blade to the front instead of duplicating it.
+        return existing.id !== blade.id
+      }), blade].slice(-6)
       // A new blade comes to the front. Leaving the old focus in place would
       // open something the user asked for and then hide it behind what they
       // were looking at before.
@@ -419,7 +436,10 @@ export const useStore = create<State>((set) => ({
     }),
   closeBlade: (id) =>
     set((s) => ({
-      blades: s.blades.filter((b) => b.id !== id),
+      blades: s.blades.filter((blade) => {
+        // Remove the closed blade while preserving stack order for the rest.
+        return blade.id !== id
+      }),
       focusedBlade: s.focusedBlade === id ? null : s.focusedBlade,
       expandedBlade: s.expandedBlade === id ? null : s.expandedBlade,
     })),
@@ -427,27 +447,40 @@ export const useStore = create<State>((set) => ({
   // 'sticky' ones stay until something replaces them.
   clearBlades: () =>
     set((s) => {
-      const kept = s.blades.filter((b) => b.hold === 'sticky')
-      const alive = new Set(kept.map((b) => b.id))
+      const kept = s.blades.filter((blade) => {
+        // Preserve only blades intended to outlive the current turn.
+        return blade.hold === 'sticky'
+      })
+      const alive = new Set(kept.map((blade) => {
+        // Use the retained ids to validate focus and fullscreen state.
+        return blade.id
+      }))
       return {
         blades: kept,
         focusedBlade: s.focusedBlade && alive.has(s.focusedBlade) ? s.focusedBlade : null,
         expandedBlade: s.expandedBlade && alive.has(s.expandedBlade) ? s.expandedBlade : null,
       }
     }),
+  /** Focus a blade without changing its position in the stack. */
   focusBlade: (focusedBlade) => set({ focusedBlade }),
+  /** Set or clear the blade displayed in fullscreen mode. */
   expandBlade: (expandedBlade) => set({ expandedBlade }),
+  /** Toggle voice enrolment and its exclusive command window when configured. */
   setEnrolling: (enrolling) => set((s) => s.exclusiveCommandWindows
     ? commandWindowState(enrolling ? 'voice' : s.commandWindow === 'voice' ? null : s.commandWindow)
     : { enrolling }),
+  /** Change the assistant phase and clear stale voice text at phase boundaries. */
   setPhase: (phase) => set((state) => ({
     phase,
     ...(phase === 'offline' || phase === 'boot' || phase === 'dormant' || phase === 'speaking' || (phase === 'listening' && state.phase !== 'listening')
       ? { voiceDraft: '' }
       : {}),
   })),
+  /** Store the latest microphone level for reactor animation. */
   setLevel: (level) => set({ level }),
+  /** Update the spoken-answer caption displayed by the HUD. */
   setCaption: (caption) => set({ caption }),
+  /** Replace the current partial speech-recognition transcript. */
   setVoiceDraft: (voiceDraft) => set({ voiceDraft }),
   // The badge and the timeline are fed by the same call, so history cannot
   // drift from the readout. A repeat of the name already showing is the same
@@ -464,16 +497,23 @@ export const useStore = create<State>((set) => ({
           : endTools(s.toolEvents, at),
       }
     }),
+  /** Toggle the timeline window while honoring exclusive-window mode. */
   toggleTimeline: () => set((s) => s.exclusiveCommandWindows
     ? commandWindowState(s.timelineOpen ? null : 'timeline')
     : { timelineOpen: !s.timelineOpen }),
+  /** Toggle session history while honoring exclusive-window mode. */
   toggleHistory: () => set((s) => s.exclusiveCommandWindows
     ? commandWindowState(s.historyOpen ? null : 'history')
     : { historyOpen: !s.historyOpen }),
+  /** Clear the tool activity timeline. */
   clearToolEvents: () => set({ toolEvents: [] }),
+  /** Set or clear the user-facing connection/session error. */
   setError: (error) => set({ error }),
+  /** Replace the MCP server names reported by the bridge. */
   setConnected: (connected) => set({ connected }),
+  /** Append a turn while retaining a bounded amount of visible transcript history. */
   pushTurn: (turn) => set((s) => ({ turns: [...s.turns.slice(-40), turn] })),
+  /** Append streamed text only when the latest transcript turn belongs to JARVIS. */
   appendToLastTurn: (text) =>
     set((s) => {
       const turns = [...s.turns]
@@ -505,17 +545,30 @@ export const useStore = create<State>((set) => ({
   // MAX_ORBITS cull can only ever drop the object that has been up longest.
   addOrbit: (orbit) =>
     set((s) => {
-      const known = s.ui.orbits.some((o) => o.id === orbit.id)
+      const known = s.ui.orbits.some((existing) => {
+        // Existing ids update their position instead of creating a duplicate.
+        return existing.id === orbit.id
+      })
       const next = known
-        ? s.ui.orbits.map((o) => (o.id === orbit.id ? orbit : o))
+        ? s.ui.orbits.map((existing) => {
+          // Replace only the requested object and preserve other orbit order.
+          return existing.id === orbit.id ? orbit : existing
+        })
         : [...s.ui.orbits, orbit]
       return { ui: { ...s.ui, orbits: next.slice(-MAX_ORBITS) } }
     }),
+  /** Remove one orbiting image by id. */
   removeOrbit: (id) =>
-    set((s) => ({ ui: { ...s.ui, orbits: s.ui.orbits.filter((o) => o.id !== id) } })),
+    set((s) => ({ ui: { ...s.ui, orbits: s.ui.orbits.filter((orbit) => {
+      // Preserve the relative order of all remaining orbit objects.
+      return orbit.id !== id
+    }) } })),
+  /** Remove every orbiting image. */
   clearOrbits: () => set((s) => ({ ui: { ...s.ui, orbits: [] } })),
+  /** Fire a one-shot interface effect using a fresh timestamp for retriggering. */
   fireEffect: (kind) =>
     set((s) => ({ ui: { ...s.ui, effect: { kind, at: Date.now() } } })),
+  /** Restore the default interface appearance without resetting conversation state. */
   resetUi: () => set({ ui: defaultUi() }),
   // An explicit order outranks the sticky flag. `hold: 'sticky'` only ever
   // meant "survive the next turn boundary"; when someone says "clear the

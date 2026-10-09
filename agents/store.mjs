@@ -20,6 +20,7 @@ let seq = 0
 export const newId = (prefix) =>
   `${prefix}_${Date.now().toString(36)}${(seq++ % 1296).toString(36).padStart(2, '0')}${randomBytes(3).toString('hex')}`
 
+/** Convert a title into a short filesystem- and branch-friendly name. */
 export const slug = (text) =>
   String(text).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'task'
 
@@ -34,12 +35,14 @@ export function parseEvery(every) {
   return Number(m[1]) * UNITS[m[2].toLowerCase()]
 }
 
+/** Replace one JSON record through a temporary file to avoid partial writes. */
 function writeAtomic(file, value) {
   const tmp = `${file}.${process.pid}.tmp`
   writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n')
   renameSync(tmp, file)
 }
 
+/** Read a JSON record, warning and returning null when it is missing or corrupt. */
 function readJson(file) {
   try {
     return JSON.parse(readFileSync(file, 'utf8'))
@@ -51,7 +54,7 @@ function readJson(file) {
 
 /** Fields a profile file may predate, defaulted on read so no caller has to. */
 const readProfile = (profile) => ({ ...profile, skills: normalizeSkills(profile.skills) })
-
+/** Create the file-backed API for goals, tasks, schedules, approvals, and events. */
 export function createStore(root, { workDir = WORK_DIR, now = () => new Date() } = {}) {
   const dirs = {
     goals: join(root, 'goals'),
@@ -65,17 +68,20 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
   const listeners = new Set()
   const stamp = () => now().toISOString()
 
+  /** Load all parseable JSON entities from one state directory. */
   const list = (kind) =>
     readdirSync(dirs[kind])
       .filter((f) => f.endsWith('.json'))
       .map((f) => readJson(join(dirs[kind], f)))
       .filter((v) => v && typeof v.id === 'string')
 
+  /** Load one entity by id, returning null when its record is absent. */
   const get = (kind, id) => {
     const file = join(dirs[kind], `${id}.json`)
     return existsSync(file) ? readJson(file) : null
   }
 
+  /** Add an update timestamp and atomically persist one entity. */
   const save = (kind, value) => {
     const next = { ...value, updated: stamp() }
     writeAtomic(join(dirs[kind], `${value.id}.json`), next)
@@ -84,35 +90,52 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
 
   return {
     root,
+    /** List all persisted goals. */
     listGoals: () => list('goals'),
+    /** Load one goal record by id. */
     getGoal: (id) => get('goals', id),
+    /** Persist a goal and refresh its update timestamp. */
     saveGoal: (goal) => save('goals', goal),
+    /** List tasks matching every supplied top-level field. */
     listTasks: (filter = {}) =>
       list('tasks').filter((t) => Object.entries(filter).every(([k, v]) => t[k] === v)),
+    /** Load one task record by id. */
     getTask: (id) => get('tasks', id),
+    /** Persist a task and refresh its update timestamp. */
     saveTask: (task) => save('tasks', task),
+    /** List approvals, optionally restricted to one lifecycle status. */
     listApprovals: (status) => list('approvals').filter((a) => !status || a.status === status),
+    /** Load one approval record by id. */
     getApproval: (id) => get('approvals', id),
+    /** Persist an approval record or decision. */
     saveApproval: (approval) => save('approvals', approval),
 
+    /** List all saved schedules. */
     listSchedules: () => list('schedules'),
+    /** Load one schedule record by id. */
     getSchedule: (id) => get('schedules', id),
+    /** Persist a schedule and refresh its update timestamp. */
     saveSchedule: (schedule) => save('schedules', schedule),
     // There is no migration step for these files, so the shape a reader needs
     // is filled in on the way out: a profile saved before skills existed reads
     // back with an empty selection rather than an absent field.
+    /** List all reusable agent profiles, normalizing older records. */
     listProfiles: () => list('profiles').map(readProfile),
+    /** Load one profile record by id, normalizing older records. */
     getProfile: (id) => {
       const profile = get('profiles', id)
       return profile && readProfile(profile)
     },
+    /** Persist a reusable profile with normalized skill identifiers. */
     saveProfile: (profile) => save('profiles', { ...profile, skills: normalizeSkills(profile.skills) }),
+    /** Remove one profile record, returning whether it existed. */
     deleteProfile(id) {
       const path = join(dirs.profiles, `${id}.json`)
       if (!existsSync(path)) return false
       unlinkSync(path)
       return true
     },
+    /** Validate and persist a profile with complete instructions. */
     newProfile({ name, role, instructions, skills = [], id = newId('p'), schedule = null, scheduleId = null }) {
       if (!String(name ?? '').trim() || !String(role ?? '').trim() || !String(instructions ?? '').trim()) {
         throw new Error('An agent profile needs a name, role and instructions.')
@@ -129,6 +152,7 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
         created: stamp(),
       })
     },
+    /** Validate and initialize an active schedule without a prior occurrence. */
     newSchedule(input) {
       return save('schedules', {
         ...scheduleInput(input, now()), id: newId('s'), status: 'active',
@@ -136,6 +160,7 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
       })
     },
 
+    /** Validate and persist a goal with normalized priority and recurrence. */
     newGoal({ title, outcome, priority = 3, recurring = null, taskCap = DEFAULT_TASK_CAP, id = newId('g'), scheduleId, occurrenceKey, execution, profileId, profileSnapshot }) {
       if (!title || !outcome) throw new Error('A goal needs a title and an outcome.')
       if (!/^g_[a-z0-9]+$/.test(id) || get('goals', id)) throw new Error('Invalid or existing goal id.')
@@ -177,6 +202,7 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
       return { goal, tasks, approvals: approvals.length }
     },
 
+    /** Validate and initialize a queued task with its workspace and budget. */
     newTask({ goalId, title, brief, kind = 'research', dependsOn = [], model = 'sonnet', repo = null, allowedSkills = [] }) {
       if (!KINDS.includes(kind)) throw new Error(`Unknown task kind "${kind}".`)
       const id = newId('t')
@@ -210,6 +236,7 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
       })
     },
 
+    /** Create a pending approval record for a policy-gated action. */
     newApproval({ taskId, category, action, detail, recipients = [] }) {
       return save('approvals', {
         id: newId('a'),
@@ -225,6 +252,7 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
       })
     },
 
+    /** Append an event durably and notify the current in-process listeners. */
     appendEvent(ev) {
       const event = { at: stamp(), ...ev }
       appendFileSync(eventsFile, JSON.stringify(event) + '\n')
@@ -238,6 +266,7 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
       return event
     },
 
+    /** Read the newest valid event records, skipping malformed JSON lines. */
     readEvents({ limit = 200 } = {}) {
       if (!existsSync(eventsFile)) return []
       return readFileSync(eventsFile, 'utf8')
@@ -253,6 +282,7 @@ export function createStore(root, { workDir = WORK_DIR, now = () => new Date() }
         })
     },
 
+    /** Subscribe to appended events and return an unsubscribe callback. */
     onEvent(fn) {
       listeners.add(fn)
       return () => listeners.delete(fn)

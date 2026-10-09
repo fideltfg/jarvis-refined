@@ -9,12 +9,18 @@ import { createScheduler, isRateLimit } from './scheduler.mjs'
 import { createPool } from './pool.mjs'
 import { parseEndpoints } from '../bridge/endpoints.mjs'
 
+/** Create a controllable promise for simulating worker completion in tests. */
 const deferred = () => {
   let resolve, reject
-  const promise = new Promise((a, b) => { resolve = a; reject = b })
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    // Expose the promise settlement functions to the test harness.
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
   return { promise, resolve, reject }
 }
-const settle = () => new Promise((r) => setImmediate(r))
+/** Let queued promise handlers run before inspecting scheduler state. */
+const settle = () => new Promise((resolve) => setImmediate(resolve))
 
 function harness({ maxWorkers = 3, pool = null } = {}) {
   let clock = Date.parse('2026-09-29T00:00:00Z')
@@ -29,8 +35,11 @@ function harness({ maxWorkers = 3, pool = null } = {}) {
     now: () => clock,
     sleep: async () => {},
     retryDelayMs: 0,
+    // Record scheduler cancellation callbacks for assertions.
     onCancel: (id) => cancelled.push(id),
+    // Capture goal reviews without invoking a coordinator model.
     coordinator: { review: async (goalId, ev) => { reviews.push(ev) } },
+    // Keep worker promises pending until the test explicitly settles them.
     runTask: (task, { signal, endpoint }) => {
       const d = deferred()
       runs.set(task.id, { ...d, signal, endpoint })
@@ -42,6 +51,7 @@ function harness({ maxWorkers = 3, pool = null } = {}) {
 
 const DONE = { status: 'done', result: { summary: 'ok', artifacts: [] } }
 
+// Verify a saved schedule recovers and runs when the service starts listening.
 test('persisted schedules run after service restart without a browser or event subscriber', async () => {
   let clock = Date.parse('2026-10-06T08:00:00Z')
   const root = mkdtempSync(join(tmpdir(), 'agents-schedule-restart-'))
@@ -52,10 +62,12 @@ test('persisted schedules run after service restart without a browser or event s
   const store = createStore(root, { workDir: '/work', now: () => new Date(clock) })
   const runs = []
   const coordinator = {
+    // Simulate the coordinator adding a task for each recovered schedule goal.
     plan: async (goalId) => {
       const task = store.newTask({ goalId, title: 'Health', brief: 'Check services' })
       store.appendEvent({ type: 'task_queued', goalId, taskId: task.id, text: 'Queued' })
     },
+    // Mark the schedule goal complete after its worker result is reviewed.
     review: async (goalId) => store.saveGoal({ ...store.getGoal(goalId), status: 'done', notes: 'Healthy' }),
   }
   const scheduler = createScheduler({ store, coordinator, now: () => clock, runTask: async (task) => { runs.push(task.id); return DONE } })
@@ -72,6 +84,7 @@ test('persisted schedules run after service restart without a browser or event s
   } finally { scheduler.stop() }
 })
 
+// Check dependency gating, task persistence, and review of completed work.
 test('a task waits for its dependencies, then runs; the coordinator reviews each ending', async () => {
   const h = harness()
   const g = h.store.newGoal({ title: 'G', outcome: 'O' })
@@ -91,6 +104,7 @@ test('a task waits for its dependencies, then runs; the coordinator reviews each
   assert.ok(h.runs.has(b.id))
 })
 
+// Ensure repeated scheduler ticks cannot exceed the worker cap.
 test('never more than the cap at once', () => {
   const h = harness()
   const g = h.store.newGoal({ title: 'G', outcome: 'O' })
@@ -101,6 +115,7 @@ test('never more than the cap at once', () => {
   assert.equal(h.scheduler.running().size, 3)
 })
 
+// Verify priority order skips paused goals even when they have higher priority.
 test('higher-priority goals go first; paused goals wait', () => {
   const h = harness({ maxWorkers: 1 })
   const low = h.store.newGoal({ title: 'Low', outcome: 'O', priority: 5 })
@@ -114,6 +129,7 @@ test('higher-priority goals go first; paused goals wait', () => {
   assert.deepEqual([...h.runs.keys()], [hi.id])
 })
 
+// Cover one worker retry followed by a persisted terminal failure.
 test('a thrown error is retried once, then the attempt fails', async () => {
   const h = harness()
   const g = h.store.newGoal({ title: 'G', outcome: 'O' })
@@ -130,6 +146,7 @@ test('a thrown error is retried once, then the attempt fails', async () => {
   assert.equal(saved.attempts, 1)
 })
 
+// Confirm rate limits requeue work and delay retries without consuming an attempt.
 test('a rate limit re-queues the task and backs off without spending an attempt', async () => {
   const h = harness()
   const g = h.store.newGoal({ title: 'G', outcome: 'O' })
@@ -147,6 +164,7 @@ test('a rate limit re-queues the task and backs off without spending an attempt'
   assert.notEqual(h.runs.get(t.id), first)
 })
 
+// Lock the provider capacity-error strings that activate scheduler backoff.
 test('isRateLimit recognises the usual shapes', () => {
   assert.ok(isRateLimit(new Error('Rate limit reached')))
   assert.ok(isRateLimit(new Error('HTTP 429')))
@@ -154,6 +172,7 @@ test('isRateLimit recognises the usual shapes', () => {
   assert.ok(!isRateLimit(new Error('boom')))
 })
 
+// Check running-task aborts, queued-task cancellation, and skipped coordinator review.
 test('cancel aborts a running task and cancels a queued one', async () => {
   const h = harness({ maxWorkers: 1 })
   const g = h.store.newGoal({ title: 'G', outcome: 'O' })
@@ -172,6 +191,7 @@ test('cancel aborts a running task and cancels a queued one', async () => {
   assert.equal(h.scheduler.cancel('t_missing'), false)
 })
 
+// Ensure recurring work waits for its interval before creating the next task.
 test('a recurring goal re-queues its last task once the interval has passed', async () => {
   const h = harness()
   const g = h.store.newGoal({ title: 'Check', outcome: 'O', recurring: { every: '1h' } })
@@ -192,6 +212,7 @@ test('a recurring goal re-queues its last task once the interval has passed', as
   assert.ok(h.runs.has(next.id))
 })
 
+// Verify malformed recurring metadata and missing dependency arrays do not stop ticks.
 test('F10: hand-edited files with bad values do not crash the loop', () => {
   const h = harness()
   const bad = h.store.newGoal({ title: 'Bad', outcome: 'O' })
@@ -199,20 +220,26 @@ test('F10: hand-edited files with bad values do not crash the loop', () => {
   h.store.saveTask({ ...h.store.newTask({ goalId: bad.id, title: 'Old', brief: 'b' }), status: 'done' })
   const g = h.store.newGoal({ title: 'G', outcome: 'O' })
   const t = h.store.newTask({ goalId: g.id, title: 'No deps field', brief: 'b' })
-  const { dependsOn, ...withoutDeps } = h.store.getTask(t.id)
+  // Remove the field to simulate an older or hand-edited task record.
+  const withoutDeps = { ...h.store.getTask(t.id) }
+  delete withoutDeps.dependsOn
   h.store.saveTask(withoutDeps)
   assert.doesNotThrow(() => h.scheduler.tick())
   assert.ok(h.runs.has(t.id))
 })
 
+// Check recurring-run retention and the workspace archival callback.
 test('F11: recurring runs archive old tasks, keep the last three and hand them to onArchive', async () => {
   let clock = Date.parse('2026-09-29T00:00:00Z')
   const store = createStore(mkdtempSync(join(tmpdir(), 'agents-rec11-')), { workDir: '/work', now: () => new Date(clock) })
   const archived = []
   const runs = new Map()
   const scheduler = createScheduler({
-    store, now: () => clock, sleep: async () => {}, retryDelayMs: 0, onArchive: (t) => archived.push(t.id),
+    store, now: () => clock, sleep: async () => {}, retryDelayMs: 0,
+    // Capture tasks handed to workspace cleanup.
+    onArchive: (task) => archived.push(task.id),
     coordinator: { review: async () => {} },
+    // Hold each recurring worker until the test resolves it.
     runTask: (task) => { const d = deferred(); runs.set(task.id, d); return d.promise },
   })
   const g = store.newGoal({ title: 'Check', outcome: 'O', recurring: { every: '1h' } })
@@ -224,10 +251,16 @@ test('F11: recurring runs archive old tasks, keep the last three and hand them t
     await scheduler.idle()
     clock += 61 * 60_000
   }
-  const live = store.listTasks({ goalId: g.id }).filter((t) => !t.archived)
+  const live = store.listTasks({ goalId: g.id }).filter((task) => {
+    // Compare only current history against the retained-run limit.
+    return !task.archived
+  })
   assert.ok(live.length <= 4)
   assert.ok(archived.length >= 2)
-  assert.ok(store.listTasks({ goalId: g.id }).filter((t) => t.archived).every((t) => archived.includes(t.id)))
+  assert.ok(store.listTasks({ goalId: g.id }).filter((task) => {
+    // Every archived record should have reached the archive callback.
+    return task.archived
+  }).every((task) => archived.includes(task.id)))
 })
 
 // -- leasing across endpoints -----------------------------------------------
@@ -242,7 +275,9 @@ const BOXES = [
 process.env.JARVIS_ENDPOINTS = JSON.stringify(BOXES)
 
 const twoBoxes = () => createPool({ endpoints: parseEndpoints(BOXES) })
+/** Build a pool from the two fake endpoints used in lease tests. */
 
+// Verify endpoint assignment, runtime reporting, and lease release after completion.
 test('with a pool, each run is leased to an endpoint and the lease comes back', async () => {
   const pool = twoBoxes()
   const h = harness({ maxWorkers: 9, pool })
@@ -280,6 +315,7 @@ test('with a pool, each run is leased to an endpoint and the lease comes back', 
   assert.equal(pool.inFlight(), 0, 'nothing holds capacity once the queue is empty')
 })
 
+// Ensure a busy pinned endpoint does not block unrelated runnable work.
 test('a task pinned to a busy endpoint is stepped over, not a barrier', async () => {
   const pool = twoBoxes()
   pool.acquire({ model: 'rigel' })
@@ -294,6 +330,7 @@ test('a task pinned to a busy endpoint is stepped over, not a barrier', async ()
   assert.equal(h.store.getTask(pinned.id).status, 'queued')
 })
 
+// Confirm rate-limited or failed work returns its endpoint capacity.
 test('a run that ends badly still returns its slot', async () => {
   const pool = createPool({ endpoints: parseEndpoints([{ id: 'cloud', kind: 'anthropic', concurrency: 1 }]) })
   const h = harness({ maxWorkers: 9, pool })
@@ -307,6 +344,7 @@ test('a run that ends badly still returns its slot', async () => {
   assert.equal(pool.inFlight(), 0, 'a rate-limited run must not keep the slot for the life of the process')
 })
 
+// Preserve the legacy global worker ceiling when no endpoint pool exists.
 test('with no pool the old fixed ceiling still governs', () => {
   const h = harness({ maxWorkers: 1 })
   const g = h.store.newGoal({ title: 'G', outcome: 'O' })

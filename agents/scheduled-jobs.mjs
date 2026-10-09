@@ -4,15 +4,18 @@ import { profileOutcome, profileSnapshot } from './profiles.mjs'
 
 export function createScheduledJobs({ store, coordinator, now = Date.now, mirror = {} }) {
   const planning = new Map()
+  /** Record one schedule lifecycle event with its public identifying fields. */
   const emit = (schedule, text) => store.appendEvent({
     type: 'schedule_changed', goalId: schedule.lastGoalId, text,
     data: { scheduleId: schedule.id, title: schedule.title },
   })
+  /** Check whether a schedule's last goal still has active or paused work. */
   const busy = (schedule) => {
     const goal = schedule.lastGoalId && store.getGoal(schedule.lastGoalId)
     return Boolean(goal && !['done', 'abandoned'].includes(goal.status))
   }
 
+  /** Resume planning for a durable occurrence, recording success or bounded retry state. */
   function plan(schedule) {
     const occurrence = schedule.pendingOccurrence
     if (!occurrence || planning.has(schedule.id) || (occurrence.retryAt && Date.parse(occurrence.retryAt) > now())) return
@@ -36,10 +39,12 @@ export function createScheduledJobs({ store, coordinator, now = Date.now, mirror
       return
     }
     const promise = Promise.resolve().then(() => coordinator.plan(goal.id)).then(() => {
+      // Clear the durable occurrence only after the coordinator accepts the plan.
       const saved = store.getSchedule(schedule.id)
       store.saveSchedule({ ...saved, pendingOccurrence: null, error: null })
       emit(saved, `Scheduled run planned: ${schedule.title}`)
     }).catch((err) => {
+      // Persist retry metadata and stop retrying after three planning failures.
       const saved = store.getSchedule(schedule.id)
       const attempts = (occurrence.attempts ?? 0) + 1
       const hasTasks = store.listTasks({ goalId: goal.id }).length > 0
@@ -53,11 +58,13 @@ export function createScheduledJobs({ store, coordinator, now = Date.now, mirror
         },
       })
       emit(saved, `Scheduled planning failed: ${schedule.title}: ${err.message}`)
+    // Release the in-memory duplicate guard after any planning outcome.
     }).finally(() => planning.delete(schedule.id))
     planning.set(schedule.id, promise)
     emit(store.getSchedule(schedule.id), `Scheduled run started: ${schedule.title}`)
   }
 
+  /** Reserve one occurrence durably, then begin planning its new goal. */
   function launch(schedule, manual = false) {
     if (schedule.pendingOccurrence || busy(schedule)) throw new Error('The previous scheduled run is still active. Resolve it on the agent board first.')
     const profile = schedule.profileId ? store.getProfile(schedule.profileId) : null
@@ -79,6 +86,7 @@ export function createScheduledJobs({ store, coordinator, now = Date.now, mirror
   }
 
   return {
+    /** Start any pending recovery or due schedule occurrence. */
     tick() {
       for (const schedule of store.listSchedules()) {
         try {
@@ -89,12 +97,14 @@ export function createScheduledJobs({ store, coordinator, now = Date.now, mirror
         }
       }
     },
+    /** Validate and persist a new schedule and publish its creation event. */
     create(input) {
       if (input.profileId && !store.getProfile(input.profileId)) throw new Error('Agent profile not found.')
       const saved = store.newSchedule(input)
       emit(saved, `Schedule created: ${saved.title}`)
       return saved
     },
+    /** Validate and apply an edit, pause, resume, or delete action. */
     update(id, change) {
       const schedule = store.getSchedule(id)
       if (!schedule || schedule.status === 'deleted') throw new Error('Schedule not found.')
@@ -116,11 +126,13 @@ export function createScheduledJobs({ store, coordinator, now = Date.now, mirror
       emit(saved, `Schedule ${change.action}: ${saved.title}`)
       return saved
     },
+    /** Launch an active or paused schedule immediately. */
     runNow(id) {
       const schedule = store.getSchedule(id)
       if (!schedule || !['active', 'paused'].includes(schedule.status)) throw new Error('No runnable schedule found.')
       return launch(schedule, true)
     },
+    /** Wait for all in-flight schedule planning promises to settle. */
     async idle() { await Promise.all([...planning.values()]) },
   }
 }

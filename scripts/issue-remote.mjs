@@ -6,7 +6,10 @@ import { join, resolve } from 'node:path'
 
 const hostname = process.argv[2]?.toLowerCase()
 if (!hostname || hostname.length > 253 || !hostname.includes('.') ||
-    hostname.split('.').some((label) => label.length > 63 || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label))) {
+    hostname.split('.').some((label) => {
+      // Enforce DNS label length and syntax before creating host credentials.
+      return label.length > 63 || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label)
+    })) {
   throw new Error('Provide a dedicated DNS hostname (for example, remote-host.lan).')
 }
 process.umask(0o077)

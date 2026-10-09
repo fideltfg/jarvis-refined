@@ -217,12 +217,14 @@ const RING_R = 0.74
  */
 const FIT = 0.60
 
+/** Update the Stark shader reactor from shared phase, audio, and UI state. */
 export function Core({ drive }: { drive: Drive }) {
   const mat = useRef<THREE.ShaderMaterial>(null)
   const mesh = useRef<THREE.Mesh>(null)
   const viewport = useThree((s) => s.viewport)
 
   const uniforms = useMemo(
+    // Allocate shader uniforms once; useFrame mutates their values in place.
     () => ({
       uColor: { value: new THREE.Color(sceneTint.core) },
       // Not white — a tinted highlight keeps the hue readable once bloom
@@ -241,6 +243,7 @@ export function Core({ drive }: { drive: Drive }) {
     [],
   )
 
+  // Synchronize shader uniforms and viewport fit once per rendered frame.
   useFrame((_, dt) => {
     if (!mat.current || !mesh.current) return
     const u = mat.current.uniforms

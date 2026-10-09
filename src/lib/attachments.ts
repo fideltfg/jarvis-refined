@@ -25,14 +25,17 @@ export const MAX_BYTES: Record<AttachmentKind, number> = {
 
 export const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
 type ImageType = (typeof IMAGE_TYPES)[number]
+/** Narrow a MIME type to the image formats supported by both providers. */
 const isImageType = (type: string): type is ImageType => (IMAGE_TYPES as readonly string[]).includes(type)
 
+/** Format a byte count using the short units shown in attachment feedback. */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
+/** Encode bytes in bounded chunks so large attachments avoid argument limits. */
 function toBase64(bytes: Uint8Array): string {
   let binary = ''
   for (let i = 0; i < bytes.length; i += 0x8000) {
@@ -42,6 +45,7 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 /** Text is whatever decodes as UTF-8 without NULs; source files often arrive with no MIME type. */
+/** Accept strict UTF-8 text while rejecting binary data and embedded NULs. */
 function isText(bytes: Uint8Array): boolean {
   if (bytes.includes(0)) return false
   try {
@@ -52,6 +56,7 @@ function isText(bytes: Uint8Array): boolean {
   }
 }
 
+/** Classify supported image/PDF/text inputs and reject other media types. */
 function classify(file: File, bytes: Uint8Array): AttachmentKind | null {
   if (isImageType(file.type)) return 'image'
   if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) return 'pdf'
@@ -105,14 +110,17 @@ export async function readAttachments(
   return { attachments, rejected }
 }
 
+/** Strip transient base64 content before storing attachment history metadata. */
 export function attachmentMeta({ name, mimeType, size, kind }: Attachment): AttachmentMeta {
   return { name, mimeType, size, kind }
 }
 
+/** Prevent a filename from escaping the textual attachment wrapper. */
 function escapeName(name: string): string {
   return name.replace(/[<>"&\r\n]/g, '_')
 }
 
+/** Decode an attachment's base64 UTF-8 text for provider content blocks. */
 function decodeText(data: string): string {
   return new TextDecoder().decode(Uint8Array.from(atob(data), (c) => c.charCodeAt(0)))
 }
@@ -126,6 +134,7 @@ type ContentBlock =
 export function anthropicContent(prompt: string, attachments: readonly Attachment[]): string | ContentBlock[] {
   if (!attachments.length) return prompt
   const blocks: ContentBlock[] = attachments.map((file) => {
+    // Preserve native image/PDF blocks and wrap all other supported files as text.
     if (file.kind === 'image' && isImageType(file.mimeType)) return { type: 'image', source: { type: 'base64', media_type: file.mimeType, data: file.data } }
     if (file.kind === 'pdf') return { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: file.data }, title: file.name }
     return { type: 'text', text: `<attachment name="${escapeName(file.name)}">\n${decodeText(file.data)}\n</attachment>` }
@@ -137,6 +146,9 @@ export function anthropicContent(prompt: string, attachments: readonly Attachmen
 /** How an attached-file question is remembered in text-only history. */
 export function describeAttachments(prompt: string, attachments: readonly AttachmentMeta[]): string {
   if (!attachments.length) return prompt
-  const names = attachments.map((file) => file.name).join(', ')
+  const names = attachments.map((file) => {
+    // Retain names only; attachment bytes are never copied into text history.
+    return file.name
+  }).join(', ')
   return `${prompt}${prompt ? '\n' : ''}[Attached: ${names}]`
 }

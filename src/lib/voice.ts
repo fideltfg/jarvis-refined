@@ -241,6 +241,7 @@ const MAX_HOLD_MS = 6000
  * How long to keep waiting, given what has been said so far.
  * 0 means "this is a complete thought, send it now".
  */
+/** Choose the sentence-assembly delay from its trailing words and punctuation. */
 function holdFor(text: string): number {
   const words = text.trim().split(/\s+/).filter(Boolean)
   if (!words.length) return CONTINUE_MS
@@ -264,6 +265,7 @@ type Assembler = {
   held: () => string
 }
 
+/** Combine speech segments and emit a turn only when the thought is complete. */
 function makeAssembler(h: {
   emit: (text: string) => void
   partial: (text: string) => void
@@ -272,11 +274,13 @@ function makeAssembler(h: {
   let timer: ReturnType<typeof setTimeout> | null = null
   let firstAt = 0
 
+  /** Cancel the pending assembler deadline. */
   const clear = () => {
     if (timer) clearTimeout(timer)
     timer = null
   }
 
+  /** Emit the accumulated transcript once and reset its timing state. */
   const fire = () => {
     clear()
     const text = held.trim()
@@ -286,6 +290,7 @@ function makeAssembler(h: {
   }
 
   return {
+    /** Add a transcript fragment and schedule emission when the speaker is done. */
     feed(text, active) {
       if (!text.trim()) return
       held = `${held} ${text}`.replace(/\s+/g, ' ').trim()
@@ -314,13 +319,16 @@ function makeAssembler(h: {
       }
       timer = setTimeout(fire, wait)
     },
+    /** Emit held speech immediately when push-to-talk ends. */
     flush: fire,
+    /** Discard the held thought when the conversation is abandoned. */
     cancel() {
       clear()
       held = ''
       firstAt = 0
       diag.holding = ''
     },
+    /** Return the partial thought currently waiting for its endpoint. */
     held: () => held,
   }
 }
@@ -387,6 +395,7 @@ export const diag = {
 
 /** Record why a transcript went nowhere. Silence always has a reason; this is
  *  the difference between debugging it and speculating about it. */
+/** Record why the current transcript or segment was intentionally ignored. */
 function drop(why: string) {
   diag.dropped = why
 }
@@ -448,18 +457,22 @@ export async function startVoice(h: VoiceHandlers, opts: VoiceOptions = {}): Pro
   diag.ptt = ptt
   const engine = await (useServer ? startServerVoice(h, ptt) : startBrowserVoice(h, ptt))
   return {
+    /** Stop the chosen recognition engine and mute the shared microphone. */
     stop: () => {
       stopped = true
       engine.stop()
       setMicMuted(true)
     },
+    /** Report whether the selected recognition engine is running. */
     live: () => engine.live(),
+    /** Switch the engine's input policy between open-mic and held-to-talk. */
     setPushToTalk: (on) => {
       if (stopped || on === ptt) return
       ptt = on
       setMicMuted(on)
       engine.setPushToTalk(on)
     },
+    /** Begin or finish one push-to-talk capture while keeping microphone state aligned. */
     hold: (down) => {
       if (!ptt || stopped) return
       // Open input before capture starts; finish the recording before muting it.
@@ -471,6 +484,7 @@ export async function startVoice(h: VoiceHandlers, opts: VoiceOptions = {}): Pro
 }
 
 /** Local VAD plus transcription through the configured bridge provider. */
+/** Start local VAD with bridge transcription and owner-aware interruption handling. */
 async function startServerVoice(h: VoiceHandlers, pushToTalk: boolean): Promise<Voice> {
   let lastWake = 0
   let vad: Vad | null = null
@@ -526,12 +540,14 @@ async function startServerVoice(h: VoiceHandlers, pushToTalk: boolean): Promise<
    * See makeAssembler for why.
    */
   const assemble = makeAssembler({
+    // Publish completed utterances and clear any stale drop reason.
     emit: (text) => {
       diag.dropped = ''
       diag.accepted++
       diag.holding = ''
       h.onUtterance(text)
     },
+    // Keep the caption synchronized with the assembled thought.
     partial: (text) => h.onPartial(text),
   })
 
@@ -560,6 +576,7 @@ async function startServerVoice(h: VoiceHandlers, pushToTalk: boolean): Promise<
      *
      * Skipped for push-to-talk: holding the key is the proof of ownership.
      */
+    // Verify speaker identity in parallel with transcription; PTT is explicit ownership.
     const whose = manual ? null : verify(blob, ms)
 
     try {
@@ -592,6 +609,7 @@ async function startServerVoice(h: VoiceHandlers, pushToTalk: boolean): Promise<
       // because the barge-in is now provisional, catching it here is enough to
       // stop him interrupting himself rather than merely stopping him acting
       // on what he heard.
+      // Discard playback echo before speaker verification or command handling.
       if (isEcho(said, speakingNow())) {
         settleBarge(false)
         drop('echo of his own voice')
@@ -611,6 +629,7 @@ async function startServerVoice(h: VoiceHandlers, pushToTalk: boolean): Promise<
        * `verify` fails open by design, so this is a no-op until the owner has
        * actually enrolled a voiceprint.
        */
+      // Wait for the parallel voiceprint result before accepting this transcript.
       const who = whose ? await whose : { ok: true as const, why: '' }
       if (!who.ok) {
         diag.strangers++
@@ -661,6 +680,7 @@ async function startServerVoice(h: VoiceHandlers, pushToTalk: boolean): Promise<
   }
 
   /** One transcription at a time, in the order the segments were spoken. */
+  /** Transcribe queued audio one segment at a time, preserving speech order. */
   const drain = async () => {
     if (draining) return
     draining = true
@@ -675,6 +695,7 @@ async function startServerVoice(h: VoiceHandlers, pushToTalk: boolean): Promise<
   }
 
   vad = await startVad({
+    // Begin provisional barge-in handling when VAD detects speech energy.
     onStart: () => {
       const mode = h.mode()
       diag.mode = mode
@@ -710,10 +731,12 @@ async function startServerVoice(h: VoiceHandlers, pushToTalk: boolean): Promise<
         }
       }
     },
+    // Queue each ended segment so network latency never drops later speech.
     onEnd: (blob, ms) => {
       pendingAudio.push({ blob, ms, manual: ptt })
       void drain()
     },
+    // Show a listening ellipsis only when no transcript fragment is already held.
     onLevel: (v) => {
       // Only paint the live level while actually listening for a command, so a
       // dormant reactor stays calm and does not twitch at every room noise.
@@ -725,6 +748,7 @@ async function startServerVoice(h: VoiceHandlers, pushToTalk: boolean): Promise<
       if (assemble.held()) return
       h.onPartial(v > 0.04 ? '…' : '')
     },
+    // Surface capture failures through the app's voice error handler.
     onError: (message) => {
       diag.lastError = 'capture'
       diag.running = false
@@ -748,19 +772,23 @@ async function startServerVoice(h: VoiceHandlers, pushToTalk: boolean): Promise<
   }, 200)
 
   return {
+    /** Stop VAD, polling, and any unfinished assembled utterance. */
     stop: () => {
       clearInterval(guardPoll)
       assemble.cancel()
       vad?.stop()
       diag.running = false
     },
+    /** Report whether the VAD microphone pipeline is still active. */
     live: () => vad?.live() ?? false,
+    /** Switch the VAD into or out of push-to-talk mode. */
     setPushToTalk: (on) => {
       ptt = on
       diag.ptt = on
       assemble.cancel()
       vad?.setManual(on)
     },
+    /** Start or stop manual capture while push-to-talk is enabled. */
     hold: (down) => {
       if (ptt) vad?.hold(down)
     },
@@ -861,15 +889,18 @@ async function startBrowserVoice(h: VoiceHandlers, pushToTalk: boolean): Promise
     partial: (text) => h.onPartial(text),
   })
 
+  /** Refresh the recognizer heartbeat after any browser event. */
   const touch = () => {
     lastAlive = Date.now()
   }
 
+  /** Cancel the fallback recognizer's endpoint timer. */
   const clearSilence = () => {
     if (silenceTimer) clearTimeout(silenceTimer)
     silenceTimer = null
   }
 
+  /** Clear transcript and barge-in state before the next recognition session. */
   const reset = () => {
     clearSilence()
     carry = ''
@@ -883,6 +914,7 @@ async function startBrowserVoice(h: VoiceHandlers, pushToTalk: boolean): Promise
     bargeOwner = false
   }
 
+  /** Endpoint the current browser transcript and pass it to owner validation. */
   const emit = () => {
     const text = `${settled} ${interim}`.replace(/\s+/g, ' ').trim()
     const mode = h.mode()
@@ -920,6 +952,7 @@ async function startBrowserVoice(h: VoiceHandlers, pushToTalk: boolean): Promise
    * only while verification is genuinely unavailable: no model, still loading,
    * or failed outright. There the alternative is going deaf, which is worse.
    */
+  /** Accept an endpointed transcript only after applying the voiceprint gate. */
   const take = async (text: string, mode: VoiceMode, from: number) => {
     if (ptt) {
       diag.heard = text
@@ -971,6 +1004,7 @@ async function startBrowserVoice(h: VoiceHandlers, pushToTalk: boolean): Promise
     assemble.feed(text, false)
   }
 
+  /** Restart the fallback engine's fixed quiet-gap endpoint timer. */
   const bumpSilence = () => {
     clearSilence()
     // Endpoint on a short quiet gap; the ElevenLabs path tunes this more
@@ -978,6 +1012,7 @@ async function startBrowserVoice(h: VoiceHandlers, pushToTalk: boolean): Promise
     silenceTimer = setTimeout(emit, 900)
   }
 
+  /** Merge browser interim/final results and process wake or command text. */
   const onResult = (e: any) => {
     touch()
     const mode = h.mode()
@@ -1031,7 +1066,7 @@ async function startBrowserVoice(h: VoiceHandlers, pushToTalk: boolean): Promise
 
     if (!speechFrom) speechFrom = Date.now()
     const full = `${settled} ${interim}`.replace(/\s+/g, ' ').trim()
-    /** True while this utterance is ducked and not yet placed as the owner's. */
+    /** Track whether words remain provisional while speaker verification runs. */
     let pending = false
     if (!started || (mode === 'guard' && !barged)) {
       const words = full.split(/\s+/).filter(Boolean).length
@@ -1113,6 +1148,7 @@ async function startBrowserVoice(h: VoiceHandlers, pushToTalk: boolean): Promise
    * the check cannot run, and a stop that is only honoured for a verified voice
    * is not a stop button.
    */
+  /** Verify a provisional fallback-engine interruption and settle its outcome. */
   const decideBarge = async (from: number, override: boolean) => {
     if (!gate) return
     const who = await gate.judge(from, BARGE_DECIDE_MS, BARGE_SLACK)

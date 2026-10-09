@@ -6,11 +6,13 @@ import { join } from 'node:path'
 
 import { createStore, parseEvery, slug } from './store.mjs'
 
+/** Create an isolated temporary store, optionally overriding its settings. */
 const fresh = (opts) => {
   const root = mkdtempSync(join(tmpdir(), 'agents-store-'))
   return { root, store: createStore(root, { workDir: '/work', ...opts }) }
 }
 
+// Checks goal persistence, default task cap, and priority normalization.
 test('a goal round-trips and priority is clamped to 1..5', () => {
   const { store } = fresh()
   const g = store.newGoal({ title: 'Ship it', outcome: 'Released', priority: 9 })
@@ -21,11 +23,13 @@ test('a goal round-trips and priority is clamped to 1..5', () => {
   assert.ok(g.updated)
 })
 
+// Ensures a goal cannot be persisted without its required user-facing fields.
 test('a goal needs a title and an outcome', () => {
   const { store } = fresh()
   assert.throws(() => store.newGoal({ title: 'x' }), /title and an outcome/)
 })
 
+// Covers profile field trimming, round-trip persistence, and required-field validation.
 test('agent profiles persist reusable instructions and reject incomplete records', () => {
   const { store } = fresh()
   const profile = store.newProfile({ name: '  Research  ', role: ' Analyst ', instructions: ' Check the sources. ' })
@@ -77,6 +81,7 @@ test('a profile keeps naming a skill that has since left the disk, so nothing is
   assert.deepEqual(renamed.skills, ['since-uninstalled'])
 })
 
+// Validates recurring intervals before storing a goal.
 test('a malformed recurring interval is refused at creation', () => {
   const { store } = fresh()
   assert.throws(() => store.newGoal({ title: 'x', outcome: 'y', recurring: { every: 'every 6 hours' } }), /Cannot read the interval/)
@@ -84,6 +89,7 @@ test('a malformed recurring interval is refused at creation', () => {
   assert.deepEqual(ok.recurring, { every: '6h' })
 })
 
+// Locks supported duration units and invalid interval error behavior.
 test('parseEvery reads minutes, hours and days', () => {
   assert.equal(parseEvery('30m'), 30 * 60_000)
   assert.equal(parseEvery('6h'), 6 * 3_600_000)
@@ -91,6 +97,7 @@ test('parseEvery reads minutes, hours and days', () => {
   assert.throws(() => parseEvery('soon'), /Cannot read the interval/)
 })
 
+// Checks task defaults, workspace paths, model, budget, and code-branch naming.
 test('a task takes its budget from its kind and a code task gets a branch', () => {
   const { store } = fresh()
   const g = store.newGoal({ title: 'G', outcome: 'O' })
@@ -110,11 +117,13 @@ test('a task takes its budget from its kind and a code task gets a branch', () =
   assert.deepEqual(store.getTask(skilled.id).allowedSkills, ['small-skill'])
 })
 
+// Rejects task kinds that have no configured budget or worker policy.
 test('an unknown kind is refused', () => {
   const { store } = fresh()
   assert.throws(() => store.newTask({ goalId: 'g', title: 't', brief: 'b', kind: 'magic' }), /Unknown task kind/)
 })
 
+// Confirms task filters combine persisted top-level fields.
 test('listTasks filters by field', () => {
   const { store } = fresh()
   const g = store.newGoal({ title: 'G', outcome: 'O' })
@@ -125,6 +134,7 @@ test('listTasks filters by field', () => {
   assert.equal(store.listTasks({ status: 'done' })[0].id, a.id)
 })
 
+// Ensures a corrupt hand-edited record does not prevent valid records loading.
 test('a hand-edited file that no longer parses is skipped, not fatal', () => {
   const { root, store } = fresh()
   store.newGoal({ title: 'Good', outcome: 'O' })
@@ -134,6 +144,7 @@ test('a hand-edited file that no longer parses is skipped, not fatal', () => {
   assert.equal(goals[0].title, 'Good')
 })
 
+// Verifies atomic saves leave no staging files in the record directory.
 test('saves leave no temp files behind', () => {
   const { root, store } = fresh()
   const g = store.newGoal({ title: 'G', outcome: 'O' })
@@ -141,10 +152,12 @@ test('saves leave no temp files behind', () => {
   assert.deepEqual(readdirSync(join(root, 'goals')).filter((f) => f.endsWith('.tmp')), [])
 })
 
+// Checks durable event order and that unsubscribed listeners stop receiving events.
 test('events are appended, readable and delivered to listeners', () => {
   const { store } = fresh()
   const seen = []
-  const off = store.onEvent((e) => seen.push(e.type))
+  // Capture event types until the returned unsubscribe function is called.
+  const off = store.onEvent((event) => seen.push(event.type))
   store.appendEvent({ type: 'goal_created', text: 'x' })
   off()
   store.appendEvent({ type: 'goal_done', text: 'y' })
@@ -153,11 +166,13 @@ test('events are appended, readable and delivered to listeners', () => {
   assert.ok(store.readEvents()[0].at)
 })
 
+// Covers branch-safe normalization and the fallback for punctuation-only titles.
 test('slug makes a short branch-safe name', () => {
   assert.equal(slug('Fix the CI pipeline!'), 'fix-the-ci-pipeline')
   assert.equal(slug('***'), 'task')
 })
 
+// Ensures goal deletion removes only owned tasks/approvals and is idempotent.
 test('deleting a goal takes its tasks and their approvals and leaves nothing orphaned', () => {
   const { root, store } = fresh()
   const goal = store.newGoal({ title: 'Ship it', outcome: 'Released' })
@@ -183,6 +198,7 @@ test('deleting a goal takes its tasks and their approvals and leaves nothing orp
   assert.equal(store.deleteGoal(goal.id), null)
 })
 
+// Confirms a missing goal id cannot mutate unrelated goals, tasks, or approvals.
 test('deleting a goal id that was never created is a clean no-op, not a throw, and touches nothing', () => {
   const { root, store } = fresh()
   const other = store.newGoal({ title: 'Keep it', outcome: 'Kept' })
@@ -197,6 +213,7 @@ test('deleting a goal id that was never created is a clean no-op, not a throw, a
   assert.deepEqual(readdirSync(join(root, 'tasks')), [`${task.id}.json`])
 })
 
+// Keeps generated output separate from the store's JSON record directories.
 test('a goal output directory is named under the work dir, not the record root', () => {
   const { root, store } = fresh({ workDir: '/tmp/work-dir' })
   const goal = store.newGoal({ title: 'Ship it', outcome: 'Released' })

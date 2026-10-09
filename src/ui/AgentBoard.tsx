@@ -28,12 +28,14 @@ const KIND_LABEL: Record<BoardAgent['kind'], string> = {
 /** Anything the user could still act on, and so a reason to open the board. */
 const LIVE: BoardAgent['status'][] = ['running', 'awaiting_approval', 'blocked']
 
+/** Collect information from the user and send it to a blocked goal. */
 function AttentionReply({ goalId, name, paused, online }: { goalId: string; name: string; paused: boolean; online: boolean }) {
   const inputId = useId()
   const [info, setInfo] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  /** Validate the reply locally, send it, and expose success or failure state. */
   async function submit() {
     if (!online || busy || !info.trim()) return
     setBusy(true)
@@ -48,7 +50,11 @@ function AttentionReply({ goalId, name, paused, online }: { goalId: string; name
     } finally { setBusy(false) }
   }
   return (
-    <form className="ab-attention" aria-label={`Respond to ${name}`} onSubmit={(event) => { event.preventDefault(); void submit() }}>
+    <form className="ab-attention" aria-label={`Respond to ${name}`} onSubmit={(event) => {
+      // Keep submission in the single-page flow and let the handler own feedback.
+      event.preventDefault()
+      void submit()
+    }}>
       <label htmlFor={inputId}>Information for this task</label>
       <textarea id={inputId} value={info} maxLength={10000} rows={3} disabled={busy} onChange={(event) => setInfo(event.target.value)} />
       <button type="submit" title={paused ? 'Send information and resume this goal' : 'Send information to the coordinator'} disabled={!online || busy || !info.trim()}>
@@ -61,6 +67,7 @@ function AttentionReply({ goalId, name, paused, online }: { goalId: string; name
   )
 }
 
+/** Load a task's saved report list and open or download a selected file. */
 function ReportContent({ taskId, online }: { taskId: string; online: boolean }) {
   const [reports, setReports] = useState<TaskReports | null>(null)
   const [error, setError] = useState('')
@@ -71,11 +78,16 @@ function ReportContent({ taskId, online }: { taskId: string; online: boolean }) 
     setReports(null)
     setError('')
     if (online) void reportRequest({ action: 'task', taskId }).then((data) => {
+      // Ignore results from an effect that was cleaned up or replaced.
       if (!cancelled && 'files' in data) setReports(data)
-    }).catch((err) => { if (!cancelled) setError(String(err.message ?? err)) })
+    }).catch((err) => {
+      // Show request failures only while this task view is still mounted.
+      if (!cancelled) setError(String(err.message ?? err))
+    })
     return () => { cancelled = true }
   }, [taskId, online, revision])
 
+  /** Fetch one report file and surface request errors in the detail pane. */
   async function readFile(file: string) {
     if (!online || busyFile) return null
     setBusyFile(file)
@@ -90,6 +102,7 @@ function ReportContent({ taskId, online }: { taskId: string; online: boolean }) 
     } finally { setBusyFile('') }
   }
 
+  /** Render a fetched report as a persistent reading blade. */
   async function viewFile(file: string) {
     const content = await readFile(file)
     if (content === null) return
@@ -104,6 +117,7 @@ function ReportContent({ taskId, online }: { taskId: string; online: boolean }) 
     })
   }
 
+  /** Download a fetched report as a plain-text browser file. */
   async function downloadFile(file: string) {
     const content = await readFile(file)
     if (content === null) return
@@ -112,6 +126,7 @@ function ReportContent({ taskId, online }: { taskId: string; online: boolean }) 
     anchor.href = url
     anchor.download = file.split('/').pop() || 'report.txt'
     anchor.click()
+    // Release the temporary browser URL after the download has started.
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
   return (
@@ -137,6 +152,7 @@ function ReportContent({ taskId, online }: { taskId: string; online: boolean }) 
   )
 }
 
+/** Display the coordinator's consolidated result for a goal or task. */
 function TaskResult({ row }: { row: BoardAgent }) {
   return <section className="ab-main-result" aria-label={`Result for ${row.name}`}>
     <h3>Result</h3>
@@ -144,12 +160,14 @@ function TaskResult({ row }: { row: BoardAgent }) {
   </section>
 }
 
+/** Choose a safe, compact source label for a referenced document. */
 const referenceSource = (reference: AgentReference) => {
   if (reference.path) return reference.path
   try { return reference.url ? new URL(reference.url).hostname : '' }
   catch { return reference.url ?? '' }
 }
 
+/** Collect and submit answers for a task's structured blocker questions. */
 function DecisionForm({ task, goalId, online }: { task: BoardAgent; goalId: string; online: boolean }) {
   const noteId = useId()
   const relatedTasks = useMemo(() => [task], [task])
@@ -160,6 +178,7 @@ function DecisionForm({ task, goalId, online }: { task: BoardAgent; goalId: stri
   const [sent, setSent] = useState(false)
   const questions = task.questions ?? []
   const complete = questions.length > 0 && questions.every((question) => answers[question.id])
+  /** Send complete answers and optional notes once, then lock the form. */
   async function submit() {
     if (!online || busy || !complete) return
     setBusy(true)
@@ -186,6 +205,7 @@ function DecisionForm({ task, goalId, online }: { task: BoardAgent; goalId: stri
   </section>
 }
 
+/** Submit an explicit approval or rejection for a proposed goal plan. */
 function GoalDecisionForm({ goalId, tasks, online }: { goalId: string; tasks: BoardAgent[]; online: boolean }) {
   const noteId = useId()
   const [decision, setDecision] = useState<'approve' | 'not_approve' | ''>('')
@@ -193,6 +213,7 @@ function GoalDecisionForm({ goalId, tasks, online }: { goalId: string; tasks: Bo
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [sent, setSent] = useState(false)
+  /** Send the selected goal decision and optional note to the bridge. */
   async function submit() {
     if (!online || busy || !decision) return
     setBusy(true)
@@ -217,9 +238,11 @@ function GoalDecisionForm({ goalId, tasks, online }: { goalId: string; tasks: Bo
   </section>
 }
 
+/** List task references and open safe web links or retrieved local documents. */
 function ReferenceList({ taskId, references, online }: { taskId: string; references: AgentReference[]; online: boolean }) {
   const [busy, setBusy] = useState<number | null>(null)
   const [error, setError] = useState('')
+  /** Validate and open a reference URL or fetch its stored document body. */
   async function open(reference: AgentReference, index: number) {
     if (!online || busy !== null) return
     setError('')
@@ -262,6 +285,7 @@ type RelatedItem =
   | { kind: 'file'; key: string; taskId: string; taskName: string; file: string; title: string; meta: string }
   | { kind: 'reference'; key: string; taskId: string; taskName: string; reference: AgentReference; referenceIndex: number; title: string; meta: string }
 
+/** Combine task references and saved files into one goal-level related-data list. */
 function GoalRelatedData({ tasks, online }: { tasks: BoardAgent[]; online: boolean }) {
   const [files, setFiles] = useState<Array<{ taskId: string; file: string }>>([])
   const [loading, setLoading] = useState(false)
@@ -273,11 +297,19 @@ function GoalRelatedData({ tasks, online }: { tasks: BoardAgent[]; online: boole
     setLoading(true)
     setError('')
     void Promise.all(tasks.map(async (task) => {
+      // Fetch report metadata for every child task in parallel.
       const result = await reportRequest({ action: 'task', taskId: task.id })
       return 'files' in result ? result.files.map((file) => ({ taskId: task.id, file })) : []
-    })).then((groups) => { if (!cancelled) setFiles(groups.flat()) })
-      .catch((err) => { if (!cancelled) setError(String(err instanceof Error ? err.message : err)) })
-      .finally(() => { if (!cancelled) setLoading(false) })
+    })).then((groups) => {
+      // Publish results only if this effect still owns the current task list.
+      if (!cancelled) setFiles(groups.flat())
+    }).catch((err) => {
+      // Preserve the mounted view while displaying the retrieval failure.
+      if (!cancelled) setError(String(err instanceof Error ? err.message : err))
+    }).finally(() => {
+      // Stop the loading indicator only for the active request batch.
+      if (!cancelled) setLoading(false)
+    })
     return () => { cancelled = true }
   }, [online, tasks])
 
@@ -309,6 +341,7 @@ function GoalRelatedData({ tasks, online }: { tasks: BoardAgent[]; online: boole
     })
   }
 
+  /** Open a related URL or fetch its task-owned document contents. */
   async function open(item: RelatedItem) {
     if (!online || busyKey) return
     setBusyKey(item.key)
@@ -353,6 +386,7 @@ function GoalRelatedData({ tasks, online }: { tasks: BoardAgent[]; online: boole
   </section>
 }
 
+/** Edit profile instructions and validate an optional recurring schedule. */
 function ProfileEditor({ profile, onSave, onCancel }: { profile: AgentProfile | null; onSave: (input: AgentProfileInput) => Promise<void>; onCancel: () => void }) {
   const id = useId()
   const [name, setName] = useState(profile?.name ?? '')
@@ -397,6 +431,7 @@ function ProfileEditor({ profile, onSave, onCancel }: { profile: AgentProfile | 
   const toggleSkill = (skillId: string, on: boolean) =>
     setSkills((previous) => on ? [...previous.filter((value) => value !== skillId), skillId].sort() : previous.filter((value) => value !== skillId))
 
+  /** Validate local schedule fields and pass the normalized profile to the caller. */
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setBusy(true)
@@ -446,6 +481,7 @@ function ProfileEditor({ profile, onSave, onCancel }: { profile: AgentProfile | 
   </form>
 }
 
+/** Select the appropriate blocker form, references, and reports for one row. */
 function DecisionReferenceSection({ row, online }: { row: BoardAgent; online: boolean }) {
   if (row.questions?.length && row.parentId) return <DecisionForm task={row} goalId={row.parentId} online={online} />
   return <>
@@ -454,6 +490,7 @@ function DecisionReferenceSection({ row, online }: { row: BoardAgent; online: bo
   </>
 }
 
+/** Render searchable agent work, history, decisions, reports, and reusable profiles. */
 export function AgentBoard() {
   const board = useStore((s) => s.agentBoard)
   const online = useStore((s) => s.agentsOnline)
@@ -483,9 +520,16 @@ export function AgentBoard() {
     if (view !== 'agents' || !open || !online) return
     setLoading(true)
     setError('')
-    void reportRequest({ action: 'history' }).then((data) => { if (!cancelled) setHistory(data) })
-      .catch((err) => { if (!cancelled) setError(String(err.message ?? err)) })
-      .finally(() => { if (!cancelled) setLoading(false) })
+    void reportRequest({ action: 'history' }).then((data) => {
+      // Apply history only if the agents view is still the active request owner.
+      if (!cancelled) setHistory(data)
+    }).catch((err) => {
+      // Keep errors scoped to this mounted view.
+      if (!cancelled) setError(String(err.message ?? err))
+    }).finally(() => {
+      // Clear loading only after the current history request settles.
+      if (!cancelled) setLoading(false)
+    })
     return () => { cancelled = true }
   }, [view, open, online, revision])
   useEffect(() => {
@@ -493,9 +537,16 @@ export function AgentBoard() {
     if (view !== 'profiles' || !open || !online) return
     setProfilesLoading(true)
     setProfilesError('')
-    void profileRequest({ action: 'list' }).then((data) => { if (!cancelled) setProfiles(data) })
-      .catch((err) => { if (!cancelled) setProfilesError(String(err.message ?? err)) })
-      .finally(() => { if (!cancelled) setProfilesLoading(false) })
+    void profileRequest({ action: 'list' }).then((data) => {
+      // Avoid applying a late response after leaving the profiles view.
+      if (!cancelled) setProfiles(data)
+    }).catch((err) => {
+      // Show failures only while this profiles request is still current.
+      if (!cancelled) setProfilesError(String(err.message ?? err))
+    }).finally(() => {
+      // Stop the profile spinner after the current request settles.
+      if (!cancelled) setProfilesLoading(false)
+    })
     return () => { cancelled = true }
   }, [view, open, online, profileRevision])
   const source = mergeBoardData(board, history)
@@ -541,6 +592,7 @@ export function AgentBoard() {
   if (exclusiveCommandWindows && !open) return null
   if (!open && !rows.some((r) => LIVE.includes(r.status))) return null
 
+  /** Create or update the selected profile and refresh profile-editor state. */
   async function saveProfile(input: AgentProfileInput) {
     if (!online) throw new Error('Background agents are offline.')
     setProfileBusy(true)
@@ -551,7 +603,10 @@ export function AgentBoard() {
         ? await profileRequest({ action: 'update', profileId: editingProfile.id, changes: input })
         : await profileRequest({ action: 'create', profile: input })
       const profile = saved as AgentProfile
-      setProfiles((previous) => editingProfile ? previous.map((entry) => entry.id === profile.id ? profile : entry) : [profile, ...previous])
+      setProfiles((previous) => editingProfile ? previous.map((entry) => {
+        // Replace the edited profile in place while preserving list order.
+        return entry.id === profile.id ? profile : entry
+      }) : [profile, ...previous])
       setSelectedProfileId(profile.id)
       setEditorOpen(false)
       setEditingProfile(null)
@@ -563,6 +618,7 @@ export function AgentBoard() {
     } finally { setProfileBusy(false) }
   }
 
+  /** Start a goal from a profile and select it when it appears on the board. */
   async function runProfile(profile: AgentProfile) {
     setProfileBusy(true)
     setProfilesError('')
@@ -575,18 +631,23 @@ export function AgentBoard() {
     finally { setProfileBusy(false) }
   }
 
+  /** Confirm and delete a reusable profile without affecting existing runs. */
   async function deleteProfile(profile: AgentProfile) {
     if (!online || !window.confirm(`Delete '${profile.name}'? Existing runs will remain.`)) return
     setProfileBusy(true)
     setProfilesError('')
     try {
       await profileRequest({ action: 'delete', profileId: profile.id })
-      setProfiles((previous) => previous.filter((entry) => entry.id !== profile.id))
+      setProfiles((previous) => previous.filter((entry) => {
+        // Remove only the deleted profile from the cached roster.
+        return entry.id !== profile.id
+      }))
       setProfileNotice('Profile deleted.')
     } catch (err) { setProfilesError(err instanceof Error ? err.message : String(err)) }
     finally { setProfileBusy(false) }
   }
 
+  /** Run or change the lifecycle of the selected profile's linked schedule. */
   async function updateProfileSchedule(action: 'pause' | 'resume' | 'run') {
     if (!selectedProfile?.scheduleId || !online) return
     setProfileBusy(true)
@@ -600,6 +661,7 @@ export function AgentBoard() {
     finally { setProfileBusy(false) }
   }
 
+  /** Confirm destructive goal actions and send the selected lifecycle change. */
   async function changeGoal(action: 'pause' | 'resume' | 'abandon') {
     if (!selectedGoal || !online) return
     if (action === 'abandon' && !window.confirm(`Abandon “${selectedGoal.title}” and stop its queued work?`)) return
@@ -637,6 +699,7 @@ export function AgentBoard() {
 
   const rosterRows = [...filtered, ...sessionRows]
   const deleteBlock = deleteBlockReason(selected)
+  // Group the visible roster by lifecycle state for predictable scanning.
   const groups = [
     { label: 'Waiting', key: 'waiting', rows: rosterRows.filter((row) => stateGroup(row) === 'waiting') },
     { label: 'Working', key: 'working', rows: rosterRows.filter((row) => stateGroup(row) === 'working') },

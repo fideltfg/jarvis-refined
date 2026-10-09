@@ -3,23 +3,28 @@ import assert from 'node:assert/strict'
 
 import { agentSummary, capacityLine, deleteBlockReason, mainTaskRows, mergeBoard, mergeBoardData, runningAgents, stateGroup, statusLabel } from './board.ts'
 
+/** Build a queued task fixture with the board's required fields. */
 const task = (over = {}) => ({
   id: 't1', title: 'Task', kind: 'shell', status: 'queued', attempts: 1, summary: null,
   created: '2026-09-29T00:00:00Z', updated: '2026-09-29T00:00:00Z', ...over,
 })
 
+/** Build an active goal fixture with optional lifecycle/task overrides. */
 const goal = (over = {}) => ({
   id: 'g1', title: 'Goal', outcome: 'Something', status: 'active', priority: 1,
   created: '2026-09-29T00:00:00Z', tasks: [], ...over,
 })
 
+/** Build an empty board response with optional data for one test. */
 const board = (over = {}) => ({ goals: [], approvals: [], running: [], ...over })
 
+/** Build a live session-subagent fixture. */
 const sub = (over = {}) => ({
   id: 's1', title: 'Find the parser', kind: 'Explore', status: 'running',
   startedAt: '2026-09-29T01:00:00Z', summary: null, ...over,
 })
 
+// Verifies service goals/tasks and voice subagents share one row schema.
 test('both sources land in one list with one shape', () => {
   const rows = mergeBoard(board({ goals: [goal({ tasks: [task()] })] }), [sub()])
 
@@ -34,6 +39,7 @@ test('both sources land in one list with one shape', () => {
   }
 })
 
+// Checks the session source preserves the fields available only on subagents.
 test('a subagent carries its brief, its type and its result', () => {
   const [row] = mergeBoard(null, [
     sub({ status: 'done', summary: 'Parser lives in src/lib/parse.ts', finishedAt: '2026-09-29T01:02:00Z' }),
@@ -47,6 +53,7 @@ test('a subagent carries its brief, its type and its result', () => {
   assert.equal(row.parentId, null)
 })
 
+// Ensures merged rows consistently report ownership, provider, endpoint, and model.
 test('every agent belongs to JARVIS and says which provider carries it', () => {
   const rows = mergeBoard(
     board({
@@ -61,7 +68,10 @@ test('every agent belongs to JARVIS and says which provider carries it', () => {
     }),
     [sub({ provider: 'claude', model: 'claude-opus-5', brief: 'Find where parsing happens.' })],
   )
-  const by = Object.fromEntries(rows.map((row) => [row.id, row]))
+  const by = Object.fromEntries(rows.map((row) => {
+    // Index rows by id for the remaining field assertions.
+    return [row.id, row]
+  }))
 
   assert.ok(rows.every((row) => row.owner === 'JARVIS'))
   assert.equal(by.a.runsOn, 'Anthropic')
@@ -79,12 +89,14 @@ test('every agent belongs to JARVIS and says which provider carries it', () => {
   assert.equal(agentSummary(rows), '3 running · 2 queued')
 })
 
+// Confirms in-session work remains visible when the separate agent service is down.
 test('subagents show even with the agent service offline', () => {
   const rows = mergeBoard(null, [sub()])
   assert.equal(rows.length, 1)
   assert.equal(rows[0].status, 'running')
 })
 
+// Preserves task grouping so a goal and its tasks cannot become separate units.
 test('a task stays under its own goal', () => {
   const rows = mergeBoard(board({ goals: [goal({ tasks: [task({ id: 'a' }), task({ id: 'b' })] })] }))
 
@@ -92,6 +104,7 @@ test('a task stays under its own goal', () => {
   assert.deepEqual(rows.slice(1).map((r) => r.parentId), ['g1', 'g1'])
 })
 
+// Keeps actionable decision/reference metadata attached to the originating task row.
 test('decision questions and document references stay attached to their task', () => {
   const questions = [{ id: 'region', prompt: 'Choose a region', options: [{ id: 'east', label: 'East' }, { id: 'west', label: 'West' }] }]
   const references = [{ title: 'Regional notes', path: 'reports/regions.md' }]
@@ -100,6 +113,7 @@ test('decision questions and document references stay attached to their task', (
   assert.deepEqual(rows[1].references, references)
 })
 
+// Confirms saved history is retained while current task snapshots take precedence.
 test('one board keeps saved goals and overlays newer live task state', () => {
   const history = board({ goals: [
     goal({ id: 'g-live', title: 'Live goal', tasks: [task({ id: 't-live', status: 'done', summary: 'Saved result' }), task({ id: 't-old', status: 'done' })] }),
@@ -115,6 +129,7 @@ test('one board keeps saved goals and overlays newer live task state', () => {
   assert.equal(merged.capacity.running, 1)
 })
 
+// Checks the main view prefers coordinator summaries and hides child result detail.
 test('main task results use coordinator notes and hide worker and session results', () => {
   const rows = mergeBoard(board({ goals: [goal({ notes: 'Release is ready for approval.', tasks: [task({ status: 'done', summary: 'Verbose worker output' })] })] }), [sub({ status: 'done', summary: 'Session output' })])
   const visible = mainTaskRows(rows)
@@ -123,6 +138,7 @@ test('main task results use coordinator notes and hide worker and session result
   assert.equal(mainTaskRows(mergeBoard(board({ goals: [goal()] })))[0].result, null)
 })
 
+// Keeps only goals and child tasks that require immediate user attention.
 test('main task view retains actionable blockers and approvals, not worker results', () => {
   const approval = { id: 'ap1', taskId: 'approval', category: 'shell', action: 'publish', detail: 'command' }
   const rows = mergeBoard(board({ goals: [goal({ tasks: [task({ id: 'blocked', status: 'blocked' }), task({ id: 'approval', status: 'awaiting_approval' }), task({ id: 'running', status: 'running' })] })], approvals: [approval] }))
@@ -130,6 +146,7 @@ test('main task view retains actionable blockers and approvals, not worker resul
   assert.equal(mainTaskRows(rows)[2].approval, approval)
 })
 
+// Carries explicit goal/task response flags through the common row projection.
 test('the merged main and child rows preserve explicit response-needed state', () => {
   const rows = mergeBoard(board({ goals: [goal({ awaitingResponse: true, tasks: [task({ status: 'blocked', awaitingResponse: true })] })] }))
   assert.equal(rows[0].awaitingResponse, true)
@@ -137,6 +154,7 @@ test('the merged main and child rows preserve explicit response-needed state', (
   assert.equal(mergeBoard(null, [sub()])[0].awaitingResponse, false)
 })
 
+// Verifies urgency ordering outranks recency across goal and subagent units.
 test('the most urgent unit comes first, whatever kind it is', () => {
   const rows = mergeBoard(
     board({
@@ -152,6 +170,7 @@ test('the most urgent unit comes first, whatever kind it is', () => {
   assert.equal(rows.at(-1).kind, 'subagent')
 })
 
+// Ensures each pending approval is joined only to its owning task row.
 test('an approval is attached to the task it blocks', () => {
   const approval = { id: 'ap1', taskId: 't1', category: 'shell', action: 'force-push', detail: 'd' }
   const rows = mergeBoard(
@@ -163,6 +182,7 @@ test('an approval is attached to the task it blocks', () => {
   assert.equal(rows.find((r) => r.kind === 'goal').approval, null)
 })
 
+// Checks goal progress and activity summarize its child task states.
 test('a goal reports progress and what its tasks are doing', () => {
   const rows = mergeBoard(
     board({
@@ -176,6 +196,7 @@ test('a goal reports progress and what its tasks are doing', () => {
   assert.equal(goalRow.status, 'active')
 })
 
+// Excludes cancelled tasks from live rows, progress, and activity totals.
 test('cancelled tasks leave the board and the arithmetic', () => {
   const rows = mergeBoard(
     board({ goals: [goal({ tasks: [task({ id: 'a', status: 'done' }), task({ id: 'b', status: 'cancelled' })] })] }),
@@ -186,12 +207,14 @@ test('cancelled tasks leave the board and the arithmetic', () => {
   assert.equal(rows[0].activity, '1 of 1 task done')
 })
 
+// Confirms paused lifecycle state survives projection to a board row.
 test('a paused goal says so', () => {
   const [row] = mergeBoard(board({ goals: [goal({ status: 'paused' })] }))
   assert.equal(row.status, 'paused')
   assert.equal(row.progress, 0)
 })
 
+// Ensures history mode includes cancelled work without reopening completed goals.
 test('history recalls cancelled tasks and keeps completed goals terminal', () => {
   const rows = mergeBoard(board({ goals: [goal({ status: 'done', tasks: [task({ status: 'cancelled' })] })] }), [], { history: true })
   assert.equal(rows[0].status, 'done')
@@ -200,6 +223,7 @@ test('history recalls cancelled tasks and keeps completed goals terminal', () =>
   assert.equal(mergeBoard(board({ goals: [goal({ status: 'abandoned' })] }))[0].status, 'cancelled')
 })
 
+// Hides attempt counts until retries make them useful context.
 test('attempts only surface once something has gone wrong', () => {
   const plain = mergeBoard(board({ goals: [goal({ tasks: [task({ kind: 'shell' })] })] }))
   assert.equal(plain[1].activity, 'shell')
@@ -208,12 +232,14 @@ test('attempts only surface once something has gone wrong', () => {
   assert.equal(retried[1].activity, 'shell · attempt 3')
 })
 
+// Handles absent board data and empty service responses safely.
 test('an empty board is an empty list, not a crash', () => {
   assert.deepEqual(mergeBoard(null), [])
   assert.deepEqual(mergeBoard(null, []), [])
   assert.deepEqual(mergeBoard(board()), [])
 })
 
+// Ensures every supported state maps to a renderable label.
 test('every status has a label', () => {
   for (const s of ['awaiting_approval', 'blocked', 'running', 'queued', 'active', 'paused', 'failed', 'done', 'cancelled']) {
     assert.equal(typeof statusLabel(s), 'string')
@@ -223,11 +249,13 @@ test('every status has a label', () => {
 
 // -- the capacity line ------------------------------------------------------
 
+/** Build a healthy endpoint fixture for capacity-line tests. */
 const ep = (over = {}) => ({
   id: 'cloud', label: 'cloud', kind: 'anthropic', model: null,
   healthy: true, running: 0, concurrency: 2, kinds: [], ...over,
 })
 
+// Omits capacity detail for absent data or a single idle endpoint.
 test('one idle endpoint says nothing, because there is nothing to choose', () => {
   assert.equal(capacityLine(null), null)
   assert.equal(capacityLine(undefined), null)
@@ -236,10 +264,12 @@ test('one idle endpoint says nothing, because there is nothing to choose', () =>
   assert.equal(capacityLine({ capacity: 3, running: 0, endpoints: [ep()] }), null)
 })
 
+// Shows usage when one endpoint has active work.
 test('one endpoint with work on it reports the load', () => {
   assert.equal(capacityLine({ capacity: 3, running: 2, endpoints: [ep({ running: 2 })] }), '2 of 3 busy')
 })
 
+// Reports aggregate usage and endpoint count for a multi-endpoint pool.
 test('several endpoints are always worth a line, idle or not', () => {
   const line = capacityLine({
     capacity: 4, running: 1,
@@ -248,6 +278,7 @@ test('several endpoints are always worth a line, idle or not', () => {
   assert.equal(line, '1 of 4 busy · 2 endpoints')
 })
 
+// Includes unhealthy machines in the concise capacity summary.
 test('an unreachable machine is counted on the line', () => {
   const line = capacityLine({
     capacity: 6, running: 0,
@@ -256,6 +287,7 @@ test('an unreachable machine is counted on the line', () => {
   assert.equal(line, '0 of 6 busy · 3 endpoints · 2 down')
 })
 
+// Verifies every row status maps to one roster group and only terminal states are idle.
 test('every board status falls in exactly one roster group, and only idle ones are idle', () => {
   const groups = {}
   for (const status of ['awaiting_approval', 'blocked', 'running', 'queued', 'active', 'paused', 'failed', 'interrupted', 'done', 'cancelled']) {
@@ -269,6 +301,7 @@ test('every board status falls in exactly one roster group, and only idle ones a
   })
 })
 
+// Keeps deletion policy aligned with lifecycle state and provides actionable reasons.
 test('only an idle goal may be deleted, and the refusal says why', () => {
   const row = (over) => ({ kind: 'goal', id: 'g1', name: 'Ship it', status: 'done', ...over })
 
@@ -289,6 +322,7 @@ test('only an idle goal may be deleted, and the refusal says why', () => {
   assert.match(deleteBlockReason(null), /Select an agent/)
 })
 
+// Ensures displayed roster grouping agrees with the deletion guard's definition of idle.
 test('the roster groups a merged board the same way the delete guard reads it', () => {
   const rows = mergeBoard(board({ goals: [
     goal({ id: 'g_live', status: 'active', tasks: [task({ id: 't_live', status: 'running' })] }),

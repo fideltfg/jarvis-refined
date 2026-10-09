@@ -20,6 +20,7 @@ import { toolSpans, toolSummary } from '../lib/timeline'
 /** Four a second is smooth enough to read as live and cheap enough to ignore. */
 const TICK_MS = 250
 
+/** Render recent tool spans and update running durations only while needed. */
 export function Timeline({ inline = false }: { inline?: boolean } = {}) {
   const open = useStore((s) => s.timelineOpen)
   const events = useStore((s) => s.toolEvents)
@@ -34,11 +35,14 @@ export function Timeline({ inline = false }: { inline?: boolean } = {}) {
     if (!open) return
     setNow(Date.now())
     if (!running) return
+    // Refresh visible durations at the chosen low-frequency chart tick.
     const id = window.setInterval(() => setNow(Date.now()), TICK_MS)
     return () => window.clearInterval(id)
   }, [open, running, events.length])
 
+  /** Project raw tool events into ordered timeline spans only while open. */
   const spans = useMemo(() => (open ? toolSpans(events, now) : []), [open, events, now])
+  /** Summarize calls and cumulative duration for the open timeline. */
   const summary = useMemo(() => (open ? toolSummary(events, now) : null), [open, events, now])
 
   if (!open) return null
@@ -67,6 +71,7 @@ export function Timeline({ inline = false }: { inline?: boolean } = {}) {
           {summary.byName.length > 1 && (
             <span className="tl-tops">
               {summary.byName.slice(0, 2).map((entry) => (
+                // Show only the two dominant tools to keep the summary compact.
                 <span key={entry.name} className="tl-top" title={entry.name}>
                   {entry.label} ×{entry.calls}
                 </span>
@@ -80,6 +85,7 @@ export function Timeline({ inline = false }: { inline?: boolean } = {}) {
 
       <ul className="tl-list">
         {spans.map((span) => (
+          // Render each span in newest-first order with its active duration bar.
           <li key={span.event.id} className="tl-row" data-running={span.running ? '' : undefined}>
             <span className="tl-line">
               {/* The mangled `mcp__server__tool` truth stays in the tooltip;

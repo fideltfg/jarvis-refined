@@ -7,12 +7,14 @@ import { join } from 'node:path'
 import { createStore } from './store.mjs'
 import { COORDINATOR_PROMPT, createActions, createCoordinator, sdkModel, snapshot } from './coordinator.mjs'
 
+/** Create a temporary store with one goal for coordinator behavior tests. */
 function setup(goalExtra = {}) {
   const store = createStore(mkdtempSync(join(tmpdir(), 'agents-coord-')), { workDir: '/work' })
   const goal = store.newGoal({ title: 'Release stealthDash', outcome: 'v1.0 tagged', ...goalExtra })
   return { store, goal }
 }
 
+// Checks task creation, same-batch dependency resolution, and goal-kind guidance.
 test('plan_tasks creates tasks and resolves dependencies by key', () => {
   const { store, goal } = setup()
   const a = createActions(store, goal.id)
@@ -30,16 +32,21 @@ test('plan_tasks creates tasks and resolves dependencies by key', () => {
   assert.match(COORDINATOR_PROMPT, /marketing: software positioning/)
 })
 
+// Ensures invalid kinds, dependencies, paths, and task counts are rejected atomically.
 test('plan_tasks refuses bad input without creating anything', () => {
   const { store, goal } = setup({ taskCap: 2 })
   const a = createActions(store, goal.id)
   assert.match(a.plan_tasks({ tasks: [{ key: 'x', title: 'X', brief: 'b', kind: 'magic' }] }), /unknown kind/)
   assert.match(a.plan_tasks({ tasks: [{ key: 'x', title: 'X', brief: 'b', kind: 'research', dependsOn: ['nope'] }] }), /unknown dependency/)
   assert.match(a.plan_tasks({ tasks: [{ key: 'x', title: 'X', brief: 'b', kind: 'code', repo: 'relative/path' }] }), /absolute path/)
-  assert.match(a.plan_tasks({ tasks: [1, 2, 3].map((n) => ({ key: `k${n}`, title: `T${n}`, brief: 'b', kind: 'research' })) }), /at most 2 tasks/)
+  assert.match(a.plan_tasks({ tasks: [1, 2, 3].map((number) => {
+    // Generate a task batch that exceeds the configured goal cap.
+    return { key: `k${number}`, title: `T${number}`, brief: 'b', kind: 'research' }
+  }) }), /at most 2 tasks/)
   assert.equal(store.listTasks().length, 0)
 })
 
+// Verifies retry limits and task-state restrictions for coordinator updates.
 test('update_task retries only failed or blocked tasks with attempts left', () => {
   const { store, goal } = setup()
   const a = createActions(store, goal.id)
@@ -54,9 +61,11 @@ test('update_task retries only failed or blocked tasks with attempts left', () =
   assert.match(a.update_task({ taskId: 't_other', status: 'queued' }), /No task/)
 })
 
+// Checks completion guards, persistence, event reporting, and recurring-goal refusal.
 test('complete_goal needs every task closed and never completes a recurring goal', () => {
   const { store, goal } = setup()
   const done = []
+  // Capture the mirrored completion notice emitted after the goal is saved.
   const a = createActions(store, goal.id, { mirror: { goalDone: (g, s) => done.push([g.id, s]) } })
   const t = store.newTask({ goalId: goal.id, title: 'T', brief: 'b' })
   assert.match(a.complete_goal({ summary: 'Shipped.' }), /still open/)
@@ -70,6 +79,7 @@ test('complete_goal needs every task closed and never completes a recurring goal
   assert.match(createActions(r.store, r.goal.id).complete_goal({ summary: 'x' }), /never completes/)
 })
 
+// Confirms escalation pauses the goal and marks that the user must respond.
 test('escalate pauses the goal and says why', () => {
   const { store, goal } = setup()
   createActions(store, goal.id).escalate({ reason: 'Which repo?' })
@@ -80,6 +90,7 @@ test('escalate pauses the goal and says why', () => {
   assert.equal(ev.data.awaitingResponse, true)
 })
 
+// Verifies the coordinator prompt snapshot includes compact goal and task state.
 test('the snapshot shows the goal, tasks, results and trigger', () => {
   const { store, goal } = setup()
   const t = store.newTask({ goalId: goal.id, title: 'Add CI', brief: 'b' })
@@ -92,11 +103,13 @@ test('the snapshot shows the goal, tasks, results and trigger', () => {
   assert.match(s, /TRIGGER: Task failed: Add CI/)
 })
 
+// Checks creation, user redirects, and the active-goal guard around coordinator passes.
 test('plan and review run the model with the snapshot; inactive goals are skipped', async () => {
   const { store, goal } = setup()
   const prompts = []
   const coordinator = createCoordinator({
     store,
+    // Record prompts and exercise the note tool without invoking a model.
     runModel: async ({ prompt, actions }) => {
       prompts.push(prompt)
       actions.note({ text: 'Planned.' })
@@ -112,6 +125,7 @@ test('plan and review run the model with the snapshot; inactive goals are skippe
   assert.equal(prompts.length, 2)
 })
 
+// Detects repeated identical plans and verifies their new tasks are cancelled.
 test('the same plan twice with no progress pauses the goal and cancels the repeat', async () => {
   const { store, goal } = setup()
   const coordinator = createCoordinator({
@@ -125,11 +139,15 @@ test('the same plan twice with no progress pauses the goal and cancels the repea
   store.saveTask({ ...first, status: 'failed', attempts: 1 })
   await coordinator.review(goal.id, { type: 'task_failed', text: 'x' })
   assert.equal(store.getGoal(goal.id).status, 'paused')
-  const repeat = store.listTasks({ goalId: goal.id }).find((t) => t.id !== first.id)
+  const repeat = store.listTasks({ goalId: goal.id }).find((task) => {
+    // Select the task created by the repeated plan, not the original failed task.
+    return task.id !== first.id
+  })
   assert.equal(repeat.status, 'cancelled')
   assert.equal(store.readEvents().at(-1).type, 'goal_paused')
 })
 
+// Ensures failed coordinator passes are observable and remain rejectable by callers.
 test('a model failure is recorded as an event and rethrown', async () => {
   const { store, goal } = setup()
   const coordinator = createCoordinator({ store, runModel: async () => { throw new Error('overloaded') } })
@@ -137,9 +155,11 @@ test('a model failure is recorded as an event and rethrown', async () => {
   assert.equal(store.readEvents().at(-1).type, 'coordinator_error')
 })
 
+// Validates SDK budget configuration and usage persistence for a capped result.
 test('coordinator caps each pass and records cache usage even when the cap is hit', async () => {
   const { store, goal } = setup()
   const runModel = sdkModel({
+    // Stub the SDK query while preserving its async result-stream contract.
     queryFn: ({ options }) => {
       assert.equal(options.maxBudgetUsd, 1)
       return (async function* () {
@@ -156,6 +176,7 @@ test('coordinator caps each pass and records cache usage even when the cap is hi
   })
 })
 
+// Confirms archived work is omitted from planning capacity and coordinator context.
 test('F11: archived tasks do not count against the cap or appear in the snapshot', () => {
   const { store, goal } = setup({ taskCap: 2 })
   for (let i = 0; i < 3; i++) {

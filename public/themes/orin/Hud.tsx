@@ -15,6 +15,7 @@ const MODES: { id: 'standby' | 'listening' | 'processing' | 'responding'; label:
   { id: 'responding', label: 'Respond' },
 ]
 
+/** Map the shared assistant phase to the ORIN mode indicator. */
 function modeFor(phase: Phase): (typeof MODES)[number]['id'] {
   if (phase === 'listening' || phase === 'waking') return 'listening'
   if (phase === 'thinking' || phase === 'tooling') return 'processing'
@@ -22,10 +23,12 @@ function modeFor(phase: Phase): (typeof MODES)[number]['id'] {
   return 'standby'
 }
 
+/** Dispatch one app-level command event from an ORIN control. */
 function sendEvent(name: string) {
   window.dispatchEvent(new Event(name))
 }
 
+/** Render the ORIN status dashboard, command input, and agent/session summaries. */
 export function OrinHud() {
   const [now, setNow] = useState(() => new Date())
   const [draft, setDraft] = useState('')
@@ -43,24 +46,34 @@ export function OrinHud() {
   const clearScreen = useStore((state) => state.clearScreen)
   const historyOpen = useStore((state) => state.historyOpen)
   const toggleHistory = useStore((state) => state.toggleHistory)
+  /** Merge live service agents with session subagents for one roster. */
   const agents = useMemo(
     () => mergeBoard(agentsOnline ? board : null, sessionAgents),
     [agentsOnline, board, sessionAgents],
   )
-  const activeCount = agents.filter((agent) => agent.status === 'running').length
+  const activeCount = agents.filter((agent) => {
+    // Count active work across both agent sources.
+    return agent.status === 'running'
+  }).length
   const currentMode = modeFor(phase)
   const unavailable = phase === 'offline' || phase === 'boot'
-  const lastAssistantTurn = [...turns].reverse().find((turn) => turn.role === 'jarvis')
+  const lastAssistantTurn = [...turns].reverse().find((turn) => {
+    // Use the newest assistant turn as a fallback when no caption is streaming.
+    return turn.role === 'jarvis'
+  })
   const headline = caption || lastAssistantTurn?.text || 'Awaiting your instruction.'
   const files = useAttachments(!unavailable)
 
+  // Keep the local clock current for the dashboard's time display.
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000)
     return () => window.clearInterval(timer)
   }, [])
 
+  // Refresh provider controls whenever the bridge reports a selection change.
   useEffect(() => watchProviders(() => setProviders(providerState())), [])
 
+  /** Validate and dispatch a typed command with its selected attachments. */
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const command = draft.trim()
@@ -99,6 +112,7 @@ export function OrinHud() {
             <b>{phase === 'listening' ? 'ACTIVE' : unavailable ? 'OFFLINE' : 'READY'}</b>
           </div>
           {connected.map((system) => (
+            // Render each bridge-reported MCP/service connection by name.
             <div className="orin-system-row" key={system}>
               <span><i className="orin-status-dot" />{system}</span>
               <b>ONLINE</b>
@@ -111,6 +125,7 @@ export function OrinHud() {
           <h2 id="orin-modes-title">Core state</h2>
           <div className="orin-mode-list">
             {MODES.map((mode) => {
+              // Only standby/listening are user-selectable; other phases arise automatically.
               const active = mode.id === currentMode
               const actionable = mode.id === 'standby' || mode.id === 'listening'
               return (
@@ -147,6 +162,7 @@ export function OrinHud() {
                 onChange={(event) => selectProvider(event.target.value)}
               >
                 {providers.available.map((provider) => (
+                  // Show provider names using the theme's user-facing labels.
                   <option key={provider} value={provider}>
                     {provider === 'claude' ? 'Claude' : provider === 'openai' ? 'OpenAI' : 'Local'}
                   </option>
@@ -164,6 +180,7 @@ export function OrinHud() {
                 onChange={(event) => selectModel(event.target.value)}
               >
                 {providers.models.map((model) => (
+                  // Offer only the models advertised for the selected provider.
                   <option key={model} value={model}>{model}</option>
                 ))}
               </select>
@@ -216,6 +233,7 @@ export function OrinHud() {
             {agents.length === 0 ? (
               <p className="orin-empty">{agentsOnline ? 'No agents in progress.' : agentsSeen ? 'Agent service offline.' : 'Agent service not connected.'}</p>
             ) : agents.slice(0, 8).map((agent) => (
+              // Keep the roster bounded while retaining each agent's current state.
               <article className="orin-agent" data-status={agent.status} key={`${agent.kind}-${agent.id}`}>
                 <div className="orin-agent-top">
                   <span className="orin-agent-name">{agent.name}</span>

@@ -10,23 +10,32 @@ import { sessionHistory } from './sessionHistory'
 const dateTime = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 const clock = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' })
 
+/** Summarize a session's start time, turn count, and current status. */
 function sessionMeta(session: ChatSession, currentId: string) {
   const entries = `${session.turns.length} entr${session.turns.length === 1 ? 'y' : 'ies'}`
   return `${dateTime.format(session.startedAt)} · ${entries}${session.id === currentId ? ' · current' : ''}`
 }
 
+/** Render locally saved sessions and coordinate safe reopen/delete actions. */
 export function SessionHistory({ inline = false }: { inline?: boolean } = {}) {
   const open = useStore((s) => s.historyOpen)
   const toggle = useStore((s) => s.toggleHistory)
   const phase = useStore((s) => s.phase)
   const loading = useStore((s) => s.sessionLoading)
   const { sessions, currentId } = useSyncExternalStore(sessionHistory.subscribe, sessionHistory.getSnapshot)
-  const selected = sessions.find((session) => session.id === currentId) ?? sessions[0] ?? null
+  const selected = sessions.find((session) => {
+    // Keep the live session selected when it is present in persisted history.
+    return session.id === currentId
+  }) ?? sessions[0] ?? null
   const unavailable = loading || ['offline', 'boot', 'thinking', 'tooling', 'speaking'].includes(phase)
-  const hasPast = sessions.some((session) => session.id !== currentId)
+  const hasPast = sessions.some((session) => {
+    // Show bulk-clear only when the list includes a noncurrent session.
+    return session.id !== currentId
+  })
 
   useEffect(() => {
     if (!open) return
+    /** Close the history panel before the global Escape handler can stand down. */
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       // Captured first so Escape closes the window instead of standing JARVIS down.
@@ -46,6 +55,7 @@ export function SessionHistory({ inline = false }: { inline?: boolean } = {}) {
       role={inline ? 'region' : 'dialog'}
       aria-modal={inline ? undefined : true}
       aria-label="Session history"
+      // Prevent the modal scrim from treating interactions inside the panel as a close.
       onClick={(event) => event.stopPropagation()}
     >
       <header className="sh-head">
@@ -58,6 +68,7 @@ export function SessionHistory({ inline = false }: { inline?: boolean } = {}) {
         <div className="sh-body">
           <ul className="sh-list" aria-label="Sessions">
             {sessions.map((session) => (
+              // Render each stored conversation as a selectable transcript row.
               <li key={session.id} className="sh-session-row">
                 <button
                   type="button"
@@ -65,6 +76,7 @@ export function SessionHistory({ inline = false }: { inline?: boolean } = {}) {
                   aria-pressed={session.id === currentId}
                   disabled={unavailable}
                   onClick={() => {
+                    // Reopen only a different session through the App/bridge handoff.
                     if (session.id !== currentId) window.dispatchEvent(new CustomEvent('jarvis:reopen-session', { detail: session }))
                   }}
                 >
@@ -84,6 +96,7 @@ export function SessionHistory({ inline = false }: { inline?: boolean } = {}) {
                     title="Delete session"
                     aria-label={`Delete session: ${sessionTitle(selected)}`} disabled={loading || phase === 'offline' || phase === 'boot'}
                     onClick={() => {
+                      // Confirm every permanent deletion, including the active session.
                       if (!window.confirm(`Delete session "${sessionTitle(selected)}"? This cannot be undone.`)) return
                       if (selected.id === currentId) {
                         window.dispatchEvent(new CustomEvent('jarvis:delete-session', { detail: selected }))
@@ -95,6 +108,7 @@ export function SessionHistory({ inline = false }: { inline?: boolean } = {}) {
               </div>
               <div className="sh-transcript" role="log" aria-label="Session transcript">
                 {selected.turns.map((turn) => (
+                  // Preserve saved speaker, timestamp, text, attachments, and tool metadata.
                   <article key={turn.id} className={`sh-turn sh-turn-${turn.role}`}>
                     <span className="sh-who">{turn.role === 'user' ? 'YOU' : copy.speaker}</span>
                     <time className="sh-time" dateTime={new Date(turn.at).toISOString()}>{clock.format(turn.at)}</time>
@@ -117,6 +131,7 @@ export function SessionHistory({ inline = false }: { inline?: boolean } = {}) {
         <footer className="sh-foot">
           <span>Stored on this device only.</span>
           <button type="button" className="sh-action" title="Clear past sessions" onClick={() => {
+            // Keep the live transcript while removing only archived history.
             if (window.confirm('Delete all past sessions? This cannot be undone. The current session will be kept.')) {
               sessionHistory.clearPast()
             }

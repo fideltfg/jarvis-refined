@@ -6,6 +6,7 @@ const source = await readFile(new URL('./AgentBoard.tsx', import.meta.url), 'utf
 
 const deleteAgentBody = source.match(/async function deleteAgent\(row: BoardAgent\) \{[\s\S]*?\n  \}/)?.[0]
 
+// Ensure service-owned deletion guards run before presenting a confirmation prompt.
 test('deleteAgent refuses a blocked (non-idle) row before ever asking to confirm', () => {
   assert.ok(deleteAgentBody, 'deleteAgent function body must exist')
   // The service-matching guard (deleteBlockReason) is checked first, and
@@ -15,6 +16,7 @@ test('deleteAgent refuses a blocked (non-idle) row before ever asking to confirm
   assert.match(deleteAgentBody, /const blocked = deleteBlockReason\(row\)\s*\n\s*if \(blocked\) \{ setError\(blocked\); return \}/)
 })
 
+// Verify cancellation returns before any request, selection, or roster side effect.
 test('declining the confirm prompt leaves deleteAgent a no-op: no erase call, no selection change, no revision bump', () => {
   assert.ok(deleteAgentBody)
   // window.confirm must gate everything that follows it: a `return` right
@@ -30,17 +32,20 @@ test('declining the confirm prompt leaves deleteAgent a no-op: no erase call, no
   assert.ok(selectionIndex > confirmIndex, 'the selection change must come after the confirm guard')
 })
 
+// Keep the destructive confirmation specific about the selected agent and removed history.
 test('the confirmation prompt names the agent and warns the removal of its history is permanent and irreversible', () => {
   assert.ok(deleteAgentBody)
   assert.match(deleteAgentBody, /window\.confirm\(`Delete “\$\{row\.name\}” permanently\?\\n\\nThis removes the agent and its task history, results and saved reports\. It cannot be undone\.`\)/)
 })
 
+// Ensure confirmation erases the clicked row rather than applying a lifecycle transition.
 test('a confirmed delete calls erase (never pause/resume/abandon) for the clicked row, not just the selection', () => {
   assert.ok(deleteAgentBody)
   assert.match(deleteAgentBody, /await goalControlRequest\(\{ goalId: row\.id, action: 'erase' \}\)/)
   assert.doesNotMatch(deleteAgentBody, /action: 'abandon'/)
 })
 
+// Keep the destructive button disabled whenever shared service policy forbids deletion.
 test('the delete button in the UI is disabled whenever the row is blocked, so an active/busy/running agent cannot even be clicked', () => {
   const detailHead = source.match(/\{selected\.kind === 'goal' && view === 'agents' && <div className="ab-actions">[\s\S]*?<\/div>\}/)?.[0]
   assert.ok(detailHead, 'goal detail actions block must exist')
@@ -101,6 +106,7 @@ test('saving sends the selection as part of the profile input, so it is persiste
   assert.doesNotMatch(profileEditorBody, /skill\.(dir|file)/)
 })
 
+// Ensure the component uses the shared tested predicates rather than duplicate policy.
 test('deleteAgent imports the same deleteBlockReason/stateGroup predicates the board module exports and tests', () => {
   assert.match(source, /import \{[\s\S]*?deleteBlockReason[\s\S]*?\} from '\.\.\/lib\/board'/)
 })

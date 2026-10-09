@@ -35,6 +35,7 @@ Never create tasks that repeat work already done. If tasks are still running and
 
 const OPEN = ['queued', 'running', 'awaiting_approval']
 
+/** Convert a coordinator trigger into the concise prompt context it needs. */
 const describe = (trigger) =>
   trigger.type === 'goal_created'
     ? 'This goal was just created. Plan it.'
@@ -42,9 +43,17 @@ const describe = (trigger) =>
       ? `The user says: ${trigger.text}`
       : String(trigger.text ?? trigger.type)
 
+/** Build the compact goal/task state sent to one coordinator pass. */
 export function snapshot(store, goalId, trigger) {
   const goal = store.getGoal(goalId)
-  const tasks = store.listTasks({ goalId }).filter((t) => !t.archived).sort((a, b) => a.created.localeCompare(b.created))
+  const tasks = store.listTasks({ goalId }).filter((task) => {
+    // Archived tasks are history, not work for the coordinator to plan around.
+    return !task.archived
+  }).sort((first, second) => {
+    // Keep task order stable so the coordinator can follow dependencies.
+    return first.created.localeCompare(second.created)
+  })
+  /** Render one task with its state, dependency, result, and blocker details. */
   const line = (t) => {
     const state = t.status === 'failed'
       ? `failed: ${t.failure?.reason ?? 'error'}, attempts ${t.attempts}/${MAX_ATTEMPTS}`
@@ -73,13 +82,18 @@ export function snapshot(store, goalId, trigger) {
 }
 
 export function createActions(store, goalId, { mirror = {}, created = [] } = {}) {
+  /** Read the latest goal record before applying an action. */
   const goal = () => store.getGoal(goalId)
 
   return {
+    /** Validate and enqueue a bounded batch of tasks with resolved dependencies. */
     plan_tasks({ tasks }) {
       const g = goal()
       if (!Array.isArray(tasks) || !tasks.length) return 'No tasks given.'
-      const existing = store.listTasks({ goalId }).filter((t) => !t.archived)
+      const existing = store.listTasks({ goalId }).filter((task) => {
+        // Archived work does not consume the active planning allowance.
+        return !task.archived
+      })
       if (existing.length + tasks.length > g.taskCap) {
         return `Refused: this goal may have at most ${g.taskCap} tasks and already has ${existing.length}. Use escalate to ask the user how to proceed.`
       }
@@ -90,7 +104,10 @@ export function createActions(store, goalId, { mirror = {}, created = [] } = {})
         if (t.repo && (!isAbsolute(t.repo) || !existsSync(t.repo))) {
           return `Refused: repo must be the absolute path of an existing repository; got "${t.repo}".`
         }
-        const bad = (t.dependsOn ?? []).filter((d) => !keys.has(d) && !ids.has(d))
+        const bad = (t.dependsOn ?? []).filter((dependency) => {
+          // Accept only existing task ids or keys declared earlier in this batch.
+          return !keys.has(dependency) && !ids.has(dependency)
+        })
         if (bad.length) {
           return `Refused: unknown dependency ${bad.join(', ')}. Name an earlier task in this call by key, or an existing task id.`
         }
@@ -104,7 +121,10 @@ export function createActions(store, goalId, { mirror = {}, created = [] } = {})
           title: t.title,
           brief: t.brief,
           kind: t.kind,
-          dependsOn: (t.dependsOn ?? []).map((d) => byKey.get(d) ?? d),
+          dependsOn: (t.dependsOn ?? []).map((dependency) => {
+            // Replace same-batch keys with the task ids just created for them.
+            return byKey.get(dependency) ?? dependency
+          }),
           model: t.model,
           repo: t.repo ?? null,
         })
@@ -113,9 +133,13 @@ export function createActions(store, goalId, { mirror = {}, created = [] } = {})
         created.push(task)
         store.appendEvent({ type: 'task_queued', goalId, taskId: task.id, text: `Queued: ${task.title}`, data: { title: task.title } })
       }
-      return `Created ${made.map((m) => `${m.id} "${m.title}"`).join(', ')}.`
+      return `Created ${made.map((task) => {
+        // Return stable ids and titles so later actions can refer to the work.
+        return `${task.id} "${task.title}"`
+      }).join(', ')}.`
     },
 
+    /** Revise task instructions or retry/cancel only permitted task states. */
     update_task({ taskId, brief, status, model }) {
       const t = store.getTask(taskId)
       if (!t || t.goalId !== goalId) return `No task ${taskId} in this goal.`
@@ -141,10 +165,14 @@ export function createActions(store, goalId, { mirror = {}, created = [] } = {})
       return `Updated ${taskId}.`
     },
 
+    /** Complete a non-recurring goal only after every task has stopped. */
     complete_goal({ summary }) {
       const g = goal()
       if (g.recurring) return 'Refused: a recurring goal never completes. Update the note instead.'
-      const open = store.listTasks({ goalId }).filter((t) => OPEN.includes(t.status))
+      const open = store.listTasks({ goalId }).filter((task) => {
+        // Pending work prevents the coordinator from declaring success.
+        return OPEN.includes(task.status)
+      })
       if (open.length) {
         return `Refused: ${open.length} task(s) are still open. Cancel them with update_task if they are no longer needed.`
       }
@@ -155,11 +183,13 @@ export function createActions(store, goalId, { mirror = {}, created = [] } = {})
       return 'Goal marked done.'
     },
 
+    /** Replace the running summary without changing the goal's lifecycle. */
     note({ text }) {
       store.saveGoal({ ...goal(), notes: String(text ?? '') })
       return 'Noted.'
     },
 
+    /** Pause a goal and emit a user-response blocker with the reason. */
     escalate({ reason }) {
       const g = goal()
       store.saveGoal({ ...g, status: 'paused' })
@@ -176,7 +206,10 @@ export function createActions(store, goalId, { mirror = {}, created = [] } = {})
 function checkRunaway(store, goalId, created) {
   if (!created.length) return
   const goal = store.getGoal(goalId)
-  const sig = created.map((t) => t.title.trim().toLowerCase()).sort().join('|')
+  const sig = created.map((task) => {
+    // Compare normalized titles so harmless casing/spacing cannot evade detection.
+    return task.title.trim().toLowerCase()
+  }).sort().join('|')
   const done = store.listTasks({ goalId, status: 'done' }).length
   if (goal.lastPlan && goal.lastPlan.sig === sig && goal.lastPlan.done === done) {
     for (const t of created) store.saveTask({ ...store.getTask(t.id), status: 'cancelled' })
@@ -192,11 +225,13 @@ function checkRunaway(store, goalId, created) {
   store.saveGoal({ ...goal, lastPlan: { sig, done } })
 }
 
+/** Run one coordinator pass through Claude or the selected text-provider adapter. */
 export function sdkModel({ queryFn = query, model = MODELS.opus, maxBudgetUsd = 1, makeTextQuery = textQuery, env = process.env } = {}) {
   return async ({ prompt, actions, execution }) => {
     if (execution && !scheduleModels(env)[execution.provider]?.includes(execution.model)) {
       throw new Error(`Scheduled provider/model is unavailable: ${execution.provider}/${execution.model}. Configure it or edit the schedule.`)
     }
+    /** Wrap coordinator tool results in the MCP text response shape. */
     const text = (s) => ({ content: [{ type: 'text', text: s }] })
     const server = createSdkMcpServer({
       name: 'coord',
@@ -212,18 +247,24 @@ export function sdkModel({ queryFn = query, model = MODELS.opus, maxBudgetUsd = 
             model: z.string().optional().describe(`One of: ${taskModels().join(', ')}.`),
             repo: z.string().optional().describe('Absolute path of the git repository, for code tasks.'),
           })),
+        // Delegate task-batch validation and persistence to the action layer.
         }, async (a) => text(actions.plan_tasks(a))),
         tool('update_task', 'Revise a task, retry it (status "queued") or cancel it (status "cancelled").', {
           taskId: z.string(),
           brief: z.string().optional(),
           status: z.enum(['queued', 'cancelled']).optional(),
           model: z.string().optional().describe(`One of: ${taskModels().join(', ')}.`),
+        // Forward the coordinator's permitted task update action.
         }, async (a) => text(actions.update_task(a))),
+        // Complete only through the action's open-task and recurrence checks.
         tool('complete_goal', 'Mark the goal done once its outcome is met.', { summary: z.string() }, async (a) => text(actions.complete_goal(a))),
+        // Replace the progress note through the same store-backed action layer.
         tool('note', 'Replace the running summary of where the goal stands.', { text: z.string() }, async (a) => text(actions.note(a))),
+        // Pause and escalate to the user using the action layer's event contract.
         tool('escalate', 'Pause the goal and ask the user for help.', { reason: z.string() }, async (a) => text(actions.escalate(a))),
       ],
     })
+    /** Deny SDK tools unless the call targets this coordinator's own MCP server. */
     const onlyCoord = async (input) => ({
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
@@ -231,8 +272,10 @@ export function sdkModel({ queryFn = query, model = MODELS.opus, maxBudgetUsd = 
         permissionDecisionReason: 'The coordinator acts only through its own tools.',
       },
     })
+    // Use the direct adapter only for explicitly selected non-Claude providers.
     const runQuery = execution && execution.provider !== 'claude' ? makeTextQuery(execution, { env }) : queryFn
     const controller = new AbortController()
+    // Bound one planning/review pass even if its provider stops responding.
     const timer = setTimeout(() => controller.abort(), 120000)
     let usage = null
     try {
@@ -252,6 +295,7 @@ export function sdkModel({ queryFn = query, model = MODELS.opus, maxBudgetUsd = 
         abortController: controller,
       },
       })
+      // Retain final usage and fail the pass on unsuccessful SDK result states.
       for await (const msg of stream) {
         if (msg.type === 'result') {
           usage = usageData(msg)
@@ -269,14 +313,17 @@ export function sdkModel({ queryFn = query, model = MODELS.opus, maxBudgetUsd = 
   }
 }
 
+/** Serialize planning, review, and user redirects independently for each goal. */
 export function createCoordinator({ store, runModel = sdkModel(), mirror = {} }) {
   const queues = new Map()
+  /** Append one pass to the goal's queue while allowing later work after failure. */
   const serial = (goalId, fn) => {
     const next = (queues.get(goalId) ?? Promise.resolve()).then(fn, fn)
     queues.set(goalId, next.catch(() => {}))
     return next
   }
 
+  /** Run a guarded coordinator pass and record usage, errors, and runaway plans. */
   async function pass(goalId, trigger) {
     const goal = store.getGoal(goalId)
     if (!goal || goal.status !== 'active') return
@@ -294,8 +341,11 @@ export function createCoordinator({ store, runModel = sdkModel(), mirror = {} })
   }
 
   return {
+    /** Plan a newly created goal after any earlier pass for it completes. */
     plan: (goalId) => serial(goalId, () => pass(goalId, { type: 'goal_created' })),
+    /** Review a task event in order with other work on the same goal. */
     review: (goalId, event) => serial(goalId, () => pass(goalId, event)),
+    /** Deliver user-provided information as a serialized coordinator trigger. */
     redirect: (goalId, text) => serial(goalId, () => pass(goalId, { type: 'user_update', text })),
   }
 }

@@ -19,13 +19,14 @@ import { MAX_WORKERS, MODELS } from './config.mjs'
  * internal `local` pool entry for its text-only OpenAI-compatible worker.
  */
 
-export const TASK_KINDS_ALL = null
-
 const CARRIERS = ['anthropic', 'gateway', 'remote']
 
 /** The endpoints an agent task may run on, defaulting to today's behaviour. */
 export function agentEndpoints(env = process.env) {
-  const usable = listEndpoints(env).filter((endpoint) => CARRIERS.includes(endpoint.kind))
+  const usable = listEndpoints(env).filter((endpoint) => {
+    // Direct OpenAI endpoints serve scheduled text work, not SDK agent tasks.
+    return CARRIERS.includes(endpoint.kind)
+  })
   if (usable.length) return usable
   return [{
     id: 'anthropic',
@@ -40,10 +41,14 @@ export function agentEndpoints(env = process.env) {
   }]
 }
 
+/** Combine legacy worker endpoints with providers usable for explicit schedules. */
 export function scheduleEndpoints(env = process.env) {
   const legacy = agentEndpoints(env)
   const text = listEndpoints(env).filter((endpoint) => endpoint.kind === 'openai')
-    .map((endpoint) => ({ ...endpoint, scheduleProvider: 'local' }))
+    .map((endpoint) => {
+      // Mark OpenAI-compatible endpoints as local schedule execution targets.
+      return { ...endpoint, scheduleProvider: 'local' }
+    })
   if (!legacy.some((endpoint) => endpoint.kind === 'anthropic')) {
     text.push({ id: 'schedule:claude', kind: 'anthropic', label: 'Claude', concurrency: MAX_WORKERS, kinds: [], weight: 1, scheduleProvider: 'claude' })
   }
@@ -54,6 +59,7 @@ export function scheduleEndpoints(env = process.env) {
   return [...legacy, ...text]
 }
 
+/** Check whether the endpoint matches a task's legacy or explicit provider pin. */
 const matchesTask = (endpoint, task) => {
   if (!task.execution) return !endpoint.scheduleProvider && matchesModel(endpoint, task.model)
   const { provider, model } = task.execution
@@ -63,14 +69,19 @@ const matchesTask = (endpoint, task) => {
 }
 
 /** Whether a task may name this as its model: a size, or an endpoint id. */
+/** Validate a model size or configured endpoint id for a task. */
 export function isTaskModel(model, env = process.env) {
   if (!model) return false
   if (Object.hasOwn(MODELS, model)) return true
   return agentEndpoints(env).some((endpoint) => endpoint.id === model)
 }
 
+/** List accepted model sizes and endpoint ids for coordinator tool schemas. */
 export function taskModels(env = process.env) {
-  return [...Object.keys(MODELS), ...agentEndpoints(env).map((endpoint) => endpoint.id)]
+  return [...Object.keys(MODELS), ...agentEndpoints(env).map((endpoint) => {
+    // Expose ids only for endpoints that can carry agent tasks.
+    return endpoint.id
+  })]
 }
 
 /**
@@ -79,11 +90,13 @@ export function taskModels(env = process.env) {
  * config. A gateway cannot — it serves one named model — so it has to be asked
  * for by id.
  */
+/** Decide whether an endpoint can resolve a task's model selector. */
 const matchesModel = (endpoint, model) => {
   if (!model || Object.hasOwn(MODELS, model)) return endpoint.kind === 'anthropic' || endpoint.kind === 'remote' || endpoint.kind === 'local'
   return endpoint.id === model
 }
 
+/** Enforce endpoint task-kind restrictions when the endpoint declares them. */
 const matchesKind = (endpoint, kind) => !endpoint.kinds.length || !kind || endpoint.kinds.includes(kind)
 
 /**
@@ -93,6 +106,7 @@ const matchesKind = (endpoint, kind) => !endpoint.kinds.length || !kind || endpo
  * arrived here delegated is never delegated onward: two hosts pointing at each
  * other would otherwise pass the same work back and forth for ever.
  */
+/** Prevent remote delegation of code/admin work and repeated delegation loops. */
 const canCarry = (endpoint, task) =>
   endpoint.kind !== 'remote' || (!task.delegated && (!task.remote || task.remote.endpointId === endpoint.id) &&
     (task.kind === 'research' || task.kind === 'ops'))
@@ -105,11 +119,16 @@ const canCarry = (endpoint, task) =>
  */
 export function createPool({ endpoints = agentEndpoints(), health = null, maxTotal = Number.POSITIVE_INFINITY } = {}) {
   const live = new Map()
+  /** Count all endpoint leases currently held by workers. */
   const inFlight = () => [...live.values()].reduce((total, n) => total + n, 0)
+  /** Return current usage for one endpoint. */
   const load = (endpoint) => live.get(endpoint.id) ?? 0
+  /** Treat unprobed endpoints as usable; otherwise defer to health memory. */
   const usable = (endpoint) => !health || health.healthy(endpoint.id)
+  /** Check whether one endpoint has reached its own concurrency. */
   const free = (endpoint) => load(endpoint) < endpoint.concurrency
 
+  /** Filter endpoints by health, task kind, pin, and remote-work restrictions. */
   const eligible = (task = {}) =>
     endpoints.filter((endpoint) =>
       usable(endpoint) && (!task.remote || (endpoint.kind === 'remote' && endpoint.id === task.remote.endpointId)) &&
@@ -117,22 +136,27 @@ export function createPool({ endpoints = agentEndpoints(), health = null, maxTot
 
   /** Least loaded relative to its own size, then by weight, then by id: no
    *  clocks and no randomness, so the choice is the same in a test twice. */
+  /** Prefer the most available endpoint relative to its own concurrency. */
   const order = (a, b) =>
     load(a) / a.concurrency - load(b) / b.concurrency ||
     b.weight - a.weight ||
     a.id.localeCompare(b.id)
 
   return {
+    /** Return copies of endpoint definitions so callers cannot mutate the pool. */
     endpoints: () => endpoints.map((endpoint) => ({ ...endpoint })),
 
+    /** Return declared capacity capped by the scheduler-wide maximum. */
     capacity: () => Math.min(maxTotal, endpoints.reduce((total, endpoint) => total + endpoint.concurrency, 0)),
 
+    /** Report the number of workers holding an endpoint lease. */
     inFlight,
 
     /** Is there room for anything at all, whatever it is pinned to. */
     free: () => inFlight() < maxTotal && endpoints.some((endpoint) => usable(endpoint) && free(endpoint)),
 
     /** A lease naming the endpoint, or null when this task cannot run yet. */
+    /** Lease the best free endpoint for a task, or return null when none fits. */
     acquire(task = {}) {
       if (inFlight() >= maxTotal) return null
       const [pick] = eligible(task).filter(free).sort(order)
@@ -141,6 +165,7 @@ export function createPool({ endpoints = agentEndpoints(), health = null, maxTot
       let released = false
       return {
         endpoint: pick,
+        /** Return this capacity slot once, even if cleanup calls release again. */
         release() {
           if (released) return
           released = true
@@ -150,6 +175,7 @@ export function createPool({ endpoints = agentEndpoints(), health = null, maxTot
     },
 
     /** What the agent board and GET /endpoints report. */
+    /** Summarize endpoint health, load, and concurrency for the agent board. */
     snapshot() {
       return endpoints.map((endpoint) => ({
         id: endpoint.id,

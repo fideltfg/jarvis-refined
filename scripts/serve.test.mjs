@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { WebSocket, WebSocketServer } from 'ws'
 import { createFrontendServer } from './serve.mjs'
 
+/** Start a temporary frontend and bridge pair, then register their cleanup. */
 async function fixture(context, upstreamHandler) {
   const directory = mkdtempSync(join(tmpdir(), 'jarvis-serve-'))
   writeFileSync(join(directory, 'index.html'), '<html>JARVIS</html>')
@@ -19,6 +20,7 @@ async function fixture(context, upstreamHandler) {
   const server = await createFrontendServer({ directory, bridgePort: upstream.address().port })
   server.listen(0, '127.0.0.1')
   await once(server, 'listening')
+  // Release both listeners and remove the temporary frontend files after each test.
   context.after(() => {
     server.closeAllConnections()
     server.close()
@@ -29,6 +31,7 @@ async function fixture(context, upstreamHandler) {
   return { directory, server, upstream, url: `http://127.0.0.1:${server.address().port}` }
 }
 
+// Checks static content types, range handling, hidden paths, and unsupported methods.
 test('production frontend serves HTML, WASM and HEAD without exposing hidden files', async (context) => {
   const { url } = await fixture(context)
   assert.match(await (await fetch(url)).text(), /JARVIS/)
@@ -48,6 +51,7 @@ test('production frontend serves HTML, WASM and HEAD without exposing hidden fil
   assert.equal((await fetch(url, { method: 'POST' })).status, 405)
 })
 
+// Confirms canonical-path checks reject traversal and links that escape the release root.
 test('frontend rejects encoded traversal and symlinks outside the release', async (context) => {
   const { directory, server, url } = await fixture(context)
   const outside = mkdtempSync(join(tmpdir(), 'jarvis-outside-'))
@@ -56,14 +60,21 @@ test('frontend rejects encoded traversal and symlinks outside the release', asyn
   context.after(() => rmSync(outside, { recursive: true, force: true }))
   assert.equal((await fetch(`${url}/escape`)).status, 403)
   const status = await new Promise((done) => {
+    // Use the raw HTTP client to preserve the encoded traversal path.
     http.get({ hostname: '127.0.0.1', port: server.address().port,
-      path: '/%2e%2e/secret' }, (response) => { response.resume(); done(response.statusCode) })
+      path: '/%2e%2e/secret' }, (response) => {
+        // Drain the response so the request socket can close cleanly.
+        response.resume()
+        done(response.statusCode)
+      })
   })
   assert.equal(status, 403)
 })
 
+// Verifies proxy path rewriting and replacement of caller-supplied forwarding headers.
 test('bridge proxy strips only its prefix and replaces spoofed forwarding headers', async (context) => {
   const { url } = await fixture(context, (request, response) => {
+    // Echo the forwarded request so the test can inspect the bridge contract.
     response.setHeader('content-type', 'application/json')
     response.end(JSON.stringify({ url: request.url, headers: request.headers }))
   })
@@ -79,6 +90,7 @@ test('bridge proxy strips only its prefix and replaces spoofed forwarding header
   assert.equal(body.headers.forwarded, undefined)
   assert.equal((await fetch(`${url}/bridge-not-a-route`)).status, 404)
   const rebinding = await new Promise((done) => {
+    // Bypass fetch's Host handling to verify rejection of a rebinding header.
     http.get(`${url}/bridge/health`, { headers: { host: 'evil.example' } }, (response) => {
       response.resume()
       done(response.statusCode)
@@ -87,6 +99,7 @@ test('bridge proxy strips only its prefix and replaces spoofed forwarding header
   assert.equal(rebinding, 403)
 })
 
+// Checks bidirectional WebSocket forwarding and preserves the bridge's origin gate.
 test('WebSocket proxy carries messages and does not bypass upstream origin rejection', async (context) => {
   const { url, upstream } = await fixture(context)
   const sockets = new WebSocketServer({ noServer: true })
@@ -97,11 +110,14 @@ test('WebSocket proxy carries messages and does not bypass upstream origin rejec
     }
     assert.equal(request.url, '/')
     sockets.handleUpgrade(request, socket, head, (client) => {
+      // Echo frames so the test can prove that the tunnel is bidirectional.
       client.on('message', (data) => client.send(data))
     })
   })
+  // Terminate test sockets before closing the WebSocket server.
   context.after(() => { for (const client of sockets.clients) client.terminate(); sockets.close() })
   const socket = new WebSocket(url.replace('http:', 'ws:') + '/bridge', { origin: 'http://allowed.example' })
+  // Ensure a failed assertion cannot leave the client socket open.
   context.after(() => socket.terminate())
   await once(socket, 'open')
   const message = once(socket, 'message')

@@ -9,6 +9,7 @@ const app = await readFile(new URL('../App.tsx', import.meta.url), 'utf8')
 const styles = await readFile(new URL('../index.css', import.meta.url), 'utf8')
 const lcarsStyles = await readFile(new URL('../../public/themes/lcars/theme.css', import.meta.url), 'utf8')
 
+// Protects shared scheduler layout and its placement in the LCARS command deck.
 test('scheduler styling and LCARS docking survive shared stylesheet changes', () => {
   assert.match(styles, /\.task-scheduler \{[^}]*display: flex;[^}]*flex-direction: column;/)
   assert.match(styles, /\.ts-head \{[^}]*display: flex;/)
@@ -28,6 +29,7 @@ test('scheduler styling and LCARS docking survive shared stylesheet changes', ()
   assert.doesNotMatch(lcarsStyles, /\.task-scheduler-inline button(?:::before)? \{/)
 })
 
+// Ensures the shared LCARS button treatment has one owner and excludes ignition.
 test('LCARS uses one button design across panels and keeps the ignition separate', () => {
   assert.equal((lcarsStyles.match(/border-left: 8px solid var\(--lc-red\) !important;/g) ?? []).length, 1)
   assert.doesNotMatch(lcarsStyles, /\.(?:ab-actions|lcars-deck-actions|lcars-deck-switches|lcars-report-window) button(?::(?:hover|focus-visible|nth-child\(\d+\)|last-child))? \{[^}]*(?:background|border-radius|filter|outline):/)
@@ -35,6 +37,7 @@ test('LCARS uses one button design across panels and keeps the ignition separate
   assert.match(lcarsStyles, /button:where\(:not\(\.ignition\)\):focus-visible \{[^}]*outline: 2px solid/)
 })
 
+// Confirms every theme can reach the scheduler through its normal navigation.
 test('scheduler mounts in LCARS and other themes with discoverable navigation', () => {
   assert.match(reactor, /<TaskScheduler inline \/>/)
   assert.match(reactor, /data-command-window="scheduler"/)
@@ -42,6 +45,7 @@ test('scheduler mounts in LCARS and other themes with discoverable navigation', 
   assert.match(app, /activeTheme\(\).id !== 'lcars' && <TaskScheduler \/>/)
 })
 
+// Guards against optimistic writes and unconfirmed schedule deletion.
 test('scheduler requires acknowledged mutations and confirms deletion', () => {
   assert.match(source, /await scheduleRequest\(request\)/)
   assert.match(source, /if \(lock.current\) return false/)
@@ -51,6 +55,7 @@ test('scheduler requires acknowledged mutations and confirms deletion', () => {
   assert.match(source, /role=\{inline \? 'region' : 'dialog'\}/)
 })
 
+// Ensures schedules persist their own execution choice instead of inheriting chat state.
 test('scheduler saves explicit provider/model selections independent of chat', () => {
   assert.match(source, /board\?\.scheduleModels/)
   assert.match(source, /aria-label="Provider"/)
@@ -60,12 +65,14 @@ test('scheduler saves explicit provider/model selections independent of chat', (
   assert.match(source, /schedule.execution\.model/)
 })
 
+// Keeps an edited schedule form adjacent to the row that owns it.
 test('editing a schedule places its form immediately after that task', () => {
   assert.match(source, /<\/article>\s*\{editing !== 'new' && editing\?\.id === schedule\.id && form\}/)
   assert.match(source, /\{editing === 'new' && form\}/)
   assert.doesNotMatch(source, /<div className=\{`ts-body\$\{editing/)
 })
 
+// Makes each scheduler action discoverable without relying on icon-only controls.
 test('scheduler command buttons show labels beside their icons', () => {
   for (const label of ['Refresh', 'New task', 'Close', 'Board', 'Run', 'Edit', 'Delete', 'Cancel']) {
     assert.ok(source.includes(`/> ${label}</button>`), `missing visible ${label} label`)

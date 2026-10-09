@@ -35,6 +35,7 @@ const LOG = [
 
 type Stage = 'bar' | 'rings' | 'suit' | 'reactor'
 
+/** Render the timed four-stage JARVIS startup sequence while boot is active. */
 export function Boot() {
   const phase = useStore((s) => s.phase)
   const reduced = useReducedMotion()
@@ -55,6 +56,7 @@ export function Boot() {
     }
     const start = Date.now()
     setT(0)
+    // Derive stage progress from elapsed wall-clock time instead of frame count.
     const id = setInterval(() => setT(Date.now() - start), 50)
     return () => clearInterval(id)
   }, [phase])
@@ -115,7 +117,9 @@ export function Boot() {
 /* ------------------------------------------------------------------ beat 2 */
 
 /** Concentric reticle rings drawing inward, with the name resolving last. */
+/** Animate concentric reticle rings and resolve the JARVIS name at center. */
 function Rings({ reduced }: { reduced: boolean }) {
+  /** Build one ring with its own stroke pattern and assembly delay. */
   const ease = 'easeOut'
   const ring = (r: number, delay: number, dash: string, w = 1) => (
     <motion.circle
@@ -160,6 +164,7 @@ function Rings({ reduced }: { reduced: boolean }) {
  * way the film flashes the armour blueprint mid-boot. Not the actual Mark VII
  * geometry, but the same read: a lit humanoid outline and exploded diagrams.
  */
+/** Draw the suit schematic and its two animated side callouts. */
 function Suit({ reduced }: { reduced: boolean }) {
   return (
     <svg className="boot-suit" viewBox="-200 -150 400 300">
@@ -186,6 +191,7 @@ function Suit({ reduced }: { reduced: boolean }) {
       </motion.g>
 
       {[-150, 150].map((x, i) => (
+        // Animate one component callout on each side of the wireframe.
         <motion.g
           key={x}
           className="boot-callout"
@@ -211,6 +217,7 @@ function Suit({ reduced }: { reduced: boolean }) {
 /* ------------------------------------------------------------------ beat 4 */
 
 /** The triangular chest reactor, lighting from a dim outline to full glow. */
+/** Reveal the triangular reactor as its final timed boot stage. */
 function Reactor({ reduced, t }: { reduced: boolean; t: number }) {
   const glow = reduced ? 1 : Math.min(1, Math.max(0, t / 1400))
   const seg = Array.from({ length: 16 }, (_, i) => i)
@@ -221,6 +228,7 @@ function Reactor({ reduced, t }: { reduced: boolean; t: number }) {
       style={{ ['--glow' as string]: glow }}
     >
       {seg.map((i) => {
+        // Light each segment in order as the reactor glow reaches full strength.
         const a = (i / seg.length) * Math.PI * 2 - Math.PI / 2
         const on = i / seg.length < glow * 1.05
         return (

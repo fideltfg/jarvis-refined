@@ -7,8 +7,10 @@ import { runTask as runWorkerTask } from './worker.mjs'
  * safety gate and budget ceiling.
  */
 
+/** Identify leased endpoints whose worker runs on another machine. */
 export const isRemote = (endpoint) => endpoint?.kind === 'remote'
 
+/** Build the scheduler adapter that routes each leased task to its worker host. */
 export function createDispatch({
   store,
   health = null,
@@ -17,6 +19,7 @@ export function createDispatch({
   remote = runRemoteTask,
   remoteDeps = {},
 }) {
+  /** Persist or clear the remote handle without overwriting other task changes. */
   const remember = (taskId, handle) => {
     const current = store.getTask(taskId)
     if (!current) return
@@ -24,6 +27,7 @@ export function createDispatch({
     store.saveTask({ ...current, remote: handle ?? null })
   }
 
+  /** Enforce remote-kind restrictions and invoke the selected local or remote runner. */
   return function dispatch(task, opts = {}) {
     const endpoint = opts.endpoint ?? null
     const current = store.getTask(task.id) ?? task
@@ -42,7 +46,9 @@ export function createDispatch({
       signal: opts.signal,
       store,
       endpoint,
+      // Keep the remote task handle available for restart recovery.
       onRemote: (handle) => remember(task.id, handle),
+      // Mark an unreachable remote endpoint unhealthy for future scheduling.
       onLost: () => health?.mark(endpoint.id, false),
     })
   }

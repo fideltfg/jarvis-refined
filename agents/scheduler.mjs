@@ -9,21 +9,38 @@ import { createScheduledJobs } from './scheduled-jobs.mjs'
  * back to the coordinator.
  */
 
+/** Identify provider capacity errors that should requeue without an attempt. */
 export const isRateLimit = (err) => /rate.?limit|\b429\b|overloaded/i.test(String(err?.message ?? err))
 
+/** Return active-goal tasks whose dependencies are complete, priority ordered. */
 export function runnable(store, running) {
-  const goals = new Map(store.listGoals().map((g) => [g.id, g]))
-  const done = new Set(store.listTasks({ status: 'done' }).map((t) => t.id))
+  const goals = new Map(store.listGoals().map((goal) => {
+    // Resolve task goal ids to state and priority in constant time.
+    return [goal.id, goal]
+  }))
+  const done = new Set(store.listTasks({ status: 'done' }).map((task) => {
+    // Dependency checks need only the completed task ids.
+    return task.id
+  }))
   return store
     .listTasks({ status: 'queued' })
-    .filter((t) => !running.has(t.id) && goals.get(t.goalId)?.status === 'active' && (t.dependsOn ?? []).every((d) => done.has(d)))
-    .sort((a, b) => goals.get(a.goalId).priority - goals.get(b.goalId).priority || a.created.localeCompare(b.created) || a.id.localeCompare(b.id))
+    .filter((task) => {
+      // Skip duplicate runs, inactive goals, and tasks with unfinished dependencies.
+      return !running.has(task.id) && goals.get(task.goalId)?.status === 'active' &&
+        (task.dependsOn ?? []).every((dependency) => done.has(dependency))
+    })
+    .sort((first, second) => {
+      // Prefer goal priority, then stable creation time and id ordering.
+      return goals.get(first.goalId).priority - goals.get(second.goalId).priority ||
+        first.created.localeCompare(second.created) || first.id.localeCompare(second.id)
+    })
 }
 
 const EVENT = { done: 'task_done', failed: 'task_failed', blocked: 'task_blocked', cancelled: 'task_cancelled' }
 const VERB = { done: 'Task complete', failed: 'Task failed', blocked: 'Task blocked', cancelled: 'Task cancelled' }
 const cancelledOutcome = { status: 'cancelled', failure: { reason: 'cancelled', detail: 'Stopped by the user.' } }
 
+/** Build the worker loop, recurring-job runner, and task lifecycle controls. */
 export function createScheduler({
   store, runTask, coordinator,
   now = Date.now,
@@ -46,8 +63,10 @@ export function createScheduler({
   let ticking = false
   let again = false
 
+  /** Build user-facing event labels without exposing internal goal details. */
   const labels = (task) => ({ title: task.title, goalTitle: store.getGoal(task.goalId)?.title ?? '' })
 
+  /** Persist a terminal task outcome, count its attempt, and append its event. */
   function finish(task, outcome) {
     const current = store.getTask(task.id) ?? task
     store.saveTask({
@@ -67,7 +86,9 @@ export function createScheduler({
     })
   }
 
+  /** Run a worker with session persistence and one retry for transient failures. */
   async function execute(task, controller, endpoint) {
+    /** Persist the Claude session id so a retry can resume the same work. */
     const onSession = (sessionId) => {
       const t = store.getTask(task.id)
       if (t) store.saveTask({ ...t, sessionId })
@@ -85,6 +106,7 @@ export function createScheduler({
     }
   }
 
+  /** Start a task, record runtime assignment, and release capacity on completion. */
   function launch(task, lease = null) {
     const controller = new AbortController()
     const endpoint = lease?.endpoint ?? null
@@ -106,6 +128,7 @@ export function createScheduler({
       data: { ...labels(t), endpoint: lease?.endpoint.id ?? null },
     })
     const promise = execute(t, controller, lease?.endpoint ?? null)
+      // Save terminal outcomes and let the coordinator review completed work.
       .then(
         (outcome) => {
           running.delete(t.id)
@@ -113,6 +136,7 @@ export function createScheduler({
           const ev = finish(t, outcome)
           if (outcome.status !== 'cancelled') return coordinator.review(t.goalId, ev)
         },
+        // Return rate-limited work to the queue without counting a failed attempt.
         () => {
           running.delete(t.id)
           backoffMs = Math.min(Math.max(30_000, backoffMs * 2), 15 * 60_000)
@@ -128,6 +152,7 @@ export function createScheduler({
           })
         },
       )
+      // A review failure is logged but does not undo the worker's saved result.
       .catch((err) => console.warn('[agents] review failed:', err.message))
       .finally(() => {
         // Released here rather than beside the outcome, so a run that ends any
@@ -152,8 +177,14 @@ export function createScheduler({
   function archiveOldRuns(goalId) {
     const finished = store
       .listTasks({ goalId })
-      .filter((t) => !t.archived && FINISHED.includes(t.status))
-      .sort((a, b) => a.updated.localeCompare(b.updated) || a.id.localeCompare(b.id))
+      .filter((task) => {
+        // Keep only visible terminal runs eligible for recurring-history trimming.
+        return !task.archived && FINISHED.includes(task.status)
+      })
+      .sort((first, second) => {
+        // Archive the oldest completed runs first.
+        return first.updated.localeCompare(second.updated) || first.id.localeCompare(second.id)
+      })
     for (const t of finished.slice(0, Math.max(0, finished.length - KEEP_RUNS))) {
       const saved = store.saveTask({ ...t, archived: true })
       try {
@@ -164,12 +195,22 @@ export function createScheduler({
     }
   }
 
+  /** Queue the next occurrence once a recurring goal has no active task. */
   function requeueGoal(goal) {
-    const tasks = store.listTasks({ goalId: goal.id }).filter((t) => !t.archived)
-    if (!tasks.length || tasks.some((t) => ['queued', 'running', 'awaiting_approval'].includes(t.status))) return
+    const tasks = store.listTasks({ goalId: goal.id }).filter((task) => {
+      // Archived executions do not represent the current recurring run.
+      return !task.archived
+    })
+    if (!tasks.length || tasks.some((task) => {
+      // Never overlap a recurring occurrence with work still in progress.
+      return ['queued', 'running', 'awaiting_approval'].includes(task.status)
+    })) return
     const last = tasks
-      .filter((t) => ['done', 'failed', 'blocked'].includes(t.status))
-      .sort((a, b) => a.updated.localeCompare(b.updated))
+      .filter((task) => {
+        // Use the latest terminal result as the interval's reference point.
+        return ['done', 'failed', 'blocked'].includes(task.status)
+      })
+      .sort((first, second) => first.updated.localeCompare(second.updated))
       .at(-1)
     if (!last || now() - Date.parse(last.updated) < parseEvery(goal.recurring.every)) return
     // A lost remote run retains its handle; retry the same run instead of
@@ -182,6 +223,7 @@ export function createScheduler({
     archiveOldRuns(goal.id)
   }
 
+  /** Check each active recurring goal independently and queue any due work. */
   function requeueRecurring() {
     for (const goal of store.listGoals()) {
       if (goal.status !== 'active' || !goal.recurring) continue
@@ -194,6 +236,7 @@ export function createScheduler({
     }
   }
 
+  /** Schedule due work while preventing overlapping scheduler passes. */
   function tick() {
     if (ticking) {
       again = true
@@ -235,16 +278,20 @@ export function createScheduler({
   return {
     schedules,
     tick,
+    /** Subscribe to store changes and start the periodic scheduling timer. */
     start() {
       unsubscribe = store.onEvent(() => tick())
       timer = setInterval(tick, tickMs)
       tick()
     },
+    /** Stop the periodic timer and detach the store event listener. */
     stop() {
       clearInterval(timer)
       unsubscribe?.()
     },
+    /** Return a snapshot of currently running task ids. */
     running: () => new Set(running.keys()),
+    /** Abort active work or mark a queued/blocked task as cancelled. */
     cancel(taskId) {
       const controller = running.get(taskId)
       if (controller) {
@@ -259,6 +306,7 @@ export function createScheduler({
       store.appendEvent({ type: 'task_cancelled', goalId: t.goalId, taskId, text: `Task cancelled: ${t.title}`, data: labels(t) })
       return true
     },
+    /** Wait until scheduled planning and worker executions have settled. */
     async idle() {
       await schedules.idle()
       await Promise.all([...inflight])

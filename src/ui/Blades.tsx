@@ -60,6 +60,7 @@ function viaBridge(raw: string, route: 'img' | 'media'): string {
 }
 
 /** A whole document, rendered by the bridge so it can be framed at all. */
+/** Build a same-origin bridge URL for a reader or live-page iframe. */
 const pageUrl = (url: string, mode: 'reader' | 'live') =>
   `${BRIDGE_HTTP_URL}/page?mode=${mode}&url=${encodeURIComponent(url)}`
 
@@ -122,6 +123,7 @@ function embedUrl(raw: string): string | null {
  * model are not, because a label held up to the lens has to arrive the right
  * way round.
  */
+/** Hold the camera while showing its mirrored live preview in a blade. */
 const CameraView = memo(function CameraView() {
   const el = useRef<HTMLVideoElement>(null)
   const [failed, failed_] = useState<string | null>(null)
@@ -132,6 +134,7 @@ const CameraView = memo(function CameraView() {
     void camera
       .holdCamera()
       .then((source) => {
+        // Release immediately if the component unmounted before camera startup completed.
         if (gone) {
           camera.releaseCamera()
           return
@@ -140,6 +143,7 @@ const CameraView = memo(function CameraView() {
         camera.startBuffer()
         if (el.current && source.srcObject) el.current.srcObject = source.srcObject
       })
+      // Report camera denial separately from other device/open failures.
       .catch((err: DOMException) =>
         failed_(
           err?.name === 'NotAllowedError'
@@ -147,6 +151,7 @@ const CameraView = memo(function CameraView() {
             : `The camera could not be opened: ${err?.message ?? err}`,
         ),
       )
+    // Stop holding the shared camera when this preview closes.
     return () => {
       gone = true
       if (held) camera.releaseCamera()
@@ -157,6 +162,7 @@ const CameraView = memo(function CameraView() {
   return <video ref={el} className="bl-camera" autoPlay playsInline muted />
 })
 
+/** Render a blade's camera, document, media, image, gallery, or safe markup body. */
 const Body = memo(function Body({ blade }: { blade: Blade }) {
   if (blade.kind === 'camera') return <CameraView />
 
@@ -215,6 +221,7 @@ const Body = memo(function Body({ blade }: { blade: Blade }) {
     return (
       <div className="bl-gallery">
         {(blade.images ?? []).map((src, i) => (
+          // Keep duplicate image URLs renderable with a stable per-position key.
           <img key={`${src}-${i}`} className="bl-thumb" src={viaBridge(src, 'img')} alt="" />
         ))}
       </div>
@@ -237,6 +244,7 @@ const Body = memo(function Body({ blade }: { blade: Blade }) {
 
 /* -------------------------------------------------------------------- card */
 
+/** Render one draggable/resizable blade and own its local geometry state. */
 function Card({
   blade,
   depth,
@@ -270,6 +278,7 @@ function Card({
    * an iframe is a separate document that the parent cannot scroll directly —
    * see the shim in bridge/page.mjs.
    */
+  /** Scroll the blade body or request a scroll inside its proxied iframe. */
   const scrollContent = (dy: number) => {
     const el = body.current
     if (!el) return
@@ -296,6 +305,7 @@ function Card({
    * a hand and a mouse identically. Which is the property the gesture layer was
    * designed around — one interaction, not two implementations of it.
    */
+  /** Track a pointer gesture on window so mouse and synthetic hand events continue. */
   const grab = (
     e: React.PointerEvent,
     onMove: (dx: number, dy: number) => void,
@@ -309,6 +319,7 @@ function Card({
     let dx = 0
     let dy = 0
 
+    /** Update the gesture offset while preserving the anchor through two-hand pinches. */
     const move = (ev: PointerEvent) => {
       /**
        * Both hands pinching means this is not a drag.
@@ -333,6 +344,7 @@ function Card({
       dy = ev.clientY - baseY
       onMove(dx, dy)
     }
+    /** Detach global pointer listeners when the gesture ends or is cancelled. */
     const done = () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', done)
@@ -343,6 +355,7 @@ function Card({
     window.addEventListener('pointercancel', done)
   }
 
+  /** Drag the blade by its header unless the gesture began on a control. */
   const onHeadDown = (e: React.PointerEvent) => {
     // Buttons live in the header too; starting a drag from one would mean the
     // click never lands.
@@ -367,6 +380,7 @@ function Card({
    * below. Only for 'touch', which is what the gesture layer dispatches; a mouse
    * keeps its wheel and its ability to select text.
    */
+  /** Let touch pinches grab the body while preserving mouse text selection. */
   const onBodyDown = (e: React.PointerEvent) => {
     if (e.pointerType !== 'touch') return
     if (!focused) onFocus()
@@ -385,6 +399,7 @@ function Card({
     if (!focused) return
     let raf = 0
     let last: number | null = null
+    /** Convert two-finger travel into scrolling for the focused blade. */
     const tick = () => {
       raf = requestAnimationFrame(tick)
       const travelled = peaceScroll()
@@ -427,6 +442,7 @@ function Card({
     if (!focused || expanded) return
     let raf = 0
     let from: { span: number; w: number; h: number } | null = null
+    /** Convert hand-frame distance changes into a bounded blade size. */
     const tick = () => {
       raf = requestAnimationFrame(tick)
       const span = frameSpan()
@@ -453,6 +469,7 @@ function Card({
     return () => cancelAnimationFrame(raf)
   }, [focused, expanded])
 
+  /** Resize a blade from its corner grip within viewport bounds. */
   const onGrip = (e: React.PointerEvent) => {
     const box = shell.current?.getBoundingClientRect()
     if (!box) return
@@ -577,6 +594,7 @@ function Card({
 
 /* ------------------------------------------------------------------- stack */
 
+/** Order and render the persistent stack of readable assistant surfaces. */
 export function Blades() {
   const blades = useStore((s) => s.blades)
   const focusedBlade = useStore((s) => s.focusedBlade)
@@ -592,10 +610,14 @@ export function Blades() {
    * store's array order is the history — which is what makes "the one before
    * that" a meaningful thing to ask for.
    */
+  /** Put the newest blade first, lifting any blade the user focused. */
   const ordered = useMemo(() => {
     const newestFirst = [...blades].reverse()
     if (!focusedBlade) return newestFirst
-    const hit = newestFirst.findIndex((b) => b.id === focusedBlade)
+    const hit = newestFirst.findIndex((blade) => {
+      // Find the focused blade in newest-first display order.
+      return blade.id === focusedBlade
+    })
     if (hit <= 0) return newestFirst
     const copy = [...newestFirst]
     const [lifted] = copy.splice(hit, 1)
@@ -604,6 +626,7 @@ export function Blades() {
 
   const front = ordered[0]
 
+  /** Cycle focus through the visible blade stack with wraparound. */
   const cycle = useCallback(
     (by: number) => {
       if (ordered.length < 2) return
@@ -620,6 +643,7 @@ export function Blades() {
   live.current = blades.length > 0
 
   useEffect(() => {
+    /** Handle blade shortcuts only while at least one blade is open. */
     const onKey = (e: KeyboardEvent) => {
       if (!live.current) return
       const tag = (e.target as HTMLElement)?.tagName
@@ -650,6 +674,7 @@ export function Blades() {
     <div className={`blades-stack${expandedBlade ? ' blades-stack-full' : ''}`}>
       <AnimatePresence>
         {ordered.map((blade, i) => {
+          // Hide non-expanded iframe bodies while one blade owns fullscreen.
           const expanded = expandedBlade === blade.id
           // While one is expanded it is the only thing on screen; the rest are
           // unmounted rather than hidden so their iframes stop loading.
@@ -661,6 +686,7 @@ export function Blades() {
               depth={expanded ? 0 : i}
               focused={blade.id === front?.id}
               expanded={expanded}
+              // Focus and stack actions are routed to the shared store.
               onFocus={() => focusBlade(blade.id)}
               onExpand={() => expandBlade(expanded ? null : blade.id)}
               onClose={() => closeBlade(blade.id)}
@@ -691,6 +717,7 @@ export function Blades() {
  */
 const SWEEP = [1, 2, 3, 4, 5, 6]
 
+/** Show the legacy light sweep and active-tool label during tool execution. */
 export function BladeSweep() {
   const phase = useStore((s) => s.phase)
   const activeTool = useStore((s) => s.activeTool)
@@ -711,6 +738,7 @@ export function BladeSweep() {
         >
           <div className="blade-field">
             {SWEEP.map((n) => (
+              // Give each CSS sweep a stable animation identity.
               <span key={n} className={`blade blade-${n}`} />
             ))}
           </div>

@@ -14,6 +14,7 @@ const storeSource = await readFile(new URL('../store.ts', import.meta.url), 'utf
 const voiceSource = await readFile(new URL('../lib/voice.ts', import.meta.url), 'utf8')
 const sessionHistory = await readFile(new URL('./SessionHistory.tsx', import.meta.url), 'utf8')
 
+// Protects the existing session-history deletion action and its event handoff.
 test('session history keeps deletion on the right of the detail header without a new-session button', () => {
   assert.doesNotMatch(sessionHistory, /MessageSquarePlus|jarvis:new-session|New session/)
   const detailHeader = sessionHistory.match(/<div className="sh-detail-head">[\s\S]*?<div className="sh-transcript"/)?.[0]
@@ -33,6 +34,7 @@ test('session history keeps deletion on the right of the detail header without a
   assert.match(styles, /\.sh-detail-actions \{[^}]*margin-left: auto;/)
 })
 
+// Confirms LCARS keeps its command composer fixed outside the scrolling console.
 test('LCARS docks the composer outside the scrolling console and reserves its height', () => {
   assert.match(reactor, /<\/main>\s*<form className="lcars-command-form"/)
   assert.match(lcarsStyles, /\.lcars-reactor \{[^}]*display: grid;[^}]*grid-template-rows: minmax\(0, 1fr\) auto;[^}]*place-items: stretch;/)
@@ -42,6 +44,7 @@ test('LCARS docks the composer outside the scrolling console and reserves its he
   assert.doesNotMatch(lcarsStyles, /padding-bottom: (62|66|60|96)px/)
 })
 
+// Preserves transcript display while keeping typed draft state intact.
 test('LCARS shows live speech in the composer without replacing the typed draft', () => {
   assert.match(reactor, /const voiceDraft = useStore\(\(state\) => state.voiceDraft\)/)
   assert.match(reactor, /value=\{voiceDraft \|\| command\}/)
@@ -51,6 +54,7 @@ test('LCARS shows live speech in the composer without replacing the typed draft'
   assert.doesNotMatch(app, /const onUtterance = \(text: string\) => \{\s*store.getState\(\).setVoiceDraft\(''\)/)
 })
 
+// Guards the store/turn phases that retain speech until a response begins.
 test('LCARS keeps completed speech visible while processing and clears it when the AI responds', () => {
   const setPhaseSource = storeSource.match(/setPhase: \(phase\) => set\(\(state\) => \(\{[\s\S]*?\}\)\),/)?.[0]
   assert.ok(setPhaseSource)
@@ -60,6 +64,7 @@ test('LCARS keeps completed speech visible while processing and clears it when t
   assert.match(app, /onText: \(delta\) => \{[\s\S]*?if \(!started\) \{\s*started = true\s*store.getState\(\).setPhase\('speaking'\)/)
 })
 
+// Requires the LCARS voice loop to retain interim browser transcripts.
 test('LCARS requests interim recognition even when server transcription is available', () => {
   assert.match(app, /liveTranscription: activeTheme\(\).id === 'lcars'/)
   assert.match(voiceSource, /const useServer = caps\(\).stt && !\(opts.liveTranscription && browserAvailable\)/)
@@ -67,6 +72,7 @@ test('LCARS requests interim recognition even when server transcription is avail
   assert.match(voiceSource, /rec.interimResults = true/)
 })
 
+// Ensures the LCARS palette is docked inline rather than mounted as a modal overlay.
 test('LCARS mounts one non-modal command palette inside the session area', () => {
   assert.match(reactor, /<AgentBoard \/>\s*<CommandPalette inline \/>\s*<Timeline inline \/>\s*<Diagnostics inline \/>/)
   assert.match(app, /activeTheme\(\)\.id !== 'lcars' && <CommandPalette \/>/)
@@ -78,6 +84,7 @@ test('LCARS mounts one non-modal command palette inside the session area', () =>
   assert.doesNotMatch(source, /Close command palette|<X /)
 })
 
+// Keeps the palette control adjacent to status and connected to the toggle event.
 test('LCARS command palette button follows Status report and toggles the palette', () => {
   assert.match(reactor, /Status report<\/button>\s*<button[^\n]*jarvis:toggle-command-palette[^\n]*Command palette<\/button>/)
   assert.match(source, /const toggle = \(\) => setOpen\(\(value\) => !value\)/)
@@ -85,6 +92,7 @@ test('LCARS command palette button follows Status report and toggles the palette
   assert.match(source, /removeEventListener\('jarvis:toggle-command-palette', toggle\)/)
 })
 
+// Confirms selected state comes from shared command-window state and styles.
 test('LCARS diagnostics and command palette buttons reflect panel visibility using the shared active style', () => {
   assert.match(reactor, /aria-pressed=\{diagnosticsOpen\}[^\n]*Diagnostics<\/button>/)
   assert.match(reactor, /aria-pressed=\{commandPaletteOpen\}[^\n]*Command palette<\/button>/)
@@ -95,6 +103,7 @@ test('LCARS diagnostics and command palette buttons reflect panel visibility usi
   assert.match(lcarsStyles, /\[aria-pressed='true'\][^\n]*\{\s*--lc-button-color: var\(--lc-button-active\)/)
 })
 
+// Locks the semantic priority of LCARS control states and selection behavior.
 test('LCARS colors prioritize error, disabled, selected, active, off, and enabled', () => {
   for (const [state, color] of Object.entries({ off: '#c9ced6', disabled: '#555b65', enabled: '#9edcf2', active: '#00bfff', selected: '#ff6753', error: '#8b1e2d' })) {
     assert.ok(lcarsStyles.includes(`--lc-button-${state}: ${color};`))
@@ -109,12 +118,14 @@ test('LCARS colors prioritize error, disabled, selected, active, off, and enable
   assert.match(reactor, /\[data-command-window="\$\{commandWindow\}"\]/)
 })
 
+// Keeps ignition outside the shared LCARS button palette and styling selectors.
 test('LCARS keeps the full-screen ignition splash black and outside the button palette', () => {
   assert.match(lcarsStyles, /\[data-theme='lcars'\] \.ignition \{\s*background: #000;/)
   assert.match(lcarsStyles, /:is\(button, select\):where\(:not\(\.ignition\)\) \{\s*--lc-button-color:/)
   assert.match(lcarsStyles, /button:where\(:not\(\.ignition\)\) :is\(span, strong, small, b, kbd\)/)
 })
 
+// Protects status report docking, scrolling, and non-modal interaction behavior.
 test('LCARS status report is a scrollable command window inside the session area, not a modal', () => {
   assert.match(reactor, /<Diagnostics inline \/>\s*\{statusReportOpen && <StatusReport onClose=\{\(\) => setCommandWindow\(null\)\} \/>\}\s*<\/section>/)
   assert.match(statusReport, /className="lcars-report-window" role="region"/)
@@ -124,6 +135,7 @@ test('LCARS status report is a scrollable command window inside the session area
   assert.doesNotMatch(lcarsStyles, /\.lcars-report-backdrop/)
 })
 
+// Keeps command-window dismissal owned by shared controls rather than local headers.
 test('LCARS command-window headers do not include close buttons', () => {
   assert.doesNotMatch(statusReport, /<button|Close status report|import \{ X \}/)
   assert.match(timeline, /\{!inline && <button[^>]*className="tl-close"/)
@@ -131,6 +143,7 @@ test('LCARS command-window headers do not include close buttons', () => {
   assert.doesNotMatch(diagnostics, /<button/)
 })
 
+// Ensures every LCARS command window shares the available panel height.
 test('all LCARS command windows fill the available session height without individual caps', () => {
   assert.match(lcarsStyles, /\.lcars-deck-body \{[^}]*min-height: 0;/)
   assert.match(lcarsStyles, /\.lcars-deck-history > :is\(\.agent-board, \.command-palette-inline, \.timeline-inline, \.diag, \.lcars-report-window\) \{\s*flex: 1 1 0;\s*height: auto;\s*max-height: none;\s*min-height: 0;/)
@@ -138,6 +151,7 @@ test('all LCARS command windows fill the available session height without indivi
   assert.match(lcarsStyles, /\.lcars-deck-transcript \{\s*flex: 0 1 auto;\s*max-height: min\(18dvh, 160px\);/)
 })
 
+// Covers the operational command registry, ranked search, and keyboard navigation.
 test('command palette provides searchable operational commands and keyboard navigation', () => {
   for (const phrase of ['Toggle agent board', 'Toggle hand controls', 'Toggle diagnostics', 'Clear display', 'Reset interface']) {
     assert.ok(source.includes(phrase), `missing command: ${phrase}`)
@@ -149,7 +163,9 @@ test('command palette provides searchable operational commands and keyboard navi
   assert.match(source, /event\.code === 'Space' && event\.shiftKey/)
 })
 
+// Verifies modal palette sizing and independent scrolling across the viewport.
 test('command palette is a themed viewport overlay with a scrollable command list', () => {
+  // Extract one CSS rule so layout assertions stay scoped to that selector.
   const rule = (selector) => {
     const start = styles.indexOf(`${selector} {`)
     assert.notEqual(start, -1, `missing style: ${selector}`)

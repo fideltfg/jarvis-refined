@@ -6,16 +6,32 @@ import { join } from 'node:path'
 import { createStore, newId } from './store.mjs'
 import { createScheduledJobs } from './scheduled-jobs.mjs'
 
+/** Build scheduled jobs over a fake clock and a captured coordinator. */
 function harness(plan = async () => {}) {
   let clock = Date.parse('2026-10-06T08:00:00Z')
-  const store = createStore(mkdtempSync(join(tmpdir(), 'scheduled-jobs-')), { now: () => new Date(clock) })
+  const store = createStore(mkdtempSync(join(tmpdir(), 'scheduled-jobs-')), {
+    // Keep stored timestamps aligned with the manually advanced schedule clock.
+    now: () => new Date(clock),
+  })
   const plans = []
-  const dependencies = { store, now: () => clock, coordinator: { plan: async (id) => { plans.push(id); await plan(id, store) } } }
+  const dependencies = {
+    store,
+    // Let tests control when each scheduled occurrence becomes due.
+    now: () => clock,
+    coordinator: { plan: async (id) => {
+      // Record planning and then execute the test-specific coordinator behavior.
+      plans.push(id)
+      await plan(id, store)
+    } },
+  }
   const jobs = createScheduledJobs(dependencies)
+  /** Create the default report schedule with a caller-selected trigger. */
   const create = (trigger = { type: 'interval', minutes: 30 }) => jobs.create({ title: 'Report', outcome: 'Check health', trigger })
+  // Move the fake wall clock without waiting in real time.
   return { store, plans, jobs, create, dependencies, advance: (ms) => { clock += ms } }
 }
 
+// Confirms a one-time occurrence waits for its due time and fires only once.
 test('nothing plans early; a one-time occurrence fires only once', async () => {
   const h = harness()
   const schedule = h.create({ type: 'once', at: '2026-10-06T08:30:00Z' })
@@ -33,6 +49,7 @@ test('nothing plans early; a one-time occurrence fires only once', async () => {
   assert.throws(() => h.jobs.runNow(schedule.id), /runnable/)
 })
 
+// Checks missed-run coalescing and prevents overlap with unresolved goal work.
 test('missed occurrences coalesce and active or paused goals prevent overlap', async () => {
   const h = harness()
   const schedule = h.create()
@@ -52,6 +69,7 @@ test('missed occurrences coalesce and active or paused goals prevent overlap', a
   assert.equal(h.store.getSchedule(schedule.id).nextRunAt, '2026-10-07T09:30:00.000Z')
 })
 
+// Verifies lifecycle controls affect future scheduling, not existing goals or cadence.
 test('pause, resume, manual run and delete preserve existing goals and cadence', async () => {
   const h = harness()
   const schedule = h.create()
@@ -68,6 +86,7 @@ test('pause, resume, manual run and delete preserve existing goals and cadence',
   assert.throws(() => h.jobs.runNow(schedule.id), /runnable/)
 })
 
+// Confirms durable occurrence recovery keeps its reserved goal id across restart.
 test('recovery reuses a reserved goal id before and after goal creation', async () => {
   for (const goalExists of [false, true]) {
     const h = harness()
@@ -85,6 +104,7 @@ test('recovery reuses a reserved goal id before and after goal creation', async 
   }
 })
 
+// Prevents recovery from creating duplicate work for a goal with existing tasks.
 test('recovery never replans a goal that already has tasks', async () => {
   const h = harness()
   const schedule = h.create()
@@ -97,7 +117,9 @@ test('recovery never replans a goal that already has tasks', async () => {
   assert.equal(h.store.getSchedule(schedule.id).lastGoalId, goal.id)
 })
 
+// Exercises retry timing and terminal pause after repeated coordinator failures.
 test('planning failures back off and pause after three attempts', async () => {
+  // Simulate a coordinator that fails every planning attempt.
   const h = harness(async () => { throw new Error('Provider unavailable') })
   const schedule = h.create()
   h.jobs.runNow(schedule.id)
@@ -115,6 +137,7 @@ test('planning failures back off and pause after three attempts', async () => {
   assert.equal(h.store.listGoals()[0].status, 'abandoned')
 })
 
+// Ensures a metadata-only edit preserves schedule priority and next-run anchor.
 test('editing title preserves priority and the interval anchor', () => {
   const h = harness()
   const schedule = h.jobs.create({ title: 'Report', outcome: 'Check', priority: 1, trigger: { type: 'interval', minutes: 30 } })
@@ -125,7 +148,9 @@ test('editing title preserves priority and the interval anchor', () => {
   assert.equal(edited.nextRunAt, schedule.nextRunAt)
 })
 
+// Checks provider/model inheritance and confines schedule edits to future runs.
 test('execution choices reach goals and every task and edits affect future runs only', async () => {
+  // Create one task during planning to inspect the execution settings it receives.
   const h = harness(async (id, store) => {
     store.newTask({ goalId: id, title: 'Research', brief: 'Check health', model: 'opus' })
   })
@@ -142,6 +167,7 @@ test('execution choices reach goals and every task and edits affect future runs 
   assert.deepEqual(h.store.getGoal(goal.id).execution, execution)
 })
 
+// Verifies an in-flight occurrence can recover from its saved profile snapshot.
 test('a reserved profile occurrence recovers from its snapshot if the profile is removed', async () => {
   const h = harness()
   const profile = h.store.newProfile({ name: 'Research', role: 'Analyst', instructions: 'Use the latest public sources.' })

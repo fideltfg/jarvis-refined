@@ -40,26 +40,38 @@ export const MAX_SESSIONS = 50
 export const MAX_SESSION_TURNS = 400
 const SAVE_DELAY_MS = 1000
 
+/** Accept only persisted turns with the fields required to render a transcript. */
 const isTurn = (value: unknown): value is SessionTurn => {
   const turn = value as SessionTurn
   return Boolean(turn) && typeof turn.id === 'string' && (turn.role === 'user' || turn.role === 'jarvis')
     && typeof turn.text === 'string' && typeof turn.at === 'number'
 }
 
+/** Validate a stored session's identity, timestamps, and turn collection. */
 const isSession = (value: unknown): value is ChatSession => {
   const session = value as ChatSession
   return Boolean(session) && typeof session.id === 'string' && typeof session.startedAt === 'number'
     && typeof session.updatedAt === 'number' && Array.isArray(session.turns)
 }
 
+/** Load valid, nonempty sessions newest-first and enforce the storage cap. */
 export function loadSessions(): ChatSession[] {
   try {
     const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
     if (!Array.isArray(parsed)) return []
     return parsed.filter(isSession)
-      .map((session) => ({ ...session, turns: session.turns.filter(isTurn) }))
-      .filter((session) => session.turns.length > 0)
-      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .map((session) => {
+        // Keep valid turns while preserving other session metadata.
+        return { ...session, turns: session.turns.filter(isTurn) }
+      })
+      .filter((session) => {
+        // Ignore sessions that cannot display any conversation history.
+        return session.turns.length > 0
+      })
+      .sort((first, second) => {
+        // Place the most recently updated conversation first.
+        return second.updatedAt - first.updatedAt
+      })
       .slice(0, MAX_SESSIONS)
   } catch {
     return []
@@ -68,7 +80,10 @@ export function loadSessions(): ChatSession[] {
 
 /** Writes newest-first; if storage is full, drops the oldest sessions until it fits. */
 export function saveSessions(sessions: ChatSession[]): void {
-  const keep = sessions.filter((session) => session.turns.length > 0)
+  const keep = sessions.filter((session) => {
+    // Empty sessions are represented by the live editor, not saved history.
+    return session.turns.length > 0
+  })
   try {
     if (!keep.length) {
       localStorage.removeItem(STORAGE_KEY)
@@ -79,6 +94,7 @@ export function saveSessions(sessions: ChatSession[]): void {
   }
   for (let count = keep.length; count > 0; count--) {
     try {
+      // Retry with one fewer oldest session after quota or storage failures.
       localStorage.setItem(STORAGE_KEY, JSON.stringify(keep.slice(0, count)))
       return
     } catch {
@@ -89,7 +105,10 @@ export function saveSessions(sessions: ChatSession[]): void {
 
 /** Merges live turns into a session by id: known turns update in place, new ones append. */
 export function recordTurns(session: ChatSession, turns: TurnLike[], now: number): ChatSession {
-  const index = new Map(session.turns.map((turn, position) => [turn.id, position]))
+  const index = new Map(session.turns.map((turn, position) => {
+    // Preserve each turn's position so streamed updates replace it in place.
+    return [turn.id, position]
+  }))
   const next = [...session.turns]
   let changed = false
   for (const turn of turns) {
@@ -103,7 +122,10 @@ export function recordTurns(session: ChatSession, turns: TurnLike[], now: number
       at: existing?.at ?? now,
       ...(turn.tools?.length && { tools: [...turn.tools] }),
       ...(turn.attachments?.length && {
-        attachments: turn.attachments.map(({ name, mimeType, size, kind }) => ({ name, mimeType, size, kind })),
+        attachments: turn.attachments.map(({ name, mimeType, size, kind }) => {
+          // Persist display metadata only; attachment bytes remain elsewhere.
+          return { name, mimeType, size, kind }
+        }),
       }),
     }
     if (position === undefined) {
@@ -120,28 +142,51 @@ export function recordTurns(session: ChatSession, turns: TurnLike[], now: number
 
 /** Replaces or adds a session, newest first, capped. Empty sessions are left out. */
 export function upsertSession(sessions: ChatSession[], session: ChatSession): ChatSession[] {
-  const others = sessions.filter((entry) => entry.id !== session.id)
+  const others = sessions.filter((entry) => {
+    // Replace the matching session instead of keeping duplicate history rows.
+    return entry.id !== session.id
+  })
   if (!session.turns.length) return others
-  return [session, ...others].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_SESSIONS)
+  return [session, ...others].sort((first, second) => {
+    // Keep the returned list ordered for history navigation.
+    return second.updatedAt - first.updatedAt
+  }).slice(0, MAX_SESSIONS)
 }
 
+/** Derive a compact title from the first nonempty user turn or transcript text. */
 export function sessionTitle(session: ChatSession): string {
-  const first = session.turns.find((turn) => turn.role === 'user' && turn.text.trim())
-    ?? session.turns.find((turn) => turn.text.trim())
+  const first = session.turns.find((turn) => {
+    // Prefer a user's opening request for the history label.
+    return turn.role === 'user' && turn.text.trim()
+  }) ?? session.turns.find((turn) => {
+    // Fall back to the first readable turn if no user text was saved.
+    return turn.text.trim()
+  })
   const text = first?.text.trim().replace(/\s+/g, ' ') ?? ''
   if (!text) return 'Untitled session'
   return text.length > 60 ? `${text.slice(0, 59)}…` : text
 }
 
+/** Restore the active session, linked checkpoint, or most recent history entry. */
 export function startupSession(
   sessions: ChatSession[],
   { activeId, conversationId }: { activeId?: string | null; conversationId?: string } = {},
 ): ChatSession | null {
-  if (activeId) return sessions.find((session) => session.id === activeId) ?? null
-  const linked = conversationId && sessions.find((session) => session.conversationId === conversationId)
-  return linked || [...sessions].sort((first, second) => second.updatedAt - first.updatedAt)[0] || null
+  if (activeId) return sessions.find((session) => {
+    // An explicit empty active id intentionally prevents restoring old history.
+    return session.id === activeId
+  }) ?? null
+  const linked = conversationId && sessions.find((session) => {
+    // Prefer the session whose bridge checkpoint matches this browser tab.
+    return session.conversationId === conversationId
+  })
+  return linked || [...sessions].sort((first, second) => {
+    // With no active or linked session, choose the most recently updated one.
+    return second.updatedAt - first.updatedAt
+  })[0] || null
 }
 
+/** Create an empty session with stable timestamps and a per-session id. */
 const newSession = (now: number): ChatSession => ({
   id: `s-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
   startedAt: now,
@@ -164,10 +209,13 @@ export function createSessionHistory(
   let changingSession = false
   const listeners = new Set<() => void>()
 
+  /** Refresh the public snapshot and notify history-view subscribers. */
   const publish = () => {
     snapshot = { sessions: upsertSession(sessions, current), currentId: current.id }
+    // Subscribers read the new immutable snapshot through getSnapshot().
     listeners.forEach((listener) => listener())
   }
+  /** Persist current turns and merge other tabs' latest history first. */
   const flush = () => {
     if (timer !== null) clearTimeout(timer)
     timer = null
@@ -176,10 +224,12 @@ export function createSessionHistory(
     saveSessions(sessions)
     onSave?.(sessions)
   }
+  /** Schedule one delayed save for a burst of streamed store updates. */
   const schedule = () => {
     if (timer === null) timer = setTimeout(flush, delay)
   }
 
+  // Record meaningful store changes while ignoring updates caused by reopen/startNew.
   const unsubscribe = source.subscribe((state, previous) => {
     if (changingSession) return
     if (state.turns === previous.turns) return
@@ -197,17 +247,22 @@ export function createSessionHistory(
   })
 
   return {
+    /** Return the latest immutable history snapshot. */
     getSnapshot: () => snapshot,
+    /** Add a listener for session-list and active-session changes. */
     subscribe: (listener: () => void) => {
       listeners.add(listener)
+      // Return the matching unsubscribe operation to the subscriber.
       return () => { listeners.delete(listener) }
     },
+    /** Link the live session to the bridge's durable conversation checkpoint. */
     attachConversation: (conversationId: string) => {
       if (current.conversationId === conversationId) return
       current = { ...current, conversationId }
       publish()
       flush()
     },
+    /** Switch to saved turns while suppressing the store's echo subscription. */
     reopen: (id: string, showTurns: (turns: SessionTurn[]) => void) => {
       flush()
       const selected = sessions.find((session) => session.id === id)
@@ -219,6 +274,7 @@ export function createSessionHistory(
       flush()
       return true
     },
+    /** Archive the current session and display an empty transcript. */
     startNew: (showTurns: (turns: SessionTurn[]) => void) => {
       flush()
       current = newSession(now())
@@ -236,6 +292,7 @@ export function createSessionHistory(
       publish()
     },
     /** Deletes every past session, keeping the live one. */
+    /** Remove saved history while retaining the session currently on screen. */
     clearPast: () => {
       sessions = []
       saveSessions(upsertSession(sessions, current))
@@ -243,6 +300,7 @@ export function createSessionHistory(
       publish()
     },
     flush,
+    /** Flush pending changes and release store/listener resources. */
     stop: () => {
       flush()
       unsubscribe()

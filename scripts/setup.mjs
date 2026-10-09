@@ -15,6 +15,7 @@ const tick = '  ok  ';
 const warn = ' note ';
 const info = '  ·   ';
 
+/** Print one preflight finding with its severity tag. */
 function line(tag, msg) {
   console.log(`[${tag}] ${msg}`);
 }
@@ -76,6 +77,7 @@ try {
 }
 
 // --- ElevenLabs key (env or the elevenlabs MCP entry) --------------------
+/** Locate an ElevenLabs credential without printing or modifying it. */
 function findElevenLabsKey() {
   if (process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_API_KEY.trim()) {
     return 'environment (ELEVENLABS_API_KEY)';

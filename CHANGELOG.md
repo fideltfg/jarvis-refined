@@ -35,24 +35,6 @@ Security. When work is committed, move its entries under a dated heading.
 
 ### Added
 
-- Agent profiles can select from the skills installed under `~/.claude/skills`.
-  The profile editor lists each installed skill with its description and
-  pre-ticks what the profile already chose. Selections are stored by skill name
-  (the skill's directory name), never by path, and profiles saved before this
-  load with nothing selected. Saving a name that is not installed is refused and
-  the message says which one; a selected skill that is later uninstalled keeps
-  loading and stays editable, shown as **(missing)** until it is unticked. The
-  agent service gains an authenticated `GET /skills` route returning ids, names
-  and descriptions only — no filesystem paths leave the machine. Running the
-  profile records the selection on the goal, and every worker on that goal gets
-  those skills' instructions appended to its system prompt, read from disk as
-  each task starts so an edited skill applies to the next run. A skill that has
-  been uninstalled or cannot be read is logged and skipped rather than failing
-  the run; instructions are injected in name order; and the block is capped at
-  20,000 characters per skill and 60,000 together. A profile with no skills
-  selected gets exactly the prompt it did before. Restart `jarvis-agents` and
-  the bridge to apply it.
-
 - A themed file browser (Files button, Shift+F, command palette) lists the files
   agents have written under `~/.jarvis-work/goals/*/tasks`, with in-panel
   preview of text, images and PDF, download, and deletion. Deleting requires

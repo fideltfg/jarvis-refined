@@ -22,7 +22,12 @@ import { isAbsolute, join, relative, resolve } from 'node:path'
 const HOME = homedir()
 const HOME_VAR = /\$HOME\b|\$\{HOME\}/g
 // Generated output belongs in the work folder; only project source may be edited elsewhere.
-const projectRoots = () => [join(HOME, 'Projects'), ...(process.env.JARVIS_PROJECT_ROOTS ?? '').split(',').map((root) => root.trim()).filter(Boolean)]
+/** Resolve configured project roots that may receive source edits. */
+const projectRoots = () => [join(HOME, 'Projects'), ...(process.env.JARVIS_PROJECT_ROOTS ?? '').split(',').map((root) => {
+  // Normalize whitespace before comparing configured paths.
+  return root.trim()
+}).filter(Boolean)]
+/** Check a target against every permitted project source root. */
 const inProjectRoot = (path) => projectRoots().some((root) => inside(root, path))
 
 const SECRET_PATH = new RegExp(
@@ -55,7 +60,10 @@ const SECRET_PATH = new RegExp(
 const SECRET_LOCATIONS = [
   '.ssh', '.gnupg', '.config/jarvis', '.claude', '.claude.json', '.git-credentials', '.netrc', '.npmrc',
   '.pgpass', '.pypirc', '.aws', '.config/gh', '.docker', '.kube', '.password-store',
-].map((p) => join(HOME, p)).concat('/proc')
+].map((path) => {
+  // Anchor credential locations to the current user's home directory.
+  return join(HOME, path)
+}).concat('/proc')
 
 const SECRET_VALUE_SOURCE =
   String.raw`-----BEGIN [A-Z ]*PRIVATE KEY-----|\bsk-ant-[\w-]{16,}|\bsk-[A-Za-z0-9]{32,}|\bgh[pousr]_[A-Za-z0-9]{30,}|\bgithub_pat_\w{30,}|\bxox[abprs]-[\w-]{10,}|\bAKIA[0-9A-Z]{16}\b|\bBearer\s+[\w.~+/-]{24,}`
@@ -85,10 +93,14 @@ const SEND_NAME = /(send|reply|forward)|(^|[_-])post([_-]|$)/i
 const DRAFT_EDIT = /^(create|update|save|edit)[_-]?draft/i
 const RECIPIENT_KEYS = ['to', 'cc', 'bcc', 'recipient', 'recipients', 'email', 'emails', 'address', 'user', 'users', 'channel', 'phone', 'number', 'chat_id']
 
+/** Build a verdict for an operation that needs no further user decision. */
 const allow = () => ({ decision: 'allow' })
+/** Build a hard denial for credentials or task-scope violations. */
 const deny = (category, reason) => ({ decision: 'deny', category, reason })
+/** Build an approval request for an action that may have lasting side effects. */
 const approval = (category, action, detail, extra = {}) => ({ decision: 'approval', category, action, detail, ...extra })
 
+/** Expand home shorthand and environment references before path checks. */
 export const expandHome = (p) => String(p).replace(/^~(?=\/|$)/, HOME).replace(HOME_VAR, HOME)
 
 /** True when `target` (absolute, or relative to root) is root or below it. */
@@ -97,19 +109,29 @@ export function inside(root, target) {
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
 
+/** Detect checkout or payment URL paths before approving browser actions. */
 export const looksLikeCheckoutUrl = (url) => CHECKOUT_URL.test(String(url))
+/** Detect payment language in page text submitted with a browser action. */
 export const looksLikeCheckoutPage = (text) => CHECKOUT_TEXT.test(String(text))
 
 /** Secret-shaped values replaced, for the audit log. */
 export const redact = (text) => String(text).replace(new RegExp(SECRET_VALUE_SOURCE, 'g'), '[redacted]')
 
+/** Collect strings recursively so secret and risk patterns cover nested inputs. */
 function strings(value, out = []) {
   if (typeof value === 'string') out.push(value)
-  else if (Array.isArray(value)) value.forEach((v) => strings(v, out))
-  else if (value && typeof value === 'object') Object.values(value).forEach((v) => strings(v, out))
+  else if (Array.isArray(value)) value.forEach((entry) => {
+    // Visit every array item while sharing one result list.
+    strings(entry, out)
+  })
+  else if (value && typeof value === 'object') Object.values(value).forEach((entry) => {
+    // Inspect object values without relying on tool-specific input shapes.
+    strings(entry, out)
+  })
   return out
 }
 
+/** Resolve symlinks where possible while retaining a usable missing path. */
 const defaultRealpath = (p) => {
   try {
     return realpathSync(p)
@@ -120,9 +142,13 @@ const defaultRealpath = (p) => {
 
 // ------------------------------------------------------------------ shell
 
+/** Detect shell expansions the static parser cannot resolve safely. */
 const unresolved = (arg) => /[$`]/.test(arg)
+/** Remove shell quoting characters after tokenization for conservative checks. */
 const clean = (word) => word.replace(/["'\\]/g, '')
+/** Return the executable name without any directory prefix. */
 const base = (cmd) => cmd.split('/').pop()
+/** Remove option tokens where a command's positional targets are needed. */
 const flagless = (args) => args.filter((a) => !a.startsWith('-'))
 
 /**
@@ -140,17 +166,24 @@ function normalise(command) {
   return text.replace(/(?<![\\$])[()]/g, ' ; ')
 }
 
+/** Split normalized shell text into command segments for independent review. */
 const segmentsOf = (text) =>
-  text.split(/;|&&|\|\||\||&|\n/).map((s) => s.trim()).filter(Boolean)
+  text.split(/;|&&|\|\||\||&|\n/).map((segment) => {
+    // Trim separators and whitespace before token analysis.
+    return segment.trim()
+  }).filter(Boolean)
 
+/** Tokenize one shell segment and remove wrapping quote characters. */
 const tokens = (segment) => (segment.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map(clean)
 
+/** Extract filesystem targets written through shell redirection operators. */
 function redirections(segment) {
   const out = []
   for (const m of segment.matchAll(/(?:^|[^<>])>>?\s*([^\s;&|<>]+)/g)) out.push(clean(m[1]))
   return out
 }
 
+/** Detect git operations that can rewrite or delete shared remote history. */
 function gitVerdict(args, seg) {
   let i = 0
   while (i < args.length && args[i].startsWith('-')) i += ['-C', '-c', '--git-dir', '--work-tree'].includes(args[i]) ? 2 : 1
@@ -175,6 +208,7 @@ function gitVerdict(args, seg) {
   return null
 }
 
+/** Return paths a recognized shell command may overwrite or remove. */
 function targetsOf(cmd, args) {
   if (ALL_ARGS.has(cmd)) return flagless(args)
   if (DEST_ARG.has(cmd)) return flagless(args).slice(-1)
@@ -190,9 +224,11 @@ function targetsOf(cmd, args) {
   return []
 }
 
+/** Parse shell commands recursively and request approval for out-of-scope writes. */
 function bashDestruction(command, workspace, startCwd = workspace, depth = 0) {
   if (depth > 3) return approval('destruction', 'a deeply nested shell command', command)
   let cwd = startCwd
+  /** Check one resolved target against the workspace and project edit policy. */
   const check = (t, cmd, seg, allowHome = false) => {
     if (!t) return null
     if (SAFE_SINKS.has(t)) return null
@@ -256,6 +292,7 @@ function bashDestruction(command, workspace, startCwd = workspace, depth = 0) {
 
 // -------------------------------------------------------------- messaging
 
+/** Normalize recipient fields and return unique lowercased addresses. */
 export function recipientsOf(input) {
   const out = []
   for (const key of RECIPIENT_KEYS) {
@@ -270,10 +307,12 @@ export function recipientsOf(input) {
   return [...new Set(out)]
 }
 
+/** Bound serialized MCP input before including it in an approval prompt. */
 const brief = (input) => JSON.stringify(input).slice(0, 300)
 
 // ------------------------------------------------------------------ judge
 
+/** Apply credential, filesystem, shell, commerce, and messaging policy to a call. */
 export function judge(toolName, input = {}, ctx) {
   const {
     workspace, kind = 'code', contacts = new Set(), exists = existsSync, realpath = defaultRealpath, commerce = false,

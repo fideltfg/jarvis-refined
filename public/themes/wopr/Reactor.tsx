@@ -21,6 +21,7 @@ const WOPR_LED_BANKS = Array.from({ length: 3 }, (_, bank) =>
   }),
 )
 
+/** Render the WOPR cabinet and light the LED banks for the current phase. */
 export function Reactor({ inline = false }: { inline?: boolean } = {}) {
   const phase = useStore((state) => state.phase)
   const reactor = useStore((state) => state.ui.reactor)
@@ -52,8 +53,10 @@ export function Reactor({ inline = false }: { inline?: boolean } = {}) {
           <div className="wopr-console-base">
             <div className="wopr-indicators" data-phase={phase}>
               {WOPR_LED_BANKS.map((bank, bankIndex) => (
+                // Keep each status bank associated with its phase role.
                 <div className="wopr-led-bank" key={bankIndex}>
                   {bank.map((led) => {
+                    // Deterministically light a phase-dependent subset of LEDs.
                     const threshold = ledThreshold + (bankIndex === activeBank ? 16 : 0)
                     const lit = (led.id * 17 + bankIndex * 11) % 80 < threshold
                     return (

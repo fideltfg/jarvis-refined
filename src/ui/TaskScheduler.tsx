@@ -4,11 +4,13 @@ import { useStore } from '../store'
 import { providerState, scheduleRequest } from '../lib/bridge'
 import { describeTrigger, localDateTime, onceFromLocal, WEEKDAYS, type Schedule, type ScheduleExecution, type ScheduleInput, type ScheduleRequest, type ScheduleTrigger } from '../lib/schedules'
 
+/** Format an optional timestamp for the schedule timing summary. */
 const dateTime = (value: string | null) => value ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : 'None'
 const localZone = Intl.DateTimeFormat().resolvedOptions().timeZone
 const zones = [...new Set([localZone, 'UTC', ...Intl.supportedValuesOf('timeZone')])].sort()
 const providerLabels = { claude: 'Claude', openai: 'OpenAI', local: 'Local' }
 
+/** Render schedule listing, provider selection, and lifecycle controls. */
 export function TaskScheduler({ inline = false }: { inline?: boolean }) {
   const open = useStore((state) => state.commandWindow === 'scheduler')
   const board = useStore((state) => state.agentBoard)
@@ -34,6 +36,7 @@ export function TaskScheduler({ inline = false }: { inline?: boolean }) {
   const [time, setTime] = useState('09:00')
   const [timezone, setTimezone] = useState(localZone)
   const [days, setDays] = useState([1, 2, 3, 4, 5])
+  /** Close the scheduler through the shared command-window state. */
   const close = () => useStore.getState().setCommandWindow(null)
 
   useEffect(() => {
@@ -43,6 +46,7 @@ export function TaskScheduler({ inline = false }: { inline?: boolean }) {
   useEffect(() => {
     if (!open) return
     panel.current?.focus()
+    /** Handle Escape and trap Tab focus only for the modal scheduler. */
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault()
@@ -60,6 +64,7 @@ export function TaskScheduler({ inline = false }: { inline?: boolean }) {
     return () => window.removeEventListener('keydown', onKey, true)
   }, [open, inline])
 
+  /** Serialize one bridge mutation/list request and update visible schedule state. */
   async function perform(request: ScheduleRequest) {
     if (lock.current) return false
     lock.current = true
@@ -69,7 +74,13 @@ export function TaskScheduler({ inline = false }: { inline?: boolean }) {
     try {
       const result = await scheduleRequest(request)
       if (Array.isArray(result)) setSchedules(result)
-      else setSchedules((current) => result.status === 'deleted' ? current.filter((schedule) => schedule.id !== result.id) : [result, ...current.filter((schedule) => schedule.id !== result.id)])
+      else setSchedules((current) => result.status === 'deleted' ? current.filter((schedule) => {
+        // Remove only the schedule confirmed as deleted by the service.
+        return schedule.id !== result.id
+      }) : [result, ...current.filter((schedule) => {
+        // Replace the matching local row with the authoritative response.
+        return schedule.id !== result.id
+      })])
       setNotice(request.action === 'run' ? 'Run queued for planning.' : request.action === 'list' ? 'Schedules refreshed.' : 'Schedule saved.')
       return true
     } catch (failure) {
@@ -78,6 +89,7 @@ export function TaskScheduler({ inline = false }: { inline?: boolean }) {
     } finally { lock.current = false; setBusy(false) }
   }
 
+  /** Initialize form state from a schedule or create defaults for a new one. */
   function edit(schedule: Schedule | 'new') {
     setEditing(schedule)
     setError('')
@@ -102,9 +114,11 @@ export function TaskScheduler({ inline = false }: { inline?: boolean }) {
     setTime(trigger && 'time' in trigger ? trigger.time : '09:00')
     setTimezone(trigger && 'timezone' in trigger ? trigger.timezone : localZone)
     setDays(trigger?.type === 'weekly' ? trigger.days : [1, 2, 3, 4, 5])
+    // Move focus into the form after React mounts its fields.
     requestAnimationFrame(() => document.getElementById(`${formId}-title`)?.focus())
   }
 
+  /** Validate form values and create or edit the selected schedule. */
   async function save() {
     if (!editing || busy) return
     try {
@@ -128,7 +142,11 @@ export function TaskScheduler({ inline = false }: { inline?: boolean }) {
   }
 
   if (!open) return null
-  const form = editing && <form className="ts-form" onSubmit={(event) => { event.preventDefault(); void save() }}>
+  const form = editing && <form className="ts-form" onSubmit={(event) => {
+    // Keep form submission local and delegate validation/persistence to save().
+    event.preventDefault()
+    void save()
+  }}>
     <div className="ts-form-head"><h3>{editing === 'new' ? 'New scheduled task' : 'Edit schedule'}</h3><button type="button" title="Cancel editing" aria-label="Cancel editing" disabled={busy} onClick={() => setEditing(null)}><X size={16} /> Cancel</button></div>
     <fieldset disabled={!online || busy}>
       <label htmlFor={`${formId}-title`}>Title<input id={`${formId}-title`} required maxLength={200} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
@@ -196,5 +214,6 @@ export function TaskScheduler({ inline = false }: { inline?: boolean }) {
       </div>
     </section>
   )
+  // Inline theme docking owns its container; modal mode adds a closing scrim.
   return inline ? content : <div className="command-scrim" onClick={close}>{content}</div>
 }

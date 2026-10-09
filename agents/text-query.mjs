@@ -7,14 +7,22 @@ import { listEndpoints } from '../bridge/endpoints.mjs'
 import { fetchText } from '../bridge/net.mjs'
 import { expandHome } from './policy.mjs'
 
+/** Return configured schedule models, including declared local OpenAI endpoints. */
 export function scheduleModels(env = process.env) {
   const models = providerModels(env)
-  const local = [...new Set(listEndpoints(env).filter((endpoint) => endpoint.kind === 'openai').map((endpoint) => endpoint.model))]
+  const local = [...new Set(listEndpoints(env).filter((endpoint) => {
+    // Only OpenAI-compatible endpoints are local schedule models.
+    return endpoint.kind === 'openai'
+  }).map((endpoint) => {
+    // Expose the endpoint's configured model name in the selector.
+    return endpoint.model
+  }))]
   delete models.local
   if (local.length) models.local = local
   return models
 }
 
+/** Build one OpenAI-compatible function schema with closed additional fields. */
 const definition = (name, description, properties, required) => ({
   type: 'function', function: { name, description, parameters: { type: 'object', properties, required, additionalProperties: false } },
 })
@@ -27,6 +35,7 @@ const nativeTools = [
   definition('WebFetch', 'Fetch a public HTTP(S) page as text.', { url: string }, ['url']),
 ]
 
+/** Execute one approved local file, shell, or web-fetch tool call. */
 async function nativeCall(name, args, options) {
   const path = args.file_path && resolve(options.cwd, expandHome(args.file_path))
   if (name === 'Read') return (await readFile(path, 'utf8')).slice(0, 100000)
@@ -42,10 +51,12 @@ async function nativeCall(name, args, options) {
     return 'Edited.'
   }
   if (name === 'Bash') return new Promise((accept, reject) => {
+    // Preserve command output and cancellation/timeout errors for the caller.
     execFile('/bin/bash', ['-c', args.command], {
       cwd: options.cwd, env: options.env, signal: options.abortController?.signal,
       timeout: 120000, maxBuffer: 1024 * 1024,
     }, (error, stdout, stderr) => {
+      // Resolve ordinary exits as text; propagate explicit aborts as failures.
       if (options.abortController?.signal.aborted) reject(error)
       else accept(`${stdout}${stderr}${error ? `\nCommand failed: ${error.message}` : ''}`)
     })
@@ -59,7 +70,9 @@ async function nativeCall(name, args, options) {
   throw new Error('Unknown tool.')
 }
 
+/** Adapt a scheduled non-Claude model to the worker's SDK query interface. */
 export function textQuery(execution, { env = process.env, endpoint = null, streamFactory = textProvider, makeBroker = createToolBroker } = {}) {
+  /** Yield one normalized result after running provider rounds and broker tools. */
   return async function* query({ prompt, options }) {
     const models = scheduleModels(env)
     if (!models[execution.provider]?.includes(execution.model)) {
@@ -69,17 +82,25 @@ export function textQuery(execution, { env = process.env, endpoint = null, strea
     const local = {}
     const external = {}
     for (const [name, server] of Object.entries(options.mcpServers ?? {})) {
+      // Split in-process SDK servers from external provider-configured servers.
       if (server.instance) local[name] = server
       else external[name] = { ...server, env: { ...options.env, ...(server.env ?? {}) } }
     }
     const broker = await makeBroker({ local, external, env: options.env })
     const tools = [...(options.cwd ? nativeTools : []), ...broker.tools()]
-      .filter((entry) => !options.disallowedTools?.includes(entry.function.name))
-    const allowed = new Set(tools.map((entry) => entry.function.name))
+      .filter((entry) => {
+        // Omit worker tools forbidden for this task kind before model selection.
+        return !options.disallowedTools?.includes(entry.function.name)
+      })
+    const allowed = new Set(tools.map((entry) => {
+      // Use the exact exposed names as the runtime call allowlist.
+      return entry.function.name
+    }))
     let reported = false
     let toolCalls = 0
     try {
       const provider = execution.provider === 'local'
+        // Resolve a local selection to its concrete configured endpoint.
         ? endpoint ?? listEndpoints(env).find((entry) => entry.kind === 'openai' && entry.model === execution.model)
         : execution.provider
       options.abortController?.signal.throwIfAborted()
@@ -87,11 +108,13 @@ export function textQuery(execution, { env = process.env, endpoint = null, strea
         { role: 'system', content: options.systemPrompt }, { role: 'user', content: prompt },
       ], options.abortController?.signal, () => {}, {
         tools, maxRounds: options.maxTurns, shouldStop: () => reported,
+        // Apply cancellation, task hooks, and broker/native execution per call.
         callTool: async (name, args) => {
           options.abortController?.signal.throwIfAborted()
           if (!allowed.has(name)) return 'Blocked: unknown or disallowed tool.'
           if (args.file_path && options.cwd) args = { ...args, file_path: resolve(options.cwd, expandHome(args.file_path)) }
           const input = { tool_name: name, tool_input: args }
+          // Run the worker's policy hooks before any tool can make side effects.
           for (const entry of options.hooks?.PreToolUse ?? []) {
             for (const hook of entry.hooks) {
               const result = await hook(input)
@@ -108,6 +131,7 @@ export function textQuery(execution, { env = process.env, endpoint = null, strea
             if (options.abortController?.signal.aborted) throw error
             return `Tool error: ${error.message}`
           }
+          // Let observers inspect completed tool results, such as checkout pages.
           for (const entry of options.hooks?.PostToolUse ?? []) {
             for (const hook of entry.hooks) await hook({ ...input, tool_response: result })
           }

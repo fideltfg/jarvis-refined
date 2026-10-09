@@ -70,10 +70,12 @@ const fragment = /* glsl */ `
   }
 `
 
+/** Render and animate the reactor's audio-responsive particle shell. */
 export function Particles({ drive }: { drive: Drive }) {
   const mat = useRef<THREE.ShaderMaterial>(null)
   const pts = useRef<THREE.Points>(null)
 
+  // Build fixed particle geometry once; frame updates change only shader uniforms.
   const { positions, seeds, radii } = useMemo(() => {
     const positions = new Float32Array(COUNT * 3)
     const seeds = new Float32Array(COUNT)
@@ -104,6 +106,7 @@ export function Particles({ drive }: { drive: Drive }) {
     [],
   )
 
+  // Update shell visibility, loudness response, time, and color every frame.
   useFrame((state, dt) => {
     if (!mat.current || !pts.current) return
     const u = mat.current.uniforms

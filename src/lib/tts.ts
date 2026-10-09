@@ -193,6 +193,7 @@ const VOICE_PREF_KEY = IS_COMPUTER ? `jarvis.voice.${THEME}` : 'jarvis.voice'
  * The ship's computer: a calm American female. Samantha on macOS, the Google
  * US voice in Chrome, Zira/Aria/Jenny on Windows.
  */
+/** Score English voices against the calm American computer character. */
 function scoreComputer(v: SpeechSynthesisVoice): number {
   const n = v.name.toLowerCase()
   let s = 0
@@ -212,6 +213,7 @@ function scoreComputer(v: SpeechSynthesisVoice): number {
   return s
 }
 
+/** Rank one installed voice for the active theme's spoken character. */
 function score(v: SpeechSynthesisVoice): number {
   if (IS_COMPUTER) return scoreComputer(v)
   const n = v.name.toLowerCase()
@@ -261,6 +263,7 @@ export function candidateVoices(): SpeechSynthesisVoice[] {
 
 let cachedVoice: SpeechSynthesisVoice | null | undefined
 
+/** Resolve the saved voice choice or cache the highest-ranked installed voice. */
 function pickVoice(): SpeechSynthesisVoice | null {
   if (cachedVoice !== undefined) return cachedVoice
   const all = speechSynthesis.getVoices()
@@ -309,6 +312,7 @@ export function cycleVoice(): string {
 // Voices load asynchronously in Chrome; the first call usually returns nothing.
 if (typeof speechSynthesis !== 'undefined') {
   speechSynthesis.addEventListener('voiceschanged', () => {
+    // Re-evaluate after the browser asynchronously loads its voice list.
     cachedVoice = undefined
     pickVoice()
   })
@@ -329,6 +333,7 @@ if (typeof speechSynthesis !== 'undefined') {
  */
 let outCtx: AudioContext | null = null
 
+/** Reuse one audio context for playback analysis, recovering from suspension. */
 function outputContext(): AudioContext | null {
   try {
     if (!outCtx) outCtx = new AudioContext()
@@ -349,6 +354,7 @@ function outputContext(): AudioContext | null {
  * vocative "sir" is always set off by a comma buys the small beat before it
  * that does most of the characterisation.
  */
+/** Remove spoken-hostile markup and normalize punctuation for speech output. */
 function shape(text: string): string {
   return (
     text
@@ -389,6 +395,7 @@ type Item = {
  */
 const DUCK_VOLUME = 0.12
 
+/** Create a cancellable sentence queue backed by system, neural, or cloud speech. */
 export function createSpeaker(): Speaker {
   const queue: Item[] = []
   let buffer = ''
@@ -403,12 +410,14 @@ export function createSpeaker(): Speaker {
   let drained: Array<() => void> = []
   let ducked = false
 
+  /** Resolve all end() callers waiting for the current queue to drain. */
   const settleDrained = () => {
     const waiting = drained
     drained = []
     for (const r of waiting) r()
   }
 
+  /** Normalize and queue one sentence, placing priority speech at the front. */
   const enqueue = (sentence: string, priority = false) => {
     if (cancelled) return
     // Shape once here so both engines get the same text — stripped markdown,
@@ -438,6 +447,7 @@ export function createSpeaker(): Speaker {
   }
 
   /** null means "no audio pipeline, use the system voice directly". */
+  /** Select and start audio generation on the configured engine. */
   function synthesise(text: string): Promise<string | null> | null {
     // An explicit cloud flag wins. Otherwise an explicitly selected local
     // neural engine stays local even when the bridge happens to expose TTS.
@@ -464,10 +474,12 @@ export function createSpeaker(): Speaker {
   }
 
   /** Start generating an item's audio if it hasn't begun. */
+  /** Begin generating an item lazily, maintaining one sentence of lookahead. */
   const prime = (item: Item | undefined) => {
     if (item && item.audio === undefined) item.audio = synthesise(item.text)
   }
 
+  /** Drain queued sentences serially and settle waiting callers when finished. */
   async function pump(): Promise<void> {
     if (pumping) return
     pumping = true
@@ -491,6 +503,7 @@ export function createSpeaker(): Speaker {
     }
   }
 
+  /** Speak one sentence, falling through generated, system, then rescue audio. */
   async function speakOne(item: Item): Promise<void> {
     if (cancelled) return
     setSpeaking(item.text)
@@ -527,6 +540,7 @@ export function createSpeaker(): Speaker {
     }
   }
 
+  /** Speak with SpeechSynthesis and resolve whether audio actually started. */
   const speakNative = (text: string) =>
     new Promise<boolean>((resolve) => {
       // Chrome's speechSynthesis wedges after cancel().
@@ -559,6 +573,7 @@ export function createSpeaker(): Speaker {
       // synthetic envelope. It only has to look like speech, not match it.
       let raf = 0
       let t = 0
+      /** Update a synthetic amplitude envelope for the speech visualizer. */
       const tick = () => {
         t += 0.08
         outLevel =
@@ -574,6 +589,7 @@ export function createSpeaker(): Speaker {
       let watchdog: ReturnType<typeof setTimeout> | null = null
       let keepalive: ReturnType<typeof setInterval> | null = null
 
+      /** Stop timers/animation and settle the native utterance exactly once. */
       const finish = () => {
         if (done) return
         done = true
@@ -588,6 +604,7 @@ export function createSpeaker(): Speaker {
         resolve(started)
       }
 
+      // Record that the native engine produced audible output and start keepalive.
       u.onstart = () => {
         started = true
         diag.started++
@@ -606,11 +623,13 @@ export function createSpeaker(): Speaker {
           speechSynthesis.resume()
         }, 5000)
       }
+      // Treat normal completion as the terminal native-utterance event.
       u.onend = finish
       // Swallowing this was a mistake. When the OS voice fails there is no
       // other signal at all — no exception, no silence you can detect from
       // code — so an unlogged onerror turns a broken voice into an unexplained
       // quiet app, which is exactly the bug that took three attempts to find.
+      // Distinguish real synthesis failures from deliberate barge-in cancellation.
       u.onerror = (e) => {
         const code = String((e as SpeechSynthesisErrorEvent).error ?? 'unknown')
         diag.lastError = code
@@ -627,6 +646,7 @@ export function createSpeaker(): Speaker {
       // nothing else will ever tell us — no error fires. Un-wedge and try once
       // more; if that also goes nowhere, resolve rather than hang, because a
       // silent sentence is recoverable and a stuck queue is not.
+      // Recover once if the engine accepts an utterance but never starts it.
       watchdog = setTimeout(() => {
         if (done || started) return
         console.warn('[jarvis] speech did not start — un-wedging the engine')
@@ -653,6 +673,7 @@ export function createSpeaker(): Speaker {
       speechSynthesis.speak(u)
     })
 
+  /** Play generated audio, feed the output visualizer, and always release its URL. */
   const playUrl = (url: string, text: string) =>
     new Promise<void>((resolve) => {
       const audio = new Audio(url)
@@ -713,6 +734,7 @@ export function createSpeaker(): Speaker {
           }
           analyser.connect(ctx.destination)
           const bins = new Uint8Array(analyser.frequencyBinCount)
+          // Convert analyser bins to a bounded loudness value for the reactor.
           read = () => {
             analyser.getByteFrequencyData(bins as Uint8Array<ArrayBuffer>)
             let sum = 0
@@ -725,6 +747,7 @@ export function createSpeaker(): Speaker {
       }
 
       let raf = 0
+      /** Sample the output analyser while this sentence is playing. */
       const tick = () => {
         outLevel = read ? read() : 0.4
         raf = requestAnimationFrame(tick)
@@ -732,6 +755,7 @@ export function createSpeaker(): Speaker {
       tick()
 
       let done = false
+      /** Stop visualization and release the audio URL after any terminal event. */
       const finish = () => {
         if (done) return
         done = true
@@ -744,11 +768,14 @@ export function createSpeaker(): Speaker {
       // Sound is genuinely coming out. This is the cloud/neural counterpart of
       // SpeechSynthesisUtterance.onstart, and it is what makes the diagnostics
       // verdict — and the T self-test — tell the truth on the premium path.
+      // Count only audio that the browser confirms has started playing.
       audio.onplaying = () => {
         diag.started++
         diag.lastError = ''
       }
+      // Resolve the playback promise after normal audio completion.
       audio.onended = finish
+      // Record decode/network failures and let the queue continue.
       audio.onerror = () => {
         // A decode or network failure on a blob we already hold is rare, but
         // silent when it happens: the sentence simply never plays and the queue
@@ -760,7 +787,9 @@ export function createSpeaker(): Speaker {
       // The one that matters for barge-in: cancel() pauses the element, and a
       // paused element never fires `ended`. Without this the promise never
       // settles and every await behind it hangs for the life of the page.
+      // A cancelled audio element may not emit ended, so pause must settle too.
       audio.onpause = finish
+      // Handle autoplay or device errors without wedging the sentence queue.
       void audio.play().catch((err) => {
         diag.failures++
         diag.lastError = String((err as Error)?.name ?? 'play-rejected')
@@ -769,9 +798,11 @@ export function createSpeaker(): Speaker {
     })
 
   return {
+    /** Speak a short priority phrase before queued streamed sentences. */
     say(text) {
       enqueue(text, true)
     },
+    /** Add streamed model text and enqueue each complete sentence immediately. */
     push(delta) {
       if (cancelled) return
       buffer += delta
@@ -808,6 +839,7 @@ export function createSpeaker(): Speaker {
         }
       }
     },
+    /** Flush buffered text and resolve after every queued sentence settles. */
     async end() {
       if (buffer.trim()) {
         enqueue(buffer)
@@ -817,6 +849,7 @@ export function createSpeaker(): Speaker {
       if (!pumping && !queue.length) return
       await new Promise<void>((resolve) => drained.push(resolve))
     },
+    /** Cancel this speaker's queue and audio, settling all outstanding end calls. */
     cancel() {
       if (cancelled) return
       cancelled = true
@@ -844,6 +877,7 @@ export function createSpeaker(): Speaker {
       ducked = false
       settleDrained()
     },
+    /** Lower generated playback during provisional barge-in without dropping text. */
     duck(on) {
       if (cancelled || ducked === on) return
       ducked = on
@@ -869,6 +903,7 @@ export function createSpeaker(): Speaker {
       // what the room can hear.
       if (on) outLevel = Math.min(outLevel, 0.1)
     },
+    /** Return the current normalized playback level for visualization. */
     level: () => outLevel,
   }
 }
